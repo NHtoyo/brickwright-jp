@@ -6,6 +6,13 @@ import path from 'path';
 import bindAll from 'lodash.bindall';
 import 'chromedriver'; // register path
 import webdriver from 'selenium-webdriver';
+import chrome from 'selenium-webdriver/chrome';
+
+if (process.env.CHROMEDRIVER_PATH) {
+    chrome.setDefaultService(
+        new chrome.ServiceBuilder(process.env.CHROMEDRIVER_PATH).build()
+    );
+}
 
 const {Button, By, until} = webdriver;
 
@@ -245,7 +252,16 @@ class SeleniumHelper {
         // This is especially important on Windows, where Selenium directs JS console messages to stdout
         args.push('--autoplay-policy=no-user-gesture-required');
 
-        chromeCapabilities.set('chromeOptions', {args});
+        const chromeOptions = {args};
+        if (process.env.SELENIUM_DOWNLOAD_DIR) {
+            chromeOptions.prefs = {
+                download: {
+                    default_directory: process.env.SELENIUM_DOWNLOAD_DIR,
+                    prompt_for_download: false
+                }
+            };
+        }
+        chromeCapabilities.set('chromeOptions', chromeOptions);
         chromeCapabilities.setLoggingPrefs({
             performance: 'ALL'
         });
