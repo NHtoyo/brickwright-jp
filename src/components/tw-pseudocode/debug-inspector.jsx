@@ -68,6 +68,17 @@ const L10N = {
         activeLow: 'aktiv niedrig: der Pin schreibt 0 zum Einschalten',
         analog: 'Analogeingang', input: 'Eingang', output: 'Ausgang',
         nothing: 'Programm starten, um hier Werte zu sehen.'
+    },
+    ja: {
+        vars: '変数', pins: 'ピン', timeline: '実行履歴',
+        noVars: 'このプロジェクトには、まだ変数がありません。',
+        noPins: 'ピンは宣言されていません。',
+        was: '変更前', on: 'オン', off: 'オフ', live: '現在', past: '過去の記録を表示中',
+        now: '現在', stops: '回停止しました', scrubHint:
+            'つまみをドラッグすると、記録した停止位置をさかのぼって確認できます。プログラム自体は巻き戻りません。表示されるのは当時の記録です。',
+        activeLow: 'アクティブLOW: 0を出力するとオンになります',
+        analog: 'アナログ入力', input: '入力', output: '出力',
+        nothing: 'プログラムを実行すると、ここに値が表示されます。'
     }
 };
 

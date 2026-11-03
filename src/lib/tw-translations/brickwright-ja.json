@@ -1,0 +1,16 @@
+{
+    "gui.gui.blocksTab": "ブロック",
+    "gui.gui.pseudocodeTab": "コード",
+    "gui.gui.circuitTab": "回路",
+    "gui.extensionLibrary.chooseAnExtension": "拡張機能を選ぶ",
+    "gui.extensionLibrary.source": "拡張機能の読み込み元",
+    "gui.extensionLibrary.source.original": "CrispStrobe公式",
+    "gui.extensionLibrary.source.nhtoyo": "NHtoyo開発版 (localhost:8000)",
+    "gui.extensionLibrary.source.localExtensionMarker": "{name} · NHtoyo開発版",
+    "gui.extensionLibrary.source.buildId": "開発ビルド: {buildId}",
+    "gui.extensionLibrary.source.loaded": "読み込み済みの実装: {implementations}",
+    "gui.extensionLibrary.source.noneLoaded": "なし",
+    "gui.extensionLibrary.source.conflict": "「{extensionId}」はすでに{loaded}から読み込み済みです。選択中の実装は{requested}です。切り替えるにはエディターを再読み込みしてください。",
+    "gui.extensionLibrary.source.conflictUnknown": "「{extensionId}」はすでに読み込み済みですが、読み込み元を特定できません。{requested}を選ぶ前にエディターを再読み込みしてください。",
+    "tw.menuBar.addons": "アドオン"
+}
