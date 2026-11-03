@@ -134,7 +134,7 @@ SPIKE3 parser の初期角度は pitch/roll/yaw のすべて 0 で、正常な I
 
 ### Git 同期
 
-- `upstream/develop` を定期 fetch し、導入元の Git 履歴を保ったまま、独自変更が衝突しない更新を `main` に fast-forward する。
+- `upstream/develop` を定期 fetch する。独自変更がなく fast-forward 可能な場合は、その履歴を保って更新できる。独自版の履歴が分岐している場合は `sync/upstream-*` などの更新ブランチで `upstream/develop` を取り込み、競合を解決して回帰テストを実行した後、PRを通じて `main` に反映する。常に fast-forward 可能とはみなさない。
 - 独自作業は `work/*` などの短命 branch で行い、upstream からの更新を先に `main` に入れてから作業 branch に取り込む。履歴を squash して導入元の ancestry を切らない。
 - vendored `sb3-creator`、画像/ランタイム資産、拡張ギャラリーは別同期元・別手順として記録し、Git upstream fetch だけで更新済みと扱わない。
 - fork で release を始める前に、workflow の `develop` branch 条件を `main`/release branch に合わせ、NHtoyo の Pages/Vercel/domain へ向ける。
