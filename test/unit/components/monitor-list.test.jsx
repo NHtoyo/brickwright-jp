@@ -1,5 +1,4 @@
 import React from 'react';
-import {OrderedMap} from 'immutable';
 import configureStore from 'redux-mock-store';
 import {Provider} from 'react-redux';
 import {mountWithIntl} from '../../helpers/intl-helpers.jsx';
@@ -34,7 +33,7 @@ describe('MonitorListComponent', () => {
         heightDefault: 100
     };
 
-    let monitors = OrderedMap({});
+    let monitors = {valueSeq: () => []};
 
     // Wrap this in a function so it gets test specific states and can be reused.
     const getComponent = function () {
@@ -51,26 +50,24 @@ describe('MonitorListComponent', () => {
     };
 
     test('it renders the correct step size for discrete sliders', () => {
-        monitors = OrderedMap({
-            id1: {
-                visible: true,
-                mode: 'slider',
-                isDiscrete: true
-            }
-        });
+        monitors = {valueSeq: () => [{
+            id: 'id1',
+            visible: true,
+            mode: 'slider',
+            isDiscrete: true
+        }]};
         const wrapper = mountWithIntl(getComponent());
         const input = wrapper.find('input');
         expect(input.props().step).toBe(1);
     });
 
     test('it renders the correct step size for non-discrete sliders', () => {
-        monitors = OrderedMap({
-            id1: {
-                visible: true,
-                mode: 'slider',
-                isDiscrete: false
-            }
-        });
+        monitors = {valueSeq: () => [{
+            id: 'id1',
+            visible: true,
+            mode: 'slider',
+            isDiscrete: false
+        }]};
         const wrapper = mountWithIntl(getComponent());
         const input = wrapper.find('input');
         expect(input.props().step).toBe(0.01);

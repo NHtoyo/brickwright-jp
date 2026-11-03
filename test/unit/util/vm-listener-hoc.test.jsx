@@ -16,6 +16,7 @@ describe('VMListenerHOC', () => {
             scratchGui: {
                 mode: {},
                 modals: {},
+                editorTab: {activeTabIndex: 0},
                 vm: vm,
                 tw: {hasCloudVariables: false}
             }
@@ -77,6 +78,7 @@ describe('VMListenerHOC', () => {
             scratchGui: {
                 mode: {},
                 modals: {soundRecorder: true},
+                editorTab: {activeTabIndex: 0},
                 vm: vm,
                 tw: {hasCloudVariables: false}
             }
@@ -101,6 +103,7 @@ describe('VMListenerHOC', () => {
             scratchGui: {
                 mode: {},
                 modals: {soundRecorder: true},
+                editorTab: {activeTabIndex: 0},
                 vm: vm,
                 tw: {hasCloudVariables: false}
             }
@@ -123,6 +126,7 @@ describe('VMListenerHOC', () => {
             scratchGui: {
                 mode: {isFullScreen: true},
                 modals: {soundRecorder: true},
+                editorTab: {activeTabIndex: 0},
                 vm: vm,
                 tw: {hasCloudVariables: false}
             }
@@ -155,6 +159,7 @@ describe('VMListenerHOC', () => {
             scratchGui: {
                 mode: {isFullScreen: true},
                 modals: {soundRecorder: true},
+                editorTab: {activeTabIndex: 0},
                 vm: vm,
                 tw: {hasCloudVariables: false}
             }

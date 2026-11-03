@@ -2,6 +2,8 @@ import React from 'react';
 import {mountWithIntl, componentWithIntl} from '../../helpers/intl-helpers.jsx';
 import SoundEditor from '../../../src/components/sound-editor/sound-editor';
 
+jest.mock('../../../src/lib/tw-recolor/render.jsx', () => 'img');
+
 describe('Sound Editor Component', () => {
     let props;
     beforeEach(() => {

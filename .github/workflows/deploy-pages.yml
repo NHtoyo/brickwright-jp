@@ -34,15 +34,12 @@ jobs:
 
       - uses: actions/setup-node@v4
         with:
-          node-version: 22
+          node-version-file: .nvmrc
           cache: npm
 
       # See node.js.yml for why these flags/stubs are needed.
       - name: Install
-        run: npm install --ignore-scripts --include=dev --legacy-peer-deps --no-audit --no-fund
-
-      - name: Install ESLint parser missing from package.json
-        run: npm install --no-save --legacy-peer-deps --no-audit --no-fund @babel/eslint-parser
+        run: npm ci --ignore-scripts --include=dev --no-audit --no-fund
 
       - name: Stub micro:bit firmware URL
         run: |
