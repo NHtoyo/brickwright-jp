@@ -38,6 +38,13 @@
     flex-grow: 0;
 }
 
+.filter-bar-content {
+    display: flex;
+    align-items: center;
+    min-width: 0;
+    margin-left: auto;
+}
+
 .filter-input {
     width: 11.5rem;
     transition: .2s;

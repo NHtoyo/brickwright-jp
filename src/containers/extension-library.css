@@ -1,0 +1,21 @@
+.extension-gallery-source {
+    display: grid;
+    grid-template-columns: auto auto;
+    align-items: center;
+    gap: 0.2rem 0.5rem;
+    max-width: 22rem;
+    margin-left: 0.75rem;
+    font-size: 0.75rem;
+}
+
+.extension-gallery-source select {
+    max-width: 16rem;
+}
+
+.extension-gallery-build-id,
+.extension-gallery-loaded {
+    grid-column: 1 / -1;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
