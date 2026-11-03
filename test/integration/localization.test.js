@@ -157,6 +157,18 @@ describe('Localization', () => {
         await clickText('コード');
         await findByText('サンプルを読み込む');
         await findByText('ブロックへ');
+        const japaneseCodeBounds = await driver.executeScript(() => {
+            const editor = document.querySelector('textarea');
+            const panel = editor?.closest('[role="tabpanel"]');
+            const rect = panel?.getBoundingClientRect();
+            return {
+                viewport: window.innerWidth,
+                panelWidth: rect?.width || 0,
+                panelRight: rect?.right || 0
+            };
+        });
+        expect(japaneseCodeBounds.panelWidth).toBeGreaterThan(0);
+        expect(japaneseCodeBounds.panelRight).toBeLessThanOrEqual(japaneseCodeBounds.viewport + 1);
 
         await clickXpath(SETTINGS_MENU_XPATH_JA);
         await clickText('言語', scope.menuBar);
@@ -169,6 +181,18 @@ describe('Localization', () => {
         await clickText('Code');
         await findByText('Load example');
         await findByText('To blocks');
+        const englishCodeBounds = await driver.executeScript(() => {
+            const editor = document.querySelector('textarea');
+            const panel = editor?.closest('[role="tabpanel"]');
+            const rect = panel?.getBoundingClientRect();
+            return {
+                viewport: window.innerWidth,
+                panelWidth: rect?.width || 0,
+                panelRight: rect?.right || 0
+            };
+        });
+        expect(englishCodeBounds.panelWidth).toBeGreaterThan(0);
+        expect(englishCodeBounds.panelRight).toBeLessThanOrEqual(englishCodeBounds.viewport + 1);
 
         // A saved English choice survives a reload and takes precedence over
         // the original URL's locale parameter.
