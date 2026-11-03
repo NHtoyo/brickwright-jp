@@ -3,6 +3,7 @@ import PropTypes from 'prop-types';
 import {connect} from 'react-redux';
 import examples from '../../lib/sb3-creator-examples.js';
 import brickRobot from './brick-robot.svg';
+import {translate} from '../../lib/brickwright-translations/ui.js';
 
 /**
  * "Pseudocode" editor tab: the full SB3 Creator tool inside the editor.
@@ -15,26 +16,26 @@ import brickRobot from './brick-robot.svg';
 
 // Grouped catalogue of built-in examples (mirrors the standalone app).
 const GROUPS = [
-    {label: 'Games', items: [
+    {labelKey: 'groupGames', items: [
         ['snake', '🐍 Snake'], ['snake_pro', '🐍 Snake (growing tail)'], ['breakout', '🧱 Breakout'],
         ['pong_2p', '🏓 Pong (2 players)'], ['pong_ai', '🤖 Pong (vs AI)'], ['tetris', '🟦 Tetris'],
         ['sokoban', '📦 Sokoban'], ['bomberman', '💣 Bomberman'], ['invaders', '👾 Space Invaders'],
         ['flappy', '🐤 Flappy'], ['tictactoe', '⭕ Tic-Tac-Toe (2 players)'], ['tictactoe_ai', '⭕ Tic-Tac-Toe (vs AI)'],
         ['g2048', '🔢 2048'], ['maze', '👻 Maze Chase'], ['connect4', '🔴 Connect Four (vs AI)'], ['minesweeper', '💥 Minesweeper']
     ]},
-    {label: 'Demos', items: [
+    {labelKey: 'groupDemos', items: [
         ['game', '🎯 Complete Game'], ['art', '🎨 Digital Art'], ['physics', '⚡ Physics Demo'],
         ['animation', '🎞️ Animation & Sound'], ['educational', '📚 Educational Tool']
     ]},
-    {label: 'Language basics', items: [
+    {labelKey: 'groupLanguageBasics', items: [
         ['motion', 'Motion'], ['looks', 'Looks'], ['sound', 'Sound'], ['pen', 'Pen'],
         ['sensing', 'Sensing'], ['control', 'Control'], ['operators', 'Operators']
     ]},
-    {label: 'Extensions', items: [
+    {labelKey: 'groupExtensions', items: [
         ['planetemaths', '🧮 Planète Maths'], ['arrays', '📐 Arrays & Vectors']
     ]},
     // The examples for the C target; everything above is a Scratch program.
-    {label: 'Hardware (STC12 / 8051)', items: [
+    {labelKey: 'groupHardware', items: [
         ['stc_blink', '💡 Blink two LEDs'], ['stc_button', '🔘 Button'],
         ['stc_potentiometer', '🎛️ Potentiometer (ADC)'],
         ['stc_two_scripts', '⏱️ Two scripts at once'], ['stc_pwm_fade', '🌗 PWM fade']
@@ -70,7 +71,32 @@ const SYNTAX = [
         'distance to mouse-pointer', 'set drag mode draggable', 'play note 60 for 0.5 beats, set tempo to 120']]
 ];
 
-const LANG_LABEL = {pseudocode: 'Pseudocode', python: 'Python', javascript: 'JavaScript', c: 'C'};
+const EXAMPLE_LABEL_KEYS = {
+    snake: 'exampleSnake', snake_pro: 'exampleSnakePro', breakout: 'exampleBreakout',
+    pong_2p: 'examplePong2p', pong_ai: 'examplePongAi', tetris: 'exampleTetris',
+    sokoban: 'exampleSokoban', bomberman: 'exampleBomberman', invaders: 'exampleInvaders',
+    flappy: 'exampleFlappy', tictactoe: 'exampleTicTacToe', tictactoe_ai: 'exampleTicTacToeAi',
+    g2048: 'example2048', maze: 'exampleMaze', connect4: 'exampleConnect4', minesweeper: 'exampleMinesweeper',
+    game: 'exampleGame', art: 'exampleArt', physics: 'examplePhysics', animation: 'exampleAnimation',
+    educational: 'exampleEducation', motion: 'exampleMotion', looks: 'exampleLooks', sound: 'exampleSound',
+    pen: 'examplePen', sensing: 'exampleSensing', control: 'exampleControl', operators: 'exampleOperators',
+    planetemaths: 'examplePlanetemaths', arrays: 'exampleArrays', stc_blink: 'exampleBlink',
+    stc_button: 'exampleButton', stc_potentiometer: 'examplePotentiometer',
+    stc_two_scripts: 'exampleTwoScripts', stc_pwm_fade: 'examplePwmFade'
+};
+
+const LANGUAGE_LABEL_KEYS = {
+    pseudocode: 'languagePseudocode', python: 'languagePython', javascript: 'languageJavaScript', c: 'languageC'
+};
+
+const HEADING_KEYS = {
+    Structure: 'headingStructure', 'Events (hats)': 'headingEvents', Control: 'headingControl',
+    'Clones & broadcasts': 'headingClones', 'Motion & Looks': 'headingMotionLooks', 'Data & lists': 'headingData',
+    Expressions: 'headingExpressions', Conditions: 'headingConditions', 'Custom blocks': 'headingCustomBlocks',
+    'Planète Maths (extension)': 'headingPlanetMaths', 'Arrays & Vectors (extension)': 'headingArrays',
+    'Sensing & more': 'headingSensing', Statements: 'headingStatements',
+    'Declare (pseudocode tab)': 'headingDeclare', Pins: 'headingPins', Notes: 'headingNotes'
+};
 
 // Languages you can compile back INTO blocks. C joined them once cToPseudocode landed:
 // it reads both our own emitted C (which carries an `@bw` marker header, so the round-trip
@@ -262,6 +288,11 @@ class PseudocodeImporter extends React.Component {
     activeCode () { return this.state.buffers[this.state.lang]; }
     setActiveCode (text) { this.setState(s => ({buffers: {pseudocode: '', python: '', javascript: '', c: '', [s.lang]: text}})); }
 
+    tx (key, values = {}) { return translate(this.props.locale, key, values); }
+    langLabel (language) { return this.tx(LANGUAGE_LABEL_KEYS[language]); }
+    headingLabel (heading) { return this.tx(HEADING_KEYS[heading] || heading); }
+    exampleLabel (key, fallback) { return this.tx(EXAMPLE_LABEL_KEYS[key] || key) || fallback; }
+
     // Lazily import the compiler module.
     async lib () { return (await import(/* webpackChunkName: "sb3-creator" */ '../../lib/sb3-creator.js')); }
 
@@ -308,9 +339,9 @@ class PseudocodeImporter extends React.Component {
         const existing = this.state.buffers[to];
         const src = this.state.buffers[from];
         if ((existing && existing.trim()) || !src || !src.trim()) { this.setState({lang: to, output: null, status: ''}); return; }
-        this.setState({busy: true, status: `Converting to ${to}…`});
+        this.setState({busy: true, status: {key: 'convertingTo', values: {language: this.langLabel(to)}}});
         this.deriveBuffer(src, from, to).then(({code, error}) => {
-            if (error) { this.setState({busy: false, status: `Can't show as ${to}: ${error}`}); return; }
+            if (error) { this.setState({busy: false, status: {key: 'cannotShowAs', values: {language: this.langLabel(to), error}}}); return; }
             this.setState(s => ({lang: to, busy: false, output: null, status: '', buffers: {...s.buffers, [to]: code}}));
         });
     }
@@ -325,9 +356,9 @@ class PseudocodeImporter extends React.Component {
         this.setState(patch, () => {
             const src = this.state.buffers.pseudocode;
             if (this.state.lang === 'pseudocode' || !src || !src.trim()) return;
-            this.setState({busy: true, status: 'Regenerating…'});
+            this.setState({busy: true, status: {key: 'regenerating', values: {}}});
             this.deriveBuffer(src, 'pseudocode', this.state.lang).then(({code, error}) => {
-                if (error) { this.setState({busy: false, status: error}); return; }
+                if (error) { this.setState({busy: false, status: {key: 'errorPrefix', values: {error}}}); return; }
                 this.setState(s => ({busy: false, status: '', output: null, buffers: {...s.buffers, [s.lang]: code}}));
             });
         });
@@ -353,7 +384,7 @@ class PseudocodeImporter extends React.Component {
         const {core, stdlib} = await this.skulptSource();
         const inject = (src) => { const s = document.createElement('script'); s.text = src; document.head.appendChild(s); };
         inject(core); inject(stdlib);
-        if (!window.Sk || !window.Sk.configure) throw new Error('Skulpt failed to load');
+        if (!window.Sk || !window.Sk.configure) throw new Error(this.tx('skulptFailed'));
         return window.Sk;
     }
 
@@ -389,7 +420,7 @@ class PseudocodeImporter extends React.Component {
                 else if (d.type === 'done') done({});
                 else if (d.type === 'error') done({error: d.text});
             };
-            worker.onerror = (e) => done({error: (e && e.message) || 'worker error'});
+            worker.onerror = (e) => done({error: (e && e.message) || this.tx('workerError')});
             worker.postMessage({code});
         });
     }
@@ -424,7 +455,7 @@ class PseudocodeImporter extends React.Component {
         this.setState({output: '', running: true, status: ''});
         const TIMEOUT = 4000;
         const finish = (extra) => this.setState({
-            output: (buf.join('').trimEnd() + (extra ? (buf.length ? '\n' : '') + extra : '')).trim() || '(no output)',
+            output: (buf.join('').trimEnd() + (extra ? (buf.length ? '\n' : '') + extra : '')).trim() || this.tx('noOutput'),
             running: false, status: ''
         });
         const forever = lang === 'python' ? /^\s*while\s+True\s*:/m : /while\s*\(\s*true\s*\)/;
@@ -435,25 +466,25 @@ class PseudocodeImporter extends React.Component {
             // A `forever:` game loop is meant for the blocks/green flag, not a text console —
             // catch the obvious case up front with a friendly nudge (the Worker timeout below
             // is only a safety net for non-obvious runaway loops).
-            if (forever.test(code)) throw new Error('This project has a forever (game) loop, so it runs in the blocks — press the green flag to play it. For a text run, try an algorithmic example (quiz, operators, 2048, …).');
+            if (forever.test(code)) throw new Error(this.tx('runForeverHint'));
             if (usesInput || !canWorker) {
-                if (lang === 'python') { this.setState({status: 'Loading Python (Skulpt)…'}); await this.runPyMain(code, buf); } else this.runJsMain(code, buf);
+                if (lang === 'python') { this.setState({status: {key: 'loadingPython', values: {}}}); await this.runPyMain(code, buf); } else this.runJsMain(code, buf);
                 finish();
             } else {
                 let result;
                 if (lang === 'python') {
-                    this.setState({status: 'Loading Python (Skulpt)…'});
+                    this.setState({status: {key: 'loadingPython', values: {}}});
                     const {core, stdlib} = await this.skulptSource();
                     result = await this.runViaWorker(`${core}\n${stdlib}\n${PY_WORKER}`, code, buf, TIMEOUT);
                 } else {
                     result = await this.runViaWorker(JS_WORKER, code, buf, TIMEOUT);
                 }
-                if (result.timeout) finish(`⏱ Stopped after ${TIMEOUT / 1000}s — still running (likely an infinite loop).`);
-                else if (result.error) finish(result.error);
+                if (result.timeout) finish(this.tx('runTimedOut', {seconds: TIMEOUT / 1000}));
+                else if (result.error) finish(this.tx('runtimeError', {error: result.error}));
                 else finish();
             }
         } catch (e) {
-            finish(String(e.message || e));
+            finish(this.tx('runtimeError', {error: String(e.message || e)}));
         }
     }
     loadExample (key) {
@@ -494,10 +525,10 @@ class PseudocodeImporter extends React.Component {
     async compile () {
         const lang = this.state.lang;
         if (!TWO_WAY.has(lang)) {
-            this.setState({status: 'That language cannot be compiled back to blocks.'});
+            this.setState({status: {key: 'cannotCompileLanguage', values: {}}});
             return;
         }
-        this.setState({busy: true, status: 'Compiling…'});
+        this.setState({busy: true, status: {key: 'compiling', values: {}}});
         try {
             let source = this.activeCode();
             let parseWarnings = [];
@@ -544,18 +575,18 @@ class PseudocodeImporter extends React.Component {
             if (lang !== 'javascript') nb.javascript = new SB3Creator().generateJavaScript(proj, this.genOpts());
             nb.c = new SB3Creator().generateC(proj, this.genOpts());
             const warns = [...parseWarnings, ...creator.warnings];
-            if (missing.length) warns.push(`no sprite named: ${missing.join(', ')}`);
+            if (missing.length) warns.push(this.tx('missingSprite', {names: missing.join(', ')}));
             this.setState({buffers: nb, status: warns.length ?
-                `Loaded with warnings — ${warns.slice(0, 4).join(' · ')}` :
-                'Compiled to blocks and loaded. Switch to the Code tab to see them.'});
+                {key: 'loadedWithWarnings', values: {warnings: warns.slice(0, 4).join(' · ')}} :
+                {key: 'compiledLoaded', values: {}}});
         } catch (e) {
-            this.setState({status: `Error: ${e.message}`});
+            this.setState({status: {key: 'errorPrefix', values: {error: e.message}}});
         }
         this.setState({busy: false});
     }
     // Read the running project into all three languages at once.
     async fromBlocks () {
-        this.setState({busy: true, status: 'Reading current project…'});
+        this.setState({busy: true, status: {key: 'readProject', values: {}}});
         try {
             const SB3Creator = (await this.lib()).default;
             const project = JSON.parse(this.props.vm.toJSON());
@@ -567,10 +598,10 @@ class PseudocodeImporter extends React.Component {
             };
             const unsupported = (buffers.pseudocode.match(/^# unsupported:/gm) || []).length;
             this.setState({buffers, output: null, status: unsupported ?
-                `Read into all three languages — ${unsupported} block(s) not representable in pseudocode (left as comments).` :
-                'Read the current project into all three languages. Edit any of them, then “To blocks”.'});
+                {key: 'readUnsupported', values: {count: unsupported}} :
+                {key: 'readAllLanguages', values: {}}});
         } catch (e) {
-            this.setState({status: `Error: ${e.message}`});
+            this.setState({status: {key: 'errorPrefix', values: {error: e.message}}});
         }
         this.setState({busy: false});
     }
@@ -583,44 +614,42 @@ class PseudocodeImporter extends React.Component {
         const btn = {padding: '10px 18px', borderRadius: 8, border: 'none', color: '#fff', cursor: 'pointer',
             fontWeight: 600, background: 'linear-gradient(135deg,#4c97ff,#4280d7)'};
         const sel = {padding: '6px 10px', borderRadius: 6, border: '1px solid #cbd5e1', font: 'inherit'};
+        const locale = this.props.locale;
         return (
-            <div style={wrap}>
+            <div style={wrap} lang={locale}>
                 {/* One compact row: mascot · title · info tooltip · example loader · reference toggle */}
                 <div style={{display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap', marginBottom: 10}}>
-                    <img src={brickRobot} alt="Brickwright mascot" width={28} height={33} draggable={false} />
-                    <strong style={{fontSize: 15}}>Brickwright Code</strong>
+                    <img src={brickRobot} alt="Brickwright" width={28} height={33} draggable={false} />
+                    <strong style={{fontSize: 15}}>Brickwright {locale === 'ja' ? 'コード' : 'Code'}</strong>
                     <button type="button" onClick={() => this.setState(s => ({showInfo: !s.showInfo}))}
-                        aria-label="About the Code tab" title="Click for info"
+                        aria-label={this.tx('aboutCodeTab')} title={this.tx('info')}
                         style={{display: 'inline-flex', alignItems: 'center', justifyContent: 'center', width: 18, height: 18,
                             padding: 0, border: 'none', borderRadius: '50%', background: this.state.showInfo ? '#4c97ff' : '#e2e8f0',
                             color: this.state.showInfo ? '#fff' : '#475569', fontSize: 12, fontWeight: 700, cursor: 'pointer', fontStyle: 'italic'}}>
                         i
                     </button>
                     <span style={{flex: 1}} />
-                    <select defaultValue="" onChange={e => this.loadExample(e.target.value)} style={sel} title="Load a built-in example">
-                        <option value="" disabled>📚 Load example…</option>
+                    <select defaultValue="" onChange={e => this.loadExample(e.target.value)} style={sel} title={this.tx('showExample')}>
+                        <option value="" disabled>{this.tx('loadExample')}</option>
                         {GROUPS.map(g => (
-                            <optgroup key={g.label} label={g.label}>
+                            <optgroup key={g.labelKey} label={this.tx(g.labelKey)}>
                                 {g.items.filter(([k]) => examples[k]).map(([k, label]) => (
-                                    <option key={k} value={k}>{label}</option>
+                                    <option key={k} value={k}>{this.exampleLabel(k, label)}</option>
                                 ))}
                             </optgroup>
                         ))}
                     </select>
                     <button onClick={() => this.setState(s => ({showRef: !s.showRef}))}
                         style={{...sel, cursor: 'pointer', background: this.state.showRef ? '#e2e8f0' : '#f1f5f9'}}
-                        title={`Reference for ${this.state.lang}`}>
-                        📝 {LANG_LABEL[this.state.lang]} reference
+                        title={this.tx('referenceFor', {language: this.langLabel(this.state.lang)})}>
+                        📝 {this.langLabel(this.state.lang)} {locale === 'ja' ? 'リファレンス' : 'reference'}
                     </button>
                 </div>
 
                 {this.state.showInfo && (
                     <div style={{marginBottom: 10, padding: '8px 12px', background: '#eff6ff', border: '1px solid #bfdbfe',
                         borderRadius: 8, fontSize: 13, color: '#334155'}}>
-                        Write your project as <strong>Pseudocode</strong>, <strong>Python</strong>, or <strong>JavaScript</strong> —
-                        all three are two-way. <strong>⇦ To blocks</strong> compiles the active tab; <strong>From blocks ⇨</strong>{' '}
-                        reads the current project into every language. Switching tabs converts between them. Sprite/pen behaviour
-                        lives in the blocks (the ground truth), so the code tabs show the algorithmic parts — comments are kept.
+                        {this.tx('codeIntro')}
                     </div>
                 )}
 
@@ -629,7 +658,7 @@ class PseudocodeImporter extends React.Component {
                         gap: 12, marginBottom: 12, padding: 12, background: '#f8fafc', borderRadius: 8, border: '1px solid #e2e8f0'}}>
                         {(this.state.lang === 'pseudocode' ? SYNTAX : SUPPORTED[this.state.lang]).map(([h, items]) => (
                             <div key={h}>
-                                <div style={{fontWeight: 700, marginBottom: 4}}>{h}</div>
+                                <div style={{fontWeight: 700, marginBottom: 4}}>{this.headingLabel(h)}</div>
                                 <ul style={{margin: 0, paddingLeft: 16}}>
                                     {items.map((it, i) => (
                                         <li key={i}><code style={{fontSize: 12}}>{it}</code></li>
@@ -643,7 +672,8 @@ class PseudocodeImporter extends React.Component {
                 {/* Tabs (left) + Custom-art toggle (right). Plain buttons — NOT role="tab",
                     which would collide with the editor's top-level react-tabs. */}
                 <div style={{display: 'flex', gap: 2, marginBottom: -1, alignItems: 'flex-end'}}>
-                    {[['pseudocode', '🧩 Pseudocode'], ['python', '🐍 Python'], ['javascript', '🟨 JavaScript'], ['c', '🔧 C']].map(([l, label]) => {
+                    {[['pseudocode', '🧩', 'languagePseudocode'], ['python', '🐍', 'languagePython'],
+                        ['javascript', '🟨', 'languageJavaScript'], ['c', '🔧', 'languageC']].map(([l, icon, labelKey]) => {
                         const active = this.state.lang === l;
                         return (
                             <button key={l} type="button" aria-pressed={active} onClick={() => this.switchTab(l)}
@@ -652,16 +682,16 @@ class PseudocodeImporter extends React.Component {
                                     borderRadius: '8px 8px 0 0', cursor: 'pointer', fontWeight: active ? 700 : 500,
                                     background: active ? '#fff' : '#eef2f7', color: active ? '#1e293b' : '#64748b',
                                     position: 'relative', top: active ? 0 : 1}}>
-                                {label}
+                                {icon} {this.tx(labelKey)}
                             </button>
                         );
                     })}
                     <span style={{flex: 1}} />
                     <button type="button" onClick={() => this.setState(s => ({showArt: !s.showArt}))}
-                        title="Upload SVGs and bake them in as sprite costumes"
+                        title={this.tx('uploadArtTitle')}
                         style={{alignSelf: 'center', padding: '6px 12px', borderRadius: 6, cursor: 'pointer',
                             border: '1px solid #cbd5e1', background: this.state.showArt ? '#e2e8f0' : '#f1f5f9', fontSize: 13}}>
-                        🖼️ Custom sprite art{this.state.uploads.length ? ` (${this.state.uploads.length})` : ''}
+                        🖼️ {this.tx('customArt')}{this.state.uploads.length ? ` (${this.state.uploads.length})` : ''}
                     </button>
                 </div>
                 <CodeEditor
@@ -682,10 +712,7 @@ class PseudocodeImporter extends React.Component {
                 {this.state.showArt && (
                 <div style={{margin: '12px 0 4px', padding: 12, background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: 8}}>
                     <p style={{margin: '0 0 8px'}}>
-                        Upload one or more <code>.svg</code> files, then associate each with a sprite from your
-                        pseudocode in the table below. On <strong>⇦ To blocks</strong>, every SVG is baked
-                        in as that sprite&apos;s costume — <em>replace</em> swaps its costume, <em>add as frame</em>
-                        appends one for animation.
+                        {this.tx('uploadArtHelp')}
                     </p>
                     <input type="file" accept=".svg,image/svg+xml" multiple onChange={this.handleFiles} />
                     {this.state.uploads.length > 0 && (() => {
@@ -695,9 +722,9 @@ class PseudocodeImporter extends React.Component {
                         return (
                             <table style={{borderCollapse: 'collapse', width: '100%', marginTop: 10}}>
                                 <thead><tr>
-                                    <th style={th}>SVG file</th>
-                                    <th style={th}>Sprite</th>
-                                    <th style={th}>Mode</th>
+                                    <th style={th}>{this.tx('svgFile')}</th>
+                                    <th style={th}>{this.tx('sprite')}</th>
+                                    <th style={th}>{this.tx('mode')}</th>
                                     <th style={th} />
                                 </tr></thead>
                                 <tbody>
@@ -715,17 +742,17 @@ class PseudocodeImporter extends React.Component {
                                                 <select value={u.sprite} onChange={e => this.setUpload(i, {sprite: e.target.value})}
                                                     style={{padding: '4px 8px', borderRadius: 6,
                                                         border: `1px solid ${u.sprite ? '#cbd5e1' : '#f0a0a0'}`, minWidth: 130}}>
-                                                    <option value="">— choose sprite —</option>
+                                                    <option value="">{this.tx('chooseSprite')}</option>
                                                     {sprites.map(n => <option key={n} value={n}>{n}</option>)}
                                                     {u.sprite && !sprites.includes(u.sprite) &&
-                                                        <option value={u.sprite}>{u.sprite} (not in code)</option>}
+                                                        <option value={u.sprite}>{u.sprite} ({this.tx('spriteNotInCode')})</option>}
                                                 </select>
                                             </td>
                                             <td style={td}>
                                                 <select value={u.mode} onChange={e => this.setUpload(i, {mode: e.target.value})}
                                                     style={{padding: '4px 6px', borderRadius: 6, border: '1px solid #cbd5e1'}}>
-                                                    <option value="replace">replace costume</option>
-                                                    <option value="add">add as frame</option>
+                                                    <option value="replace">{this.tx('replaceCostume')}</option>
+                                                    <option value="add">{this.tx('addFrame')}</option>
                                                 </select>
                                             </td>
                                             <td style={td}>
@@ -740,8 +767,7 @@ class PseudocodeImporter extends React.Component {
                     })()}
                     {this.state.uploads.length > 0 && this.spriteNames().length === 0 && (
                         <p style={{margin: '8px 0 0', fontSize: 12, color: '#b45309'}}>
-                            No <code>SPRITE</code> declarations found in your pseudocode yet — add one (e.g.
-                            <code> SPRITE Player:</code>) to associate an SVG with it.
+                            {this.tx('noSpriteDeclarations')} <code> SPRITE Player:</code>
                         </p>
                     )}
                 </div>
@@ -750,56 +776,56 @@ class PseudocodeImporter extends React.Component {
                 <div style={{marginTop: 12, display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap'}}>
                     <button onClick={this.compile}
                         disabled={this.state.busy || !this.activeCode().trim() || !TWO_WAY.has(this.state.lang)}
-                        title={`Compile this ${LANG_LABEL[this.state.lang]} into blocks`}
+                        title={this.tx('compileIntoBlocks', {language: this.langLabel(this.state.lang)})}
                         style={btn}>
-                        ⇦ To blocks
+                        {locale === 'ja' ? '⇦ ブロックへ' : '⇦ To blocks'}
                     </button>
                     <button onClick={this.fromBlocks} disabled={this.state.busy}
-                        title="Read the current blocks back into all three languages"
+                        title={this.tx('readBlocks')}
                         style={{...btn, background: 'linear-gradient(135deg,#a55b80,#8e4a6c)'}}>
-                        From blocks ⇨
+                        {locale === 'ja' ? 'ブロックから ⇨' : 'From blocks ⇨'}
                     </button>
                     {this.state.lang !== 'pseudocode' && this.state.lang !== 'c' && /_[a-z]+\.|Driver/.test(this.activeCode()) ? (
                         <span style={{fontSize: 13, display: 'inline-flex', alignItems: 'center', gap: 8}}>
-                            <label title="Hardware-extension driver: shim (neutral) · remote (bridge over WebSocket) · on-brick (device transpiler). The program is driver-agnostic; this only swaps the driver.">
+                            <label title={this.tx('driverHint')}>
                                 🔌{' '}
                                 <select value={this.state.driverMode} onChange={e => this.setGenOpt({driverMode: e.target.value})} disabled={this.state.busy}
                                     style={{padding: '5px 8px', borderRadius: 6, border: '1px solid #cbd5e1', font: 'inherit'}}>
-                                    <option value="shim">driver: shim</option>
-                                    <option value="remote">driver: remote (bridge)</option>
-                                    <option value="ondevice">driver: on-brick</option>
+                                    <option value="shim">{this.tx('driverShim')}</option>
+                                    <option value="remote">{this.tx('driverRemote')}</option>
+                                    <option value="ondevice">{this.tx('driverOnBrick')}</option>
                                 </select>
                             </label>
-                            <label title="await hardware calls (BLE is async) and make functions async">
+                            <label title={this.tx('asyncHint')}>
                                 <input type="checkbox" checked={this.state.asyncMode} disabled={this.state.busy}
-                                    onChange={e => this.setGenOpt({asyncMode: e.target.checked})} /> async
+                                    onChange={e => this.setGenOpt({asyncMode: e.target.checked})} /> {this.tx('asynchronous')}
                             </label>
-                            <label title="turn extension event hats (when button pressed …) into driver callbacks">
+                            <label title={this.tx('eventsHint')}>
                                 <input type="checkbox" checked={this.state.eventsMode} disabled={this.state.busy}
-                                    onChange={e => this.setGenOpt({eventsMode: e.target.checked})} /> events
+                                    onChange={e => this.setGenOpt({eventsMode: e.target.checked})} /> {this.tx('events')}
                             </label>
                         </span>
                     ) : null}
                     {this.state.lang !== 'pseudocode' ? (
                         <span style={{fontSize: 13, display: 'inline-flex', alignItems: 'center', gap: 8}}>
-                            <label title="Show native block comments as # / // lines in the generated code (they round-trip back to blocks).">
+                            <label title={this.tx('commentsHint')}>
                                 <input type="checkbox" checked={this.state.commentsMode} disabled={this.state.busy}
-                                    onChange={e => this.setGenOpt({commentsMode: e.target.checked})} /> comments
+                                    onChange={e => this.setGenOpt({commentsMode: e.target.checked})} /> {this.tx('comments')}
                             </label>
                         </span>
                     ) : null}
                     {this.state.lang !== 'pseudocode' && this.state.lang !== 'c' && this.activeCode().trim() ? (
                         <button onClick={this.run} disabled={this.state.running}
                             style={{...btn, background: 'linear-gradient(135deg,#37b24d,#2f9e44)'}}>
-                            ▶ Run {this.state.lang === 'python' ? 'Python' : 'JS'}
+                            {this.tx('runLanguage', {language: this.state.lang === 'python' ? 'Python' : 'JavaScript'})}
                         </button>
                     ) : null}
                     {this.state.lang === 'c' ? (
                         <span style={{fontSize: 13, color: '#64748b'}}>
-                            C for the STC12 / 8051. Paste your own firmware and press &ldquo;&#8678; To blocks&rdquo;, or compile it to a .hex with stc-compiler.vercel.app.
+                            {this.tx('cHelp')}
                         </span>
                     ) : null}
-                    {this.state.status ? <span style={{fontSize: 13}}>{this.state.status}</span> : null}
+                    {this.state.status ? <span style={{fontSize: 13}}>{this.tx(this.state.status.key, this.state.status.values)}</span> : null}
                 </div>
                 {this.state.output != null ? (
                     <pre style={{marginTop: 10, padding: 12, background: '#0c3a44', color: '#c7f0e0', borderRadius: 8,
@@ -816,4 +842,4 @@ PseudocodeImporter.propTypes = {
     vm: PropTypes.shape({loadProject: PropTypes.func, toJSON: PropTypes.func}).isRequired
 };
 
-export default connect(state => ({vm: state.scratchGui.vm}))(PseudocodeImporter);
+export default connect(state => ({vm: state.scratchGui.vm, locale: state.locales.locale}))(PseudocodeImporter);

@@ -186,7 +186,7 @@ describeIfEnabled('Extension gallery browser integration', () => {
                 'nhtoyo-development'
             );
             await waitForExtensionCard(
-                'LEGO SPIKE Prime / Robot Inventor · NHtoyo開発版'
+                'LEGO SPIKE Prime／Robot Inventor · NHtoyo開発版'
             );
             const firstBuildId = await driver.executeScript(
                 'return document.querySelector("[class*=extension-gallery-build-id]").innerText.trim();'
@@ -203,7 +203,7 @@ describeIfEnabled('Extension gallery browser integration', () => {
             );
 
             await clickExtensionCard(
-                'LEGO SPIKE Prime / Robot Inventor · NHtoyo開発版'
+                'LEGO SPIKE Prime／Robot Inventor · NHtoyo開発版'
             );
             await acceptCompatibilityWarning();
             await waitForExtensionLoaded();
@@ -261,7 +261,7 @@ describeIfEnabled('Extension gallery browser integration', () => {
                 'nhtoyo-development'
             );
             await waitForExtensionCard(
-                'LEGO SPIKE Prime / Robot Inventor · NHtoyo開発版'
+                'LEGO SPIKE Prime／Robot Inventor · NHtoyo開発版'
             );
             const reloadedBuildId = await driver.executeScript(
                 'return document.querySelector("[class*=extension-gallery-build-id]").innerText.trim();'
@@ -269,7 +269,7 @@ describeIfEnabled('Extension gallery browser integration', () => {
             expect(reloadedBuildId).not.toEqual(firstBuildId);
             const freshBuildId = reloadedBuildId.replace(/^.*?:\s*/, '').trim();
             await clickExtensionCard(
-                'LEGO SPIKE Prime / Robot Inventor · NHtoyo開発版'
+                'LEGO SPIKE Prime／Robot Inventor · NHtoyo開発版'
             );
             await acceptCompatibilityWarning();
             await waitForExtensionLoaded();

@@ -1,4 +1,4 @@
-import {detectLocale} from '../../../src/lib/detect-locale.js';
+import {detectLocale, LANGUAGE_KEY} from '../../../src/lib/detect-locale.js';
 
 const supportedLocales = ['en', 'es', 'pt-br', 'de', 'it'];
 
@@ -48,6 +48,19 @@ describe('detectLocale', () => {
     test('ignores navigator language property if unsupported', () => {
         setBrowserLanguage('da');
         expect(detectLocale(supportedLocales)).toEqual('en');
+    });
+
+    test('first launch follows a supported Japanese browser language', () => {
+        setBrowserLanguage('ja-JP');
+        expect(detectLocale([...supportedLocales, 'ja'])).toEqual('ja');
+    });
+
+    test('saved language choice takes precedence over URL and browser locale', () => {
+        const japaneseLocales = [...supportedLocales, 'ja'];
+        setBrowserLanguage('ja-JP');
+        setSearch('?locale=ja');
+        window.localStorage.setItem(LANGUAGE_KEY, 'en');
+        expect(detectLocale(japaneseLocales)).toEqual('en');
     });
 
     test('works with an empty locale', () => {

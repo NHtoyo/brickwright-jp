@@ -3,6 +3,7 @@ import PropTypes from 'prop-types';
 import {connect} from 'react-redux';
 
 import DebugPanel from './debug-panel.jsx';
+import {translate} from '../../lib/brickwright-translations/ui.js';
 
 /**
  * The circuit designer, as a first-class editor tab beside Code / Costumes / Sounds.
@@ -86,25 +87,24 @@ class CircuitTab extends React.Component {
 
     render () {
         const {Designer, error, stc} = this.state;
+        const locale = this.props.locale;
         const box = {height: '100%', overflow: 'auto', padding: 12, boxSizing: 'border-box'};
         if (error) {
             return (
                 <div style={{...box, color: '#b91c1c'}}>
-                    {`The circuit designer failed to load: ${error}`}
+                    {translate(locale, 'circuitFailed', {error})}
                 </div>
             );
         }
         if (!Designer) {
-            return <div style={{...box, color: '#64748b'}}>{'Loading the circuit designer…'}</div>;
+            return <div style={{...box, color: '#64748b'}}>{translate(locale, 'circuitLoading')}</div>;
         }
         return (
             <div style={box}>
                 {stc && stc.pins && stc.pins.length ? null : (
                     <div style={{marginBottom: 10, padding: '8px 10px', borderRadius: 6,
                         background: '#fefce8', border: '1px solid #fde68a', fontSize: 13, color: '#713f12'}}>
-                        {'This project declares no pins, so the board starts empty. ' +
-                         'Declare them in the Code tab — e.g. PIN led1 IS P1.0 OUTPUT ACTIVE LOW — ' +
-                         'and the designer will suggest the matching parts.'}
+                        {translate(locale, 'circuitNoPins', {example: 'PIN led1 IS P1.0 OUTPUT ACTIVE LOW'})}
                     </div>
                 )}
                 {/* The debugger's controls, above the board they act on. The design note
@@ -138,10 +138,12 @@ class CircuitTab extends React.Component {
 
 CircuitTab.propTypes = {
     isVisible: PropTypes.bool,
+    locale: PropTypes.string,
     vm: PropTypes.shape({toJSON: PropTypes.func}).isRequired
 };
 
 export default connect(state => ({
     vm: state.scratchGui.vm,
+    locale: state.locales.locale,
     isVisible: state.scratchGui.editorTab.activeTabIndex === 4
 }))(CircuitTab);

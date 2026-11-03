@@ -74,7 +74,12 @@ const L10N = {
         dropped: 'older rows dropped',
         bank: 'bank', cycles: 'cycles', ms: 'ms',
         spaceNote: 'SFR and internal RAM share these addresses and are different memories.',
-        editHint: 'Click a byte to edit it.'
+        editHint: 'Click a byte to edit it.',
+        stepOverHint: 'Run until SP returns to its current depth',
+        cannotStepOver: 'This target cannot step over',
+        spaceInternal: 'Internal RAM', spaceSfr: 'SFR', spaceExternal: 'External RAM',
+        spaceProgram: 'Program (ROM)', spaceBit: 'Bit space',
+        groupIo: 'I/O', groupTimersSerial: 'Timers / serial', emptyStack: 'empty', hex: 'hex'
     },
     de: {
         title: 'Unter der Haube', hide: 'Verbergen', show: 'Zeigen',
@@ -95,15 +100,36 @@ const L10N = {
         spaceNote: 'Spezialregister und internes RAM teilen sich diese Adressen und sind ' +
             'verschiedene Speicher.',
         editHint: 'Auf ein Byte klicken zum Ändern.'
+    },
+    ja: {
+        title: '詳細情報', hide: '閉じる', show: '表示',
+        trace: '実行トレース', now: 'レジスタ', sfrs: '特殊機能レジスタ',
+        memory: 'メモリ', stack: 'スタック', clock: 'クロック',
+        cols: '表示項目', regs: 'レジスタ', ports: 'ポート', timers: 'タイマー',
+        stepInsn: '命令を1つ進める', over: 'ステップオーバー', out: 'ステップアウト',
+        setPc: 'PCを設定', breakAt: 'ここで停止', reset: 'リセット', wipe: '消去',
+        stepTen: '10命令進む', clear: '消去',
+        tenHint: '10命令を実行し、トレースに1行ずつ記録します',
+        empty: 'まだ実行されていません。「実行」を押してから、一時停止するか停止ポイントに到達してください。',
+        gapNote: 'プログラムが停止するたびに1行記録します。ステップ実行では命令ごとに記録され、通常実行では停止した位置だけが記録されます。全速実行中の全命令を記録することはできません。',
+        dropped: '件の古い行を削除しました',
+        bank: 'バンク', cycles: 'サイクル', ms: 'ミリ秒',
+        spaceNote: 'SFRと内部RAMは同じアドレスを使いますが、別々のメモリです。',
+        editHint: 'バイトをクリックすると編集できます。',
+        stepOverHint: 'SPが現在の深さに戻るまで実行します',
+        cannotStepOver: 'この実行先ではステップオーバーできません',
+        spaceInternal: '内部RAM', spaceSfr: 'SFR', spaceExternal: '外部RAM',
+        spaceProgram: 'プログラム（ROM）', spaceBit: 'ビット領域',
+        groupIo: '入出力', groupTimersSerial: 'タイマー・シリアル通信', emptyStack: '空', hex: '16進数'
     }
 };
 
 const SPACES = [
-    {id: 'iram', label: 'Internal RAM', size: 0x100},
-    {id: 'sfr', label: 'SFR', size: 0x100, base: 0x80},
-    {id: 'xram', label: 'External RAM', size: 0x400},
-    {id: 'code', label: 'Program (ROM)', size: 0x1000},
-    {id: 'bit', label: 'Bit space', size: 0x100}
+    {id: 'iram', labelKey: 'spaceInternal', label: 'Internal RAM', size: 0x100},
+    {id: 'sfr', labelKey: 'spaceSfr', label: 'SFR', size: 0x100, base: 0x80},
+    {id: 'xram', labelKey: 'spaceExternal', label: 'External RAM', size: 0x400},
+    {id: 'code', labelKey: 'spaceProgram', label: 'Program (ROM)', size: 0x1000},
+    {id: 'bit', labelKey: 'spaceBit', label: 'Bit space', size: 0x100}
 ];
 
 class DebugDrawer extends React.Component {
@@ -129,7 +155,7 @@ class DebugDrawer extends React.Component {
 
     /** Ask the user for a hex address. A prompt is honest about being a stopgap. */
     askAddress (label, fallback) {
-        const raw = window.prompt(`${label} (hex)`, hex16(fallback || 0));
+        const raw = window.prompt(`${label} (${this.tx('hex')})`, hex16(fallback || 0));
         if (raw === null) return null;
         const n = parseInt(String(raw).replace(/^0x/i, ''), 16);
         return Number.isFinite(n) ? (n & 0xFFFF) : null;
@@ -149,8 +175,8 @@ class DebugDrawer extends React.Component {
                 <button
                     style={can('over') ? BTN : off}
                     disabled={!can('over')}
-                    title={can('over') ? 'Run until SP returns to its current depth'
-                        : 'This target cannot step over'}
+                    title={can('over') ? this.tx('stepOverHint')
+                        : this.tx('cannotStepOver')}
                     onClick={() => runner.stepOver()}
                 >{this.tx('over')}</button>
                 <button
@@ -373,7 +399,7 @@ class DebugDrawer extends React.Component {
         return (
             <div style={PANE}>
                 <div style={TITLE}>{this.tx('sfrs')}</div>
-                {[['I/O', IO_SFRS], ['Timers / serial', TIMER_SFRS]].map(([group, list]) => (
+                [[this.tx('groupIo'), IO_SFRS], [this.tx('groupTimersSerial'), TIMER_SFRS]].map(([group, list]) => (
                     <div key={group} style={{marginBottom: 6}}>
                         <div style={{color: '#5d6d7e', fontSize: 10}}>{group}</div>
                         <div style={{display: 'flex', gap: 10, flexWrap: 'wrap'}}>
@@ -397,7 +423,7 @@ class DebugDrawer extends React.Component {
             <div style={{...PANE, maxHeight: 160}}>
                 <div style={TITLE}>{this.tx('stack')}</div>
                 {!snap.stack.length ? (
-                    <div style={{color: '#5d6d7e'}}>{'empty'}</div>
+                    <div style={{color: '#5d6d7e'}}>{this.tx('emptyStack')}</div>
                 ) : snap.stack.slice().reverse().map(e => (
                     <div key={e.addr}>
                         <span style={{color: '#7f8c8d'}}>{`${hex8(e.addr)} `}</span>
@@ -430,7 +456,7 @@ class DebugDrawer extends React.Component {
                         onChange={e => this.setState({space: e.target.value, page: 0})}
                         style={{...BTN, textTransform: 'none'}}
                     >
-                        {SPACES.map(s => <option key={s.id} value={s.id}>{s.label}</option>)}
+                        {SPACES.map(s => <option key={s.id} value={s.id}>{this.tx(s.labelKey)}</option>)}
                     </select>
                     <button
                         style={BTN}
@@ -456,7 +482,7 @@ class DebugDrawer extends React.Component {
                                 style={{color: b ? '#ecf0f1' : '#4a5568', cursor: 'pointer', padding: '0 2px'}}
                                 onClick={() => {
                                     const raw = window.prompt(
-                                        `${spec.label} ${hex16(row.addr + i)}`, hex8(b));
+                                        `${this.tx(spec.labelKey)} ${hex16(row.addr + i)}`, hex8(b));
                                     if (raw === null) return;
                                     const v = parseInt(String(raw).replace(/^0x/i, ''), 16);
                                     if (Number.isFinite(v)) {

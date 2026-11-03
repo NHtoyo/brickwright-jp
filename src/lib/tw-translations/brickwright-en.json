@@ -1,0 +1,16 @@
+{
+    "gui.gui.blocksTab": "Blocks",
+    "gui.gui.pseudocodeTab": "Code",
+    "gui.gui.circuitTab": "Circuit",
+    "gui.extensionLibrary.chooseAnExtension": "Choose an extension",
+    "gui.extensionLibrary.source": "Extension source",
+    "gui.extensionLibrary.source.original": "CrispStrobe official",
+    "gui.extensionLibrary.source.nhtoyo": "NHtoyo development (localhost:8000)",
+    "gui.extensionLibrary.source.localExtensionMarker": "{name} · NHtoyo development",
+    "gui.extensionLibrary.source.buildId": "Development build: {buildId}",
+    "gui.extensionLibrary.source.loaded": "Loaded implementations: {implementations}",
+    "gui.extensionLibrary.source.noneLoaded": "None",
+    "gui.extensionLibrary.source.conflict": "“{extensionId}” is already loaded from {loaded}. The selected implementation is {requested}. Reload the editor to switch.",
+    "gui.extensionLibrary.source.conflictUnknown": "“{extensionId}” is already loaded, but its source could not be identified. Reload the editor before selecting {requested}.",
+    "tw.menuBar.addons": "Add-ons"
+}

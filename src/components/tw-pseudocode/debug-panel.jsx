@@ -42,7 +42,9 @@ const L10N = {
         unreachableWhy: 'The program only stops at a wait or a loop, so these marks have ' +
             'nowhere to land in this build. They are kept in case a later edit gives them one.',
         yieldNote: 'The program can only stop at a wait or a loop — so the highlight marks ' +
-            'the last one it passed, not every block in between.'
+            'the last one it passed, not every block in between.',
+        resume: 'Resume', start: 'Build, load and run',
+        unsupportedStep: 'This target cannot step one block', when: 'when'
     },
     de: {
         run: 'Start', pause: 'Pause', step: 'Schritt', stop: 'Stopp',
@@ -60,6 +62,21 @@ const L10N = {
             'spätere Änderung einen schafft.',
         yieldNote: 'Das Programm kann nur bei einem Warten oder einer Schleife anhalten — die ' +
             'Markierung zeigt also die letzte solche Stelle, nicht jeden Block dazwischen.'
+    },
+    ja: {
+        run: '実行', pause: '一時停止', step: '1ブロック進む', stop: '停止',
+        speed: '速度', idle: '停止中', building: 'ビルド中…', attaching: '接続中…',
+        ready: '準備完了', running: '実行中', paused: '一時停止中', stepping: 'ステップ実行中…',
+        error: 'エラー', stepHint: '次のブロックの区切りまで実行します',
+        pausedAt: '停止位置', afterMs: '経過時間',
+        noPins: 'デバッグするには、コードタブでピンを宣言してください。',
+        bps: '停止ポイント', noBps: 'ブロックを右クリックして「ここで一時停止」を選んでください。',
+        skipped: '回通過しました（待機ブロックは繰り返し実行されるため、条件で絞り込まれます）',
+        unreachable: 'ここでは停止できません',
+        unreachableWhy: 'このビルドでは、プログラムは待機ブロックかループでのみ停止します。そのため、これらのポイントでは停止できません。後の編集で停止できるようになる場合に備えて、設定は保持されています。',
+        yieldNote: 'プログラムは待機ブロックかループでのみ停止します。ハイライトは通過した中で最後のブロックを示し、その間のすべてのブロックを示すものではありません。',
+        resume: '再開', start: 'ビルドして読み込み、実行します',
+        unsupportedStep: 'この実行先では1ブロックずつ進められません', when: '条件:'
     }
 };
 
@@ -148,7 +165,7 @@ class DebugPanel extends React.Component {
                         style={running || busy ? OFF : {...BTN, borderColor: '#2ecc71', color: '#2ecc71'}}
                         disabled={running || busy}
                         onClick={this.onStart}
-                        title={paused ? 'Resume' : 'Build, load and run'}
+                        title={paused ? this.tx('resume') : this.tx('start')}
                     >{'▶ '}{this.tx('run')}</button>
 
                     <button
@@ -162,7 +179,7 @@ class DebugPanel extends React.Component {
                         disabled={!canStep || busy}
                         onClick={this.onStep}
                         title={canStep ? this.tx('stepHint')
-                            : 'This target cannot step one block'}
+                            : this.tx('unsupportedStep')}
                     >{'⏭ '}{this.tx('step')}</button>
 
                     <button
@@ -220,7 +237,7 @@ class DebugPanel extends React.Component {
                                             say so is the hardest kind to debug. */}
                                         {ui.conditions && ui.conditions[id] ? (
                                             <span style={{color: '#3498db', marginLeft: 6}}>
-                                                {`when ${ui.conditions[id]}`}
+                                                {`${this.tx('when')} ${ui.conditions[id]}`}
                                             </span>
                                         ) : null}
                                         {ui.conditionErrors && ui.conditionErrors[id] ? (
