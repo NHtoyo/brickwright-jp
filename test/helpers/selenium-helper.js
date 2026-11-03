@@ -1,5 +1,8 @@
 jest.setTimeout(30000); // eslint-disable-line no-undef
 
+import fs from 'fs';
+import http from 'http';
+import path from 'path';
 import bindAll from 'lodash.bindall';
 import 'chromedriver'; // register path
 import webdriver from 'selenium-webdriver';
@@ -7,6 +10,111 @@ import webdriver from 'selenium-webdriver';
 const {Button, By, until} = webdriver;
 
 const USE_HEADLESS = process.env.USE_HEADLESS !== 'no';
+const BUILD_DIRECTORY = path.resolve(__dirname, '../../build');
+
+const CONTENT_TYPES = {
+    '.aac': 'audio/aac',
+    '.css': 'text/css; charset=utf-8',
+    '.eot': 'application/vnd.ms-fontobject',
+    '.gif': 'image/gif',
+    '.html': 'text/html; charset=utf-8',
+    '.ico': 'image/x-icon',
+    '.jpeg': 'image/jpeg',
+    '.jpg': 'image/jpeg',
+    '.js': 'application/javascript; charset=utf-8',
+    '.json': 'application/json; charset=utf-8',
+    '.m4a': 'audio/mp4',
+    '.mp3': 'audio/mpeg',
+    '.mp4': 'video/mp4',
+    '.ogg': 'audio/ogg',
+    '.oga': 'audio/ogg',
+    '.otf': 'font/otf',
+    '.png': 'image/png',
+    '.svg': 'image/svg+xml',
+    '.ttf': 'font/ttf',
+    '.wav': 'audio/wav',
+    '.webm': 'video/webm',
+    '.webp': 'image/webp',
+    '.woff': 'font/woff',
+    '.woff2': 'font/woff2',
+    '.wasm': 'application/wasm'
+};
+
+let buildServerPromise;
+
+const getBuildServer = () => {
+    if (!buildServerPromise) {
+        buildServerPromise = new Promise((resolve, reject) => {
+            const server = http.createServer((request, response) => {
+                let requestPath;
+                try {
+                    requestPath = decodeURIComponent(new URL(request.url, 'http://127.0.0.1').pathname);
+                } catch (error) {
+                    response.statusCode = 400;
+                    return response.end('Bad request');
+                }
+
+                const relativePath = requestPath.replace(/^\/+/, '') || 'index.html';
+                const filePath = path.resolve(BUILD_DIRECTORY, relativePath);
+                const relativeToBuild = path.relative(BUILD_DIRECTORY, filePath);
+                if (
+                    relativeToBuild === '..' ||
+                    relativeToBuild.startsWith(`..${path.sep}`) ||
+                    path.isAbsolute(relativeToBuild)
+                ) {
+                    response.statusCode = 403;
+                    return response.end('Forbidden');
+                }
+
+                fs.stat(filePath, (error, stat) => {
+                    if (error || !stat.isFile()) {
+                        response.statusCode = 404;
+                        return response.end('Not found');
+                    }
+
+                    response.statusCode = 200;
+                    response.setHeader(
+                        'Content-Type',
+                        CONTENT_TYPES[path.extname(filePath).toLowerCase()] || 'application/octet-stream'
+                    );
+                    response.setHeader('Cache-Control', 'no-store');
+                    fs.createReadStream(filePath).pipe(response);
+                });
+            });
+
+            server.once('error', reject);
+            server.listen(0, '127.0.0.1', () => {
+                server.unref();
+                resolve({
+                    origin: `http://127.0.0.1:${server.address().port}`
+                });
+            });
+        });
+    }
+    return buildServerPromise;
+};
+
+const getTestUrl = async uri => {
+    if (/^https?:\/\//i.test(uri)) return uri;
+
+    const suffixIndex = uri.search(/[?#]/);
+    const filePath = suffixIndex === -1 ? uri : uri.slice(0, suffixIndex);
+    const suffix = suffixIndex === -1 ? '' : uri.slice(suffixIndex);
+    const absolutePath = path.resolve(filePath);
+    const relativePath = path.relative(BUILD_DIRECTORY, absolutePath);
+    if (
+        relativePath === '..' ||
+        relativePath.startsWith(`..${path.sep}`) ||
+        path.isAbsolute(relativePath)
+    ) {
+        throw new Error(`Integration test path is outside the build directory: ${uri}`);
+    }
+
+    const encodedPath = relativePath.split(path.sep).map(encodeURIComponent)
+        .join('/');
+    const {origin} = await getBuildServer();
+    return `${origin}/${encodedPath}${suffix}`;
+};
 
 // The main reason for this timeout is so that we can control the timeout message and report details;
 // if we hit the Jasmine default timeout then we get a terse message that we can't control.
@@ -238,7 +346,7 @@ class SeleniumHelper {
             const WINDOW_WIDTH = 1024;
             const WINDOW_HEIGHT = 768;
             await this.driver
-                .get(`file://${uri}`);
+                .get(await getTestUrl(uri));
             await this.driver
                 .executeScript('window.onbeforeunload = undefined;');
             await this.driver.manage().window()

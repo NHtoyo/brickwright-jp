@@ -1,4 +1,5 @@
 import defineDynamicBlock from '../../../src/lib/define-dynamic-block';
+import {Theme} from '../../../src/lib/themes';
 
 import BlockType from 'scratch-vm/src/extension-support/block-type';
 
@@ -57,7 +58,22 @@ class MockBlock {
     constructor (blockInfo, extendedOpcode) {
         // mimic Closure-style inheritance by mixing in `defineDynamicBlock` output as this instance's prototype
         // see also the `Blockly.Block` constructor
-        const prototype = defineDynamicBlock(MockScratchBlocks, categoryInfo, blockInfo, extendedOpcode);
+        const staticBlockInfo = {
+            json: {
+                ...blockInfo,
+                colour: categoryInfo.color1,
+                colourSecondary: categoryInfo.color2,
+                colourTertiary: categoryInfo.color3
+            },
+            blockIconURI: blockInfo.blockIconURI
+        };
+        const prototype = defineDynamicBlock(
+            MockScratchBlocks,
+            categoryInfo,
+            staticBlockInfo,
+            extendedOpcode,
+            Theme.light
+        );
         mixin(this, prototype);
         this.init();
 

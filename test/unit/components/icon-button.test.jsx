@@ -3,6 +3,8 @@ import {shallow} from 'enzyme';
 import IconButton from '../../../src/components/icon-button/icon-button';
 import renderer from 'react-test-renderer';
 
+jest.mock('../../../src/lib/tw-recolor/render.jsx', () => 'img');
+
 describe('IconButtonComponent', () => {
     test('matches snapshot', () => {
         const onClick = jest.fn();

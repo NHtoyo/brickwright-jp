@@ -28,24 +28,15 @@ jobs:
       - name: Setup Node
         uses: actions/setup-node@v4
         with:
-          node-version: 22
+          node-version-file: .nvmrc
           cache: npm
 
       # --ignore-scripts dodges the upstream prepublish.mjs micro:bit-firmware
       # download (often times out); --include=dev is required because Vercel /
       # CI default NODE_ENV=production strips devDependencies, including
       # webpack-cli.
-      # --legacy-peer-deps tolerates the copy-webpack-plugin@14 / webpack@4
-      # peer-dep mismatch that the npm audit fix introduced (we're stuck on
-      # webpack 4 until a real upstream-modernisation pass).
       - name: Install
-        run: npm install --ignore-scripts --include=dev --legacy-peer-deps --no-audit --no-fund
-
-      # eslint-config-scratch 9.x requires @babel/eslint-parser but the
-      # project's package.json still pins the older babel-eslint. Install
-      # @babel/eslint-parser on the side so test:lint can resolve.
-      - name: Install ESLint parser missing from package.json
-        run: npm install --no-save --legacy-peer-deps --no-audit --no-fund @babel/eslint-parser
+        run: npm ci --ignore-scripts --include=dev --no-audit --no-fund
 
       # Check out the source repo so the drift check compares against a real
       # git tree (deterministic — no raw.githubusercontent CDN lag).
@@ -71,14 +62,9 @@ jobs:
           mkdir -p src/generated
           printf "module.exports = '';\n" > src/generated/microbit-hex-url.cjs
 
-      # Informational only — the upstream TurboWarp scratch-gui codebase has
-      # hundreds of pre-existing lint errors (valid-jsdoc, no-unused-vars,
-      # react/prop-types, …) that we inherit unchanged. Surfacing the count
-      # in the CI summary without gating PRs on it.
-      # The upstream TurboWarp scratch-gui codebase has hundreds of pre-existing
-      # lint errors (valid-jsdoc, no-unused-vars, react/prop-types, …) under the
-      # strict eslint-config-scratch. We inherit them unchanged, so lint can't
-      # gate. Surface it as a warning instead of a failing step (no red ✗).
+      # Informational while the inherited upstream lint backlog is triaged.
+      # The import/namespace runtime crash is fixed by the pinned plugin/parser
+      # pair; existing style findings remain visible in this step's output.
       - name: Lint (informational, non-gating)
         run: |
           npm run test:lint || echo "::warning::eslint reported issues (pre-existing upstream, non-gating)"

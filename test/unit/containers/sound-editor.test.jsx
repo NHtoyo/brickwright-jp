@@ -10,6 +10,7 @@ import SoundEditorComponent from '../../../src/components/sound-editor/sound-edi
 jest.mock('react-ga');
 jest.mock('../../../src/lib/audio/audio-buffer-player', () => mockAudioBufferPlayer);
 jest.mock('../../../src/lib/audio/audio-effects', () => mockAudioEffects);
+jest.mock('../../../src/lib/tw-recolor/render.jsx', () => 'img');
 
 describe('Sound Editor Container', () => {
     const mockStore = configureStore();

@@ -14,7 +14,10 @@ class LocalStorageShim {
 }
 
 beforeEach(() => {
-    global.localStorage = new LocalStorageShim();
+    Object.defineProperty(global, 'localStorage', {
+        value: new LocalStorageShim(),
+        configurable: true
+    });
 });
 
 const lightTheme = {
@@ -366,7 +369,10 @@ test('local storage', () => {
 });
 
 test('local storage is resistent to errors', () => {
-    global.localStorage = new LocalStorageShim();
+    Object.defineProperty(global, 'localStorage', {
+        value: new LocalStorageShim(),
+        configurable: true
+    });
     const store = new SettingStore();
     localStorage.getItem = () => {
         throw new Error(':(');
@@ -378,8 +384,10 @@ test('local storage is resistent to errors', () => {
         throw new Error(':(');
     };
     store.setAddonEnabled('cat-blocks', true);
-    // eslint-disable-next-line no-undefined
-    global.localStorage = undefined;
+    Object.defineProperty(global, 'localStorage', {
+        value: null,
+        configurable: true
+    });
     store.readLocalStorage();
     store.setAddonEnabled('cat-blocks', false);
 });
@@ -663,8 +671,8 @@ test('Settings migration 4 -> 5', () => {
 
     // explicit default settings
     global.localStorage.getItem = () => JSON.stringify({
-        '_': 4,
-        'fullscreen': {
+        _: 4,
+        fullscreen: {
             hideToolbar: false
         }
     });
@@ -673,8 +681,8 @@ test('Settings migration 4 -> 5', () => {
 
     // explicit hide, implied default hover setting
     global.localStorage.getItem = () => JSON.stringify({
-        '_': 4,
-        'fullscreen': {
+        _: 4,
+        fullscreen: {
             hideToolbar: true
         }
     });
@@ -683,8 +691,8 @@ test('Settings migration 4 -> 5', () => {
 
     // explicit hide and default hover
     global.localStorage.getItem = () => JSON.stringify({
-        '_': 4,
-        'fullscreen': {
+        _: 4,
+        fullscreen: {
             hideToolbar: true,
             hoverToolbar: true
         }
@@ -694,8 +702,8 @@ test('Settings migration 4 -> 5', () => {
 
     // explicit hide, no hover
     global.localStorage.getItem = () => JSON.stringify({
-        '_': 4,
-        'fullscreen': {
+        _: 4,
+        fullscreen: {
             hideToolbar: true,
             hoverToolbar: false
         }
