@@ -28,9 +28,15 @@ const htmlWebpackPluginCommon = {
 // When this changes, the path for all JS files will change, bypassing any HTTP caches
 const CACHE_EPOCH = 'pentapod';
 
+// Keep development-only UI and trust checks enabled when developers start
+// webpack-dev-server without setting NODE_ENV in their shell.
+const NODE_ENV = process.env.NODE_ENV || (
+    process.env.BUILD_MODE === 'dist' ? 'production' : 'development'
+);
+
 const base = {
-    mode: process.env.NODE_ENV === 'production' ? 'production' : 'development',
-    devtool: process.env.SOURCEMAP || (process.env.NODE_ENV === 'production' ? false : 'cheap-module-source-map'),
+    mode: NODE_ENV === 'production' ? 'production' : 'development',
+    devtool: process.env.SOURCEMAP || (NODE_ENV === 'production' ? false : 'cheap-module-source-map'),
     devServer: {
         contentBase: path.resolve(__dirname, 'build'),
         host: '0.0.0.0',
@@ -51,10 +57,10 @@ const base = {
     output: {
         library: 'GUI',
         filename: (
-            process.env.NODE_ENV === 'production' ? `js/${CACHE_EPOCH}/[name].[contenthash].js` : 'js/[name].js'
+            NODE_ENV === 'production' ? `js/${CACHE_EPOCH}/[name].[contenthash].js` : 'js/[name].js'
         ),
         chunkFilename: (
-            process.env.NODE_ENV === 'production' ? `js/${CACHE_EPOCH}/[name].[contenthash].js` : 'js/[name].js'
+            NODE_ENV === 'production' ? `js/${CACHE_EPOCH}/[name].[contenthash].js` : 'js/[name].js'
         ),
         publicPath: root
     },
@@ -191,7 +197,7 @@ module.exports = [
         },
         plugins: base.plugins.concat([
             new webpack.DefinePlugin({
-                'process.env.NODE_ENV': `"${process.env.NODE_ENV}"`,
+                'process.env.NODE_ENV': JSON.stringify(NODE_ENV),
                 'process.env.DEBUG': Boolean(process.env.DEBUG),
                 'process.env.ENABLE_SERVICE_WORKER': JSON.stringify(process.env.ENABLE_SERVICE_WORKER || ''),
                 'process.env.ROOT': JSON.stringify(root),
@@ -270,7 +276,7 @@ module.exports = [
         ])
     })
 ].concat(
-    process.env.NODE_ENV === 'production' || process.env.BUILD_MODE === 'dist' ? (
+    NODE_ENV === 'production' ? (
         // export as library
         defaultsDeep({}, base, {
             target: 'web',

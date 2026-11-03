@@ -6,6 +6,7 @@ import bindAll from 'lodash.bindall';
 import SecurityManagerModal from '../components/tw-security-manager-modal/security-manager-modal.jsx';
 import SecurityModals from '../lib/tw-security-manager-constants';
 import {getPersistedUnsandboxed, setPersistedUnsandboxed} from '../lib/tw-persisted-unsandboxed.js';
+import {isTrustedLocalSpikeDevelopmentURL} from '../lib/extension-gallery-sources';
 
 /* eslint-disable require-atomic-updates */
 
@@ -29,11 +30,11 @@ const isTrustedExtension = url => (
 
     url.startsWith('http://localhost/') ||
 
-    // For development.
-    url.startsWith('http://localhost:8000/') ||
+    // Trust only the SPIKE extension asset served by the local extensions repo.
+    isTrustedLocalSpikeDevelopmentURL(url) ||
 
-    // Trust OUR GitHub Pages (Domain level encompasses all)
-    url.startsWith('https://crispstrobe.github.io/') ||
+    // Trust only assets from the official extension gallery path.
+    url.startsWith('https://crispstrobe.github.io/extensions/') ||
 
     extensionsTrustedByUser.has(url)
 );

@@ -296,6 +296,11 @@ class LibraryComponent extends React.Component {
                                 ))}
                             </div>
                         }
+                        {this.props.filterBarContent && (
+                            <div className={styles.filterBarContent}>
+                                {this.props.filterBarContent}
+                            </div>
+                        )}
                     </div>
                 )}
                 <div
@@ -385,6 +390,7 @@ LibraryComponent.propTypes = {
         PropTypes.instanceOf(Promise)
     ]),
     filterable: PropTypes.bool,
+    filterBarContent: PropTypes.node,
     id: PropTypes.string.isRequired,
     persistableKey: PropTypes.string,
     intl: intlShape.isRequired,
@@ -401,6 +407,7 @@ LibraryComponent.propTypes = {
 
 LibraryComponent.defaultProps = {
     filterable: true,
+    filterBarContent: null,
     persistableKey: 'name',
     showPlayButton: false
 };
