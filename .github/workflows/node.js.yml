@@ -47,6 +47,16 @@ jobs:
           path: _sb3creator-src
           persist-credentials: false
 
+      # The SPIKE control-center integration test executes the actual
+      # NHtoyo extension source against this repository's Scratch VM.
+      - name: Checkout SPIKE extension source
+        uses: actions/checkout@v4
+        with:
+          repository: NHtoyo/brickwright-jp-extensions
+          ref: work/spikeprime-hub-control-runtime
+          path: extensions-source
+          persist-credentials: false
+
       # Non-gating: emit a warning (not a failing step) if the vendored
       # compiler/examples drifted. Fix with `npm run sync:sb3creator`.
       - name: Check vendored sb3-creator is in sync
@@ -88,4 +98,6 @@ jobs:
           )
 
       - name: Unit tests
+        env:
+          BRICKWRIGHT_SPIKE_EXTENSION_PATH: ${{ github.workspace }}/extensions-source/extensions/CrispStrobe/legospike_turbowarp_transpile.js
         run: npm run test:unit

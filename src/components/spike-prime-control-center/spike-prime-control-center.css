@@ -108,6 +108,62 @@
     margin-bottom: 10px;
 }
 
+.connection-settings {
+    border-bottom: 1px solid #e2e8f0;
+    border-top: 1px solid #e2e8f0;
+    margin: 8px 0;
+    padding: 8px 0;
+}
+
+.connection-settings label {
+    align-items: center;
+    display: flex;
+    gap: 8px;
+    justify-content: space-between;
+}
+
+.mode-status {
+    color: #475569;
+    display: flex;
+    flex-wrap: wrap;
+    font-size: 0.72rem;
+    gap: 4px 12px;
+    margin-top: 5px;
+}
+
+.device-list,
+.source-details {
+    background: #f8fafc;
+    border: 1px solid #e2e8f0;
+    border-radius: 6px;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    margin: 8px 0;
+    padding: 8px;
+}
+
+.device-list button {
+    text-align: left;
+}
+
+.source-details {
+    color: #475569;
+    font-size: 0.72rem;
+    overflow-wrap: anywhere;
+}
+
+.source-details summary {
+    color: #334155;
+    cursor: pointer;
+    font-weight: 600;
+}
+
+.source-url {
+    color: #64748b;
+    font-family: monospace;
+}
+
 .panel button,
 .panel select {
     background-color: #f8fafc;

@@ -28,6 +28,8 @@ describe('SPIKE Prime control center', () => {
             diagnostics: {}
         };
         api = {
+            extensionId: 'spikeprime',
+            hubRouterId: 'test-router',
             getState: jest.fn(() => snapshot),
             connect: jest.fn(() => Promise.resolve()),
             disconnect: jest.fn(() => Promise.resolve()),
@@ -36,7 +38,10 @@ describe('SPIKE Prime control center', () => {
             generatePython: jest.fn(() => 'print("offline")'),
             uploadAndRun: jest.fn(() => Promise.resolve())
         };
-        vm.runtime.brickwrightSpikePrimeControl = api;
+        vm.runtime.peripheralExtensions.spikeprime = {
+            instanceId: 'test-router',
+            getControlCenterAPI: () => api
+        };
     });
 
     test('connect control invokes the extension bridge from a user action', async () => {
@@ -95,7 +100,7 @@ describe('SPIKE Prime control center', () => {
         component.unmount();
     });
 
-    test('offline transfer stays behind a slot review and excludes controller slot', () => {
+    test('slot settings stay visible offline and transfer stays behind review', () => {
         snapshot = {...snapshot, connected: true, controllerSlot: 19};
         api.getState.mockImplementation(() => snapshot);
         const component = mount(
@@ -111,6 +116,25 @@ describe('SPIKE Prime control center', () => {
             19
         );
         expect(api.uploadAndRun).not.toHaveBeenCalled();
+        component.unmount();
+    });
+
+    test('controller and standalone slot settings remain visible before connecting', () => {
+        api.getState.mockImplementation(() => snapshot);
+        const component = mount(
+            <SpikePrimeControlCenter
+                intl={{locale: 'ja-JP'}}
+                vm={vm}
+            />
+        );
+        component.find('button[aria-label="SPIKE ハブ"]').simulate('click');
+        expect(component.find('select[aria-label="接続方式"]')).toHaveLength(1);
+        expect(component.find('select[aria-label="制御プログラム用スロット"] option')).toHaveLength(20);
+        expect(component.find('details select[aria-label="単独実行の保存先"] option')).toHaveLength(19);
+        expect(component.find('button')
+            .filterWhere(button => button.text() === '制御プログラムを導入')
+            .prop('disabled')).toBe(true);
+        expect(component.text()).toContain('制御プログラム用に予約');
         component.unmount();
     });
 });
