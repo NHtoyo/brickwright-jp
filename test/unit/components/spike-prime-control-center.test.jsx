@@ -20,7 +20,7 @@ describe('SPIKE Prime control center', () => {
             protocol: 'spike3',
             controllerReady: false,
             controllerStatus: 'disconnected',
-            controllerSlot: 19,
+            controllerSlot: null,
             angles: {pitch: null, roll: null, yaw: null},
             imuReceivedAt: null,
             portSensors: {},
@@ -42,6 +42,7 @@ describe('SPIKE Prime control center', () => {
             instanceId: 'test-router',
             getControlCenterAPI: () => api
         };
+        api.hubRouterId = 'test-router';
     });
 
     test('connect control invokes the extension bridge from a user action', async () => {
@@ -51,7 +52,7 @@ describe('SPIKE Prime control center', () => {
                 vm={vm}
             />
         );
-        component.find('button[aria-label="SPIKE hub"]').simulate('click');
+        component.find('button[aria-label^="SPIKE hub:"]').simulate('click');
         await act(async () => {
             component
                 .find('button')
@@ -63,7 +64,7 @@ describe('SPIKE Prime control center', () => {
         component.unmount();
     });
 
-    test('shows live sensor zero distinctly from missing data and marks stale readings', () => {
+    test('shows zero, missing and stale readings without opening the detail panel', () => {
         snapshot = {
             ...snapshot,
             connected: true,
@@ -78,11 +79,23 @@ describe('SPIKE Prime control center', () => {
                     pressed: false,
                     receivedAt: Date.now()
                 },
+                B: {
+                    type: 'color',
+                    color: 9,
+                    red: 100,
+                    green: 10,
+                    blue: 0,
+                    reflection: 21,
+                    receivedAt: Date.now()
+                },
                 F: {
                     type: 'distance',
                     distanceMM: 0,
                     receivedAt: Date.now() - 4000
                 }
+            },
+            motorPorts: {
+                E: {absolutePosition: 0, relativePosition: 0, speed: 0, receivedAt: Date.now()}
             }
         };
         api.getState.mockImplementation(() => snapshot);
@@ -92,16 +105,24 @@ describe('SPIKE Prime control center', () => {
                 vm={vm}
             />
         );
-        component.find('button[aria-label="SPIKE ハブ"]').simulate('click');
-        expect(component.text()).toContain('0 °');
-        expect(component.text()).toContain('0 %');
+        expect(component.text()).toContain('0°');
+        expect(component.text()).toContain('0%');
         expect(component.text()).toContain('まだ受信していません');
         expect(component.text()).toContain('値の更新が止まっています');
+        expect(component.find('section[aria-label="SPIKE ハブ"]')).toHaveLength(0);
+        expect(component.find('[aria-label^="A:"]').prop('aria-label')).toContain('0%');
+        expect(component.find('[aria-label^="F:"]').prop('aria-label')).toContain('0 mm');
+        expect(component.find('[aria-label^="B:"]').prop('aria-label')).toContain('赤');
+        component.find('button[aria-label^="SPIKE ハブ:"]').simulate('click');
+        component.find('select[aria-label="ポート表示"]').simulate('change', {target: {value: 'state'}});
+        component.update();
+        expect(component.text()).toContain('押されていません');
+        expect(component.text()).toContain('反射光: 21 %');
         component.unmount();
     });
 
-    test('slot settings stay visible offline and transfer stays behind review', () => {
-        snapshot = {...snapshot, connected: true, controllerSlot: 19};
+    test('slot selection stays available and transfer is guarded by review', async () => {
+        snapshot = {...snapshot, connected: true, deviceName: 'SPIKE Prime', controllerSlot: 19};
         api.getState.mockImplementation(() => snapshot);
         const component = mount(
             <SpikePrimeControlCenter
@@ -109,13 +130,21 @@ describe('SPIKE Prime control center', () => {
                 vm={vm}
             />
         );
-        component.find('button[aria-label="SPIKE hub"]').simulate('click');
-        const slotOptions = component.find('details select option');
-        expect(slotOptions).toHaveLength(19);
-        expect(slotOptions.map(option => option.prop('value'))).not.toContain(
-            19
-        );
+        const slotSelect = component.find('select[aria-label="Standalone slot"]');
+        expect(slotSelect.prop('value')).toBe(0);
+        expect(slotSelect.find('option')).toHaveLength(20);
+        expect(slotSelect.find('option').filterWhere(option => option.prop('value') === 19).prop('disabled')).toBe(true);
+        slotSelect.simulate('change', {target: {value: '7'}});
+        component.find('button').filterWhere(button => button.text() === 'Review transfer').simulate('click');
+        component.update();
+        expect(component.text()).toContain('Clear, upload, and start slot 7');
         expect(api.uploadAndRun).not.toHaveBeenCalled();
+        await act(async () => {
+            component.find('button').filterWhere(button => button.text() === 'Clear, upload, and start slot 7').simulate('click');
+            await Promise.resolve();
+        });
+        expect(api.generatePython).toHaveBeenCalledTimes(1);
+        expect(api.uploadAndRun).toHaveBeenCalledWith(7, 'print("offline")');
         component.unmount();
     });
 
@@ -127,14 +156,147 @@ describe('SPIKE Prime control center', () => {
                 vm={vm}
             />
         );
-        component.find('button[aria-label="SPIKE ハブ"]').simulate('click');
+        expect(component.find('select[aria-label="単独実行の保存先"] option')).toHaveLength(20);
+        expect(component.text()).toContain('PC上のScratch：緑の旗で実行');
+        component.find('button[aria-label^="SPIKE ハブ:"]').simulate('click');
         expect(component.find('select[aria-label="接続方式"]')).toHaveLength(1);
+        component.find('details').filterWhere(details => details.find('summary').text() === '制御プログラム').
+            find('summary').simulate('click');
         expect(component.find('select[aria-label="制御プログラム用スロット"] option')).toHaveLength(20);
-        expect(component.find('details select[aria-label="単独実行の保存先"] option')).toHaveLength(19);
         expect(component.find('button')
             .filterWhere(button => button.text() === '制御プログラムを導入')
             .prop('disabled')).toBe(true);
-        expect(component.text()).toContain('制御プログラム用に予約');
+        component.unmount();
+    });
+
+    test('confirms the slot 0 controller install and only then schedules known old-slot cleanup', async () => {
+        snapshot = {
+            ...snapshot,
+            connected: true,
+            deviceName: 'SPIKE Prime',
+            controllerReady: true,
+            controllerSlot: 19,
+            controllerMigrationSlot: 19
+        };
+        api.getState.mockImplementation(() => snapshot);
+        api.installController.mockResolvedValue({cleanup: {status: 'deleted', previousSlot: 19}});
+        const component = mount(
+            <SpikePrimeControlCenter intl={{locale: 'en'}} vm={vm} />
+        );
+        component.find('button[aria-label^="SPIKE hub:"]').simulate('click');
+        component.find('details').filterWhere(details => details.find('summary').text() === 'Controller').
+            find('summary').simulate('click');
+        expect(component.find('select[aria-label="Controller slot"]').prop('value')).toBe(0);
+        expect(component.text()).toContain('Ready · Controller slot 19');
+        component.find('button').filterWhere(button => button.text() === 'Install controller').simulate('click');
+        component.update();
+        expect(component.text()).toContain('Install to slot 0');
+        expect(component.text()).toContain('remembered controller in slot 19 will be cleared');
+        expect(api.installController).not.toHaveBeenCalled();
+        await act(async () => {
+            component.find('button').filterWhere(button => button.text() === 'Install to slot 0').simulate('click');
+            await Promise.resolve();
+        });
+        expect(api.installController).toHaveBeenCalledWith(0, {previousSlot: 19});
+        component.unmount();
+    });
+
+    test('reports failed old-slot cleanup in Japanese after the new controller is ready', async () => {
+        snapshot = {
+            ...snapshot,
+            connected: true,
+            deviceName: 'SPIKE Prime',
+            controllerReady: true,
+            controllerSlot: 19,
+            controllerMigrationSlot: 19
+        };
+        api.getState.mockImplementation(() => snapshot);
+        api.installController.mockResolvedValue({
+            cleanup: {
+                status: 'failed',
+                previousSlot: 19,
+                newControllerReady: true,
+                error: {name: 'Error', message: 'clear response timed out'}
+            }
+        });
+        const component = mount(<SpikePrimeControlCenter intl={{locale: 'ja-JP'}} vm={vm} />);
+        component.find('button[aria-label^="SPIKE ハブ:"]').simulate('click');
+        component.find('details').filterWhere(details => details.find('summary').text() === '制御プログラム')
+            .find('summary').simulate('click');
+        component.find('button').filterWhere(button => button.text() === '制御プログラムを導入').simulate('click');
+        component.update();
+        await act(async () => {
+            component.find('button').filterWhere(button => button.text().includes('次のスロットに導入 0'))
+                .simulate('click');
+            await Promise.resolve();
+        });
+        component.update();
+        expect(api.installController).toHaveBeenCalledWith(0, {previousSlot: 19});
+        expect(component.text()).toContain('新しい制御プログラムは起動しましたが');
+        expect(component.text()).toContain('clear response timed out');
+        expect(component.text()).not.toContain('[object Object]');
+        expect(component.text()).not.toContain('次のスロットに導入 0');
+        component.unmount();
+    });
+
+    test('does not describe the controller as ready when install explicitly reports not ready', async () => {
+        snapshot = {
+            ...snapshot,
+            connected: true,
+            deviceName: 'SPIKE Prime',
+            controllerReady: true,
+            controllerSlot: 19,
+            controllerMigrationSlot: 19
+        };
+        api.getState.mockImplementation(() => snapshot);
+        api.installController.mockResolvedValue({
+            cleanup: {
+                status: 'failed',
+                previousSlot: 19,
+                newControllerReady: false,
+                error: {name: 'Error', message: 'hello timed out'}
+            }
+        });
+        const component = mount(<SpikePrimeControlCenter intl={{locale: 'en'}} vm={vm} />);
+        component.find('button[aria-label^="SPIKE hub:"]').simulate('click');
+        component.find('details').filterWhere(details => details.find('summary').text() === 'Controller')
+            .find('summary').simulate('click');
+        component.find('button').filterWhere(button => button.text() === 'Install controller').simulate('click');
+        component.update();
+        await act(async () => {
+            component.find('button').filterWhere(button => button.text().includes('Install to slot 0'))
+                .simulate('click');
+            await Promise.resolve();
+        });
+        component.update();
+        expect(component.text()).toContain('The new controller did not reach ready state.');
+        expect(component.text()).not.toContain('The new controller is ready');
+        expect(component.text()).toContain('Install to slot 0');
+        component.unmount();
+    });
+
+    test('keeps a newly reserved destination visible, clears old confirmation, and blocks a write', async () => {
+        snapshot = {...snapshot, connected: true, deviceName: 'SPIKE Prime'};
+        api.getState.mockImplementation(() => snapshot);
+        const component = mount(
+            <SpikePrimeControlCenter intl={{locale: 'en'}} vm={vm} />
+        );
+        component.find('select[aria-label="Standalone slot"]').simulate('change', {target: {value: '1'}});
+        expect(component.find('select[aria-label="Standalone slot"]').prop('value')).toBe(1);
+        component.find('button').filterWhere(button => button.text() === 'Review transfer').simulate('click');
+        expect(component.text()).toContain('Clear, upload, and start slot 1');
+        snapshot = {...snapshot, controllerSlot: 1};
+        await act(async () => {
+            component.instance().refresh();
+            await Promise.resolve();
+        });
+        component.update();
+        expect(component.find('select[aria-label="Standalone slot"]').prop('value')).toBe(1);
+        expect(component.find('select[aria-label="Standalone slot"] option')
+            .filterWhere(option => option.prop('value') === 1).prop('disabled')).toBe(true);
+        expect(component.text()).not.toContain('Clear, upload, and start slot 1');
+        expect(component.find('button').filterWhere(button => button.text() === 'Review transfer').prop('disabled')).toBe(true);
+        expect(api.uploadAndRun).not.toHaveBeenCalled();
         component.unmount();
     });
 });

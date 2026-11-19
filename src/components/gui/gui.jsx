@@ -24,6 +24,7 @@ import chromeStyles from './compact-chrome.css';
 import CostumeLibrary from '../../containers/costume-library.jsx';
 import BackdropLibrary from '../../containers/backdrop-library.jsx';
 import Watermark from '../../containers/watermark.jsx';
+import SpikePrimeControlCenter from '../spike-prime-control-center/spike-prime-control-center.jsx';
 
 import Backpack from '../../containers/backpack.jsx';
 import BrowserModal from '../browser-modal/browser-modal.jsx';
@@ -414,7 +415,13 @@ const GUIComponent = props => {
                                         />
                                     </Tab>
                                 </TabList>
-                                <TabPanel className={tabClassNames.tabPanel}>
+                                <TabPanel
+                                    className={[tabClassNames.tabPanel, styles.blocksTabPanel].join(' ')}
+                                >
+                                    <SpikePrimeControlCenter
+                                        intl={intl}
+                                        vm={vm}
+                                    />
                                     <Box className={styles.blocksWrapper}>
                                         <Blocks
                                             key={`${blocksId}/${theme.id}`}

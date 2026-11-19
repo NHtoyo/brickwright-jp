@@ -9,7 +9,6 @@ import Box from '../box/box.jsx';
 import Button from '../button/button.jsx';
 import ToggleButtons from '../toggle-buttons/toggle-buttons.jsx';
 import Controls from '../../containers/controls.jsx';
-import SpikePrimeControlCenter from '../spike-prime-control-center/spike-prime-control-center.jsx';
 import {getStageDimensions} from '../../lib/screen-utils';
 import {STAGE_DISPLAY_SIZES, STAGE_SIZE_MODES} from '../../lib/layout-constants';
 
@@ -148,10 +147,6 @@ const StageHeaderComponent = function (props) {
                 >
                     <div className={styles.hardwareControls}>
                         <Controls vm={vm} />
-                        <SpikePrimeControlCenter
-                            intl={props.intl}
-                            vm={vm}
-                        />
                     </div>
                     <div
                         className={styles.fullscreenButtonsRow}
@@ -209,10 +204,6 @@ const StageHeaderComponent = function (props) {
                         <Controls
                             vm={vm}
                             isSmall={stageSizeMode === STAGE_SIZE_MODES.small}
-                        />
-                        <SpikePrimeControlCenter
-                            intl={props.intl}
-                            vm={vm}
                         />
                     </div>
                     <div

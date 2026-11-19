@@ -81,13 +81,13 @@ const loadRealSpikeExtension = vm => {
     return extension;
 };
 
-const motorNotification = () => {
+const motorNotification = (port = 5, absolutePosition = -42) => {
     const record = new Uint8Array(12);
     record[0] = 0x0a;
-    record[1] = 5; // Port F.
+    record[1] = port;
     record[2] = 0x31;
     const view = new DataView(record.buffer);
-    view.setInt16(3, -42, true);
+    view.setInt16(3, absolutePosition, true);
     view.setInt16(5, 75, true);
     record[7] = 12;
     view.setInt32(8, 1380, true);
@@ -141,20 +141,46 @@ describe('SPIKE control center with the actual extension source and Scratch VM',
                     vm={vm}
                 />
             );
-            component.find('button[aria-label="SPIKE hub"]').simulate('click');
             await act(async () => {
                 await new Promise(resolve => setTimeout(resolve, 0));
             });
             expect(extension.isConnected()).toBe(true);
-            expect(component.text()).toContain('Connected · Fake SPIKE Prime');
-            expect(component.text()).toContain('Motor');
-            expect(component.text()).toContain('-42 °');
-            expect(component.text()).toContain('1380 °');
-            expect(component.text()).toContain('12 °/s');
+            expect(component.text()).toContain('Connected');
+            expect(component.find('[aria-label^="A:"]')).toHaveLength(1);
+            expect(component.find('[aria-label^="F:"]')).toHaveLength(1);
+            expect(component.find('[aria-label^="F:"]').prop('aria-label')).toContain('Motor');
+            expect(component.text()).toContain('-42°');
+            expect(component.text()).toContain('speed 12');
             expect(component.text()).toContain('Force sensor');
-            expect(component.text()).toContain('20 %');
+            expect(component.text()).toContain('20%');
+            // Live port values are visible before the optional detail panel is
+            // opened, so routine monitoring never depends on a popup.
+            expect(component.find('section[aria-label="SPIKE hub"]')).toHaveLength(0);
 
-            extension.installHubController = jest.fn(() => Promise.resolve());
+            // Exercise the installed VM's real greenFlag sequence (which emits
+            // PROJECT_STOP_ALL followed synchronously by PROJECT_START), then
+            // feed another decoded BLE record and ensure the live row updates.
+            const linkBeforeScratchRun = hub._link;
+            vm.greenFlag();
+            hub._handleDeviceNotification(notification);
+            await act(async () => {
+                await new Promise(resolve => setTimeout(resolve, 220));
+            });
+            component.update();
+            expect(extension.isConnected()).toBe(true);
+            expect(hub._link).toBe(linkBeforeScratchRun);
+            expect(component.text()).toContain('-42°');
+
+            component.find('button[aria-label^="SPIKE hub:"]').simulate('click');
+            component.find('details').filterWhere(details => details.find('summary').text() === 'Controller')
+                .find('summary').simulate('click');
+            expect(component.text()).toContain('Connected · Fake SPIKE Prime');
+            expect(component.text()).toContain('Absolute angle: -42 °');
+            expect(component.text()).toContain('Counted angle: 1380 °');
+
+            jest.spyOn(api, 'installController').mockResolvedValue({
+                cleanup: {status: 'not-requested'}
+            });
             component.find('select[aria-label="Controller slot"]').simulate('change', {
                 target: {value: '7'}
             });
@@ -168,7 +194,53 @@ describe('SPIKE control center with the actual extension source and Scratch VM',
             await act(async () => {
                 await Promise.resolve();
             });
-            expect(extension.installHubController).toHaveBeenCalledWith({SLOT: 7});
+            expect(api.installController).toHaveBeenCalledWith(7);
+            component.unmount();
+        }
+    );
+
+    testIfExtensionAvailable(
+        'keeps zero and negative measurements visible and marks a notification stream stale',
+        async () => {
+            const vm = new VM();
+            loadRealSpikeExtension(vm);
+            const router = vm.runtime.peripheralExtensions.spikeprime;
+            const hub = router._spike3;
+            router._activeProtocol = 'spike3';
+            hub._link = {
+                isConnected: () => true,
+                _device: {name: 'Fake SPIKE Prime'}
+            };
+            const feedMotor = record => {
+                const notification = new Uint8Array(3 + record.length);
+                notification[0] = 0x3c;
+                notification[1] = record.length;
+                notification[2] = 0;
+                notification.set(record, 3);
+                hub._handleDeviceNotification(notification);
+            };
+            feedMotor(motorNotification(5, 0));
+
+            const component = mount(
+                <SpikePrimeControlCenter intl={{locale: 'en'}} vm={vm} />
+            );
+            expect(component.text()).toContain('0°');
+            expect(component.find('[aria-label^="A:"]').prop('aria-label')).toContain('No reading yet');
+
+            feedMotor(motorNotification(4, -42));
+            await act(async () => {
+                await new Promise(resolve => setTimeout(resolve, 220));
+            });
+            component.update();
+            expect(component.text()).toContain('-42°');
+            hub._portValues.E.receivedAt = Date.now() - 4000;
+            await act(async () => {
+                await new Promise(resolve => setTimeout(resolve, 220));
+            });
+            component.update();
+            expect(component.text()).toContain('Reading is stale');
+            expect(component.text()).toContain('-42°');
+            expect(component.find('[aria-label^="E:"]').prop('aria-label')).toContain('last value: -42°');
             component.unmount();
         }
     );

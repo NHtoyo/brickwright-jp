@@ -7,6 +7,10 @@ import styles from './spike-prime-control-center.css';
 
 const PORTS = ['A', 'B', 'C', 'D', 'E', 'F'];
 const STALE_AFTER_MS = 1500;
+const SPIKE_COLOR_NAMES = {
+    en: ['black', 'magenta', 'purple', 'blue', 'azure', 'turquoise', 'green', 'yellow', 'orange', 'red', 'white'],
+    ja: ['黒', 'マゼンタ', '紫', '青', '水色', 'ターコイズ', '緑', '黄', 'オレンジ', '赤', '白']
+};
 
 const words = {
     en: {
@@ -24,6 +28,7 @@ const words = {
         chooseDevice: 'Connect',
         connected: 'Connected',
         disconnected: 'Disconnected',
+        connectionError: 'Connection error',
         unavailable: 'Add the SPIKE Prime extension from Add-ons to connect a hub.',
         firmware: 'Hub OS',
         controller: 'Controller',
@@ -42,6 +47,14 @@ const words = {
         install: 'Install controller',
         installTo: 'Install to slot',
         controllerWarning: 'The hub slot contents cannot be read here. Installing clears the selected slot.',
+        oldControllerRemoval: 'After the new controller returns hello and is ready, the remembered controller ' +
+            'in slot {slot} will be cleared.',
+        controllerNotReady: 'The new controller did not reach ready state. Previous controller slot {slot} ' +
+            'was not removed. {reason}',
+        controllerInstallNotReady: 'The controller did not reach ready state. {reason}',
+        controllerCleanupUnconfirmed: 'The new controller is ready, but cleanup of previous slot {slot} ' +
+            'was not confirmed. {reason}',
+        inspectDiagnostics: 'Check the communication diagnostics.',
         cancel: 'Cancel',
         installing: 'Installing and verifying…',
         imu: 'Hub sensors',
@@ -58,26 +71,32 @@ const words = {
         force: 'Force sensor',
         matrix: 'Light matrix',
         unknownDevice: 'Device',
-        angle: 'Angle',
-        relative: 'Accumulated angle',
-        speed: 'Speed',
         pressed: 'Pressed',
         released: 'Released',
         forceValue: 'Force',
         distanceValue: 'Distance',
         colorValue: 'Detected color',
         rgb: 'RGB',
-        offline: 'Standalone program',
-        offlineHelp: 'Uploads and starts converted Python on the hub. Scratch real-time runs stay on this PC.',
-        slot: 'Hub slot',
-        review: 'Review upload',
         confirmUpload: 'Clear, upload, and start slot',
         slotWarning: 'Slot contents cannot be inspected. This operation clears the ' +
             'selected slot. The controller slot is reserved.',
-        working: 'Working…',
         stopHub: 'Stop hub program',
         error: 'Action failed',
-        close: 'Close'
+        close: 'Close',
+        liveView: 'Live hub view',
+        pcRunLabel: 'PC Scratch: use the green flag',
+        standaloneLabel: 'Hub standalone',
+        runStandalone: 'Review transfer',
+        absoluteAngle: 'Absolute angle',
+        countedAngle: 'Counted angle',
+        rawSpeed: 'speed',
+        displayMode: 'Port display',
+        valueMode: 'Value',
+        stateMode: 'State / reflection',
+        reflection: 'Reflection',
+        noColor: 'No color detected',
+        noReflection: 'Reflection unavailable',
+        lastValue: 'last value'
     },
     ja: {
         title: 'SPIKE ハブ',
@@ -94,6 +113,7 @@ const words = {
         chooseDevice: '接続',
         connected: '接続済み',
         disconnected: '未接続',
+        connectionError: '接続エラー',
         unavailable: 'ハブを接続するには「アドオン」からSPIKE Prime拡張を追加してください。',
         firmware: 'Hub OS',
         controller: '制御プログラム',
@@ -112,6 +132,11 @@ const words = {
         install: '制御プログラムを導入',
         installTo: '次のスロットに導入',
         controllerWarning: 'ハブ内のスロット内容はここでは読み取れません。導入すると選択したスロットを消去します。',
+        oldControllerRemoval: '新しい制御プログラムのhello応答を確認した後、以前のスロット {slot} を消去します。',
+        controllerNotReady: '新しい制御プログラムの起動を確認できません。以前のスロット {slot} は消去していません。{reason}',
+        controllerInstallNotReady: '制御プログラムの起動を確認できませんでした。{reason}',
+        controllerCleanupUnconfirmed: '新しい制御プログラムは起動しましたが、以前のスロット {slot} の消去を確認できませんでした。{reason}',
+        inspectDiagnostics: '通信診断を確認してください。',
         cancel: '戻る',
         installing: '転送・起動を確認中…',
         imu: 'ハブのセンサー',
@@ -128,25 +153,31 @@ const words = {
         force: 'フォースセンサー',
         matrix: 'ライトマトリクス',
         unknownDevice: '機器',
-        angle: '角度',
-        relative: '積算角度',
-        speed: '速度',
         pressed: '押されています',
         released: '押されていません',
         forceValue: '力',
         distanceValue: '距離',
         colorValue: '検出色',
         rgb: 'RGB',
-        offline: 'ハブ単独実行',
-        offlineHelp: 'ScratchをPythonに変換してハブへ転送・起動します。通常のリアルタイム実行はこのPC上で動きます。',
-        slot: 'ハブのスロット',
-        review: '転送内容を確認',
         confirmUpload: 'スロットを消去して転送・起動',
         slotWarning: 'スロットの内容は確認できません。実行すると選択したスロットを消去します。制御プログラムのスロットは選べません。',
-        working: '処理中…',
         stopHub: 'ハブのプログラムを停止',
         error: '操作に失敗しました',
-        close: '閉じる'
+        close: '閉じる',
+        liveView: 'ハブのライブ表示',
+        pcRunLabel: 'PC上のScratch：緑の旗で実行',
+        standaloneLabel: 'ハブで単独実行',
+        runStandalone: '転送内容を確認',
+        absoluteAngle: '絶対角度',
+        countedAngle: 'カウント角度',
+        rawSpeed: '速度値',
+        displayMode: 'ポート表示',
+        valueMode: '測定値',
+        stateMode: '状態・反射光',
+        reflection: '反射光',
+        noColor: '色を検出していません',
+        noReflection: '反射光の値は未受信です',
+        lastValue: '最後の値'
     }
 };
 
@@ -164,6 +195,7 @@ class SpikePrimeControlCenter extends React.Component {
         super(props);
         this.state = {
             open: false,
+            displayMode: 'value',
             snapshot: null,
             now: Date.now(),
             busy: false,
@@ -171,15 +203,15 @@ class SpikePrimeControlCenter extends React.Component {
             connectionMode: 'web-ble',
             peripherals: [],
             buildInfo: null,
-            controllerSlot: 19,
+            controllerSlot: 0,
             controllerConfirmation: null,
-            standaloneSlot: 1,
+            standaloneSlot: 0,
             standaloneConfirmation: null
         };
         this.mounted = false;
         this.poll = null;
         this.routerAdapters = new WeakMap();
-        this.controllerSlotTouched = false;
+        this.currentConnectionIdentity = null;
         bindAll(this, [
             'refresh', 'handleTogglePanel', 'handleClosePanel', 'handleConnect', 'handleDisconnect',
             'handleStopHub', 'handleControllerSlotChanged', 'handleReviewControllerSlot',
@@ -187,7 +219,7 @@ class SpikePrimeControlCenter extends React.Component {
             'handleStandaloneSlotChanged', 'handleReviewStandaloneSlot',
             'handleConfirmStandaloneRun', 'handleCancelStandaloneRun',
             'handleConnectionModeChanged', 'handlePeripheralListUpdate',
-            'handlePeripheralRequestError', 'handleConnectPeripheral'
+            'handlePeripheralRequestError', 'handleConnectPeripheral', 'handleDisplayModeChanged'
         ]);
     }
 
@@ -268,6 +300,12 @@ class SpikePrimeControlCenter extends React.Component {
         return bridge || null;
     }
 
+    getConnectionIdentity (snapshot) {
+        const router = this.getRouter();
+        const link = router && router.active && router.active._link;
+        return link || (snapshot && (snapshot.deviceId || snapshot.deviceName)) || null;
+    }
+
     updateIfMounted (nextState) {
         if (this.mounted) this.setState(nextState);
     }
@@ -280,8 +318,22 @@ class SpikePrimeControlCenter extends React.Component {
         } catch (error) {
             this.updateIfMounted({error: error.message || String(error)});
         }
-        if (snapshot && Number.isInteger(snapshot.controllerSlot) && !this.controllerSlotTouched) {
-            this.setState({controllerSlot: snapshot.controllerSlot});
+        const nextConnectionIdentity = snapshot && snapshot.connected ?
+            this.getConnectionIdentity(snapshot) : null;
+        const wasConnected = Boolean(this.state.snapshot && this.state.snapshot.connected);
+        if (wasConnected && (!snapshot || !snapshot.connected ||
+            this.currentConnectionIdentity !== nextConnectionIdentity)) {
+            this.setState({controllerConfirmation: null, standaloneConfirmation: null});
+        }
+        this.currentConnectionIdentity = nextConnectionIdentity;
+        const controllerSlot = snapshot && Number.isInteger(snapshot.controllerSlot) ?
+            snapshot.controllerSlot : null;
+        if (Number.isInteger(controllerSlot) && this.state.standaloneSlot === controllerSlot &&
+            this.state.standaloneConfirmation !== null) {
+            // Keep the chosen destination visible if it becomes reserved, but
+            // clear an outdated confirmation. The UI blocks the write until a
+            // different slot is explicitly selected.
+            this.setState({standaloneConfirmation: null});
         }
         this.updateIfMounted({snapshot, now: Date.now()});
         this.loadBuildInfo(snapshot);
@@ -323,8 +375,37 @@ class SpikePrimeControlCenter extends React.Component {
         if (!api || typeof api[name] !== 'function') return;
         this.updateIfMounted({busy: true, error: ''});
         try {
-            await api[name](...args);
+            const result = await api[name](...args);
+            const expectedPreviousSlot = name === 'installController' && args[1] && args[1].previousSlot;
             if (name === 'installController') {
+                const cleanup = result && result.cleanup;
+                const rawReason = cleanup && (cleanup.error || cleanup.reason || cleanup.status);
+                const reason = rawReason && typeof rawReason === 'object' ? rawReason.message : rawReason;
+                if (cleanup && cleanup.newControllerReady === false) {
+                    const message = Number.isInteger(expectedPreviousSlot) ?
+                        this.getWords().controllerNotReady
+                            .replace('{slot}', expectedPreviousSlot)
+                            .replace('{reason}', reason || this.getWords().inspectDiagnostics) :
+                        this.getWords().controllerInstallNotReady
+                            .replace('{reason}', reason || this.getWords().inspectDiagnostics);
+                    throw new Error(message);
+                }
+                if (Number.isInteger(expectedPreviousSlot) && cleanup && cleanup.status !== 'deleted') {
+                    if (cleanup.newControllerReady === true) {
+                        this.updateIfMounted({
+                            controllerConfirmation: null,
+                            error: this.getWords().controllerCleanupUnconfirmed
+                                .replace('{slot}', expectedPreviousSlot)
+                                .replace('{reason}', reason || this.getWords().inspectDiagnostics)
+                        });
+                        this.refresh();
+                        return;
+                    }
+                    const message = this.getWords().controllerNotReady
+                        .replace('{slot}', expectedPreviousSlot)
+                        .replace('{reason}', reason || this.getWords().inspectDiagnostics);
+                    throw new Error(message);
+                }
                 this.updateIfMounted({controllerConfirmation: null});
             }
             this.refresh();
@@ -338,7 +419,7 @@ class SpikePrimeControlCenter extends React.Component {
 
     async runStandalone (slot) {
         const api = this.getAPI();
-        if (!api) return;
+        if (!api || !Number.isInteger(slot) || this.isReservedSlot(slot)) return;
         this.updateIfMounted({busy: true, error: ''});
         try {
             const source = api.generatePython();
@@ -357,6 +438,13 @@ class SpikePrimeControlCenter extends React.Component {
         const pageLanguage = typeof document === 'undefined' ? '' : document.documentElement.lang;
         const language = locale || pageLanguage;
         return language.toLowerCase().startsWith('ja') ? words.ja : words.en;
+    }
+
+    getColorName (value) {
+        if (!hasNumber(value) || value < 0) return this.getWords().noColor;
+        const language = this.getWords() === words.ja ? 'ja' : 'en';
+        return SPIKE_COLOR_NAMES[language][value] ||
+            `${language === 'ja' ? '色番号' : 'Color code'} ${value}`;
     }
 
     handleTogglePanel () {
@@ -406,16 +494,39 @@ class SpikePrimeControlCenter extends React.Component {
     }
 
     handleControllerSlotChanged (event) {
-        this.controllerSlotTouched = true;
-        this.setState({controllerSlot: Number(event.target.value), controllerConfirmation: null});
+        const controllerSlot = event.target.value === '' ? null : Number(event.target.value);
+        this.setState({controllerSlot, controllerConfirmation: null});
     }
 
     handleReviewControllerSlot () {
-        this.setState({controllerConfirmation: this.state.controllerSlot});
+        if (!Number.isInteger(this.state.controllerSlot)) return;
+        const knownSlot = this.state.snapshot && this.state.snapshot.controllerMigrationSlot;
+        const previousSlot = Number.isInteger(knownSlot) && knownSlot !== this.state.controllerSlot ?
+            knownSlot : null;
+        this.setState({
+            controllerConfirmation: {
+                slot: this.state.controllerSlot,
+                previousSlot,
+                connectionIdentity: this.currentConnectionIdentity
+            }
+        });
     }
 
     handleConfirmControllerInstall () {
-        this.runAction('installController', this.state.controllerConfirmation);
+        const confirmation = this.state.controllerConfirmation;
+        if (!confirmation) return;
+        const currentIdentity = this.getConnectionIdentity(this.state.snapshot);
+        const currentPreviousSlot = this.state.snapshot && this.state.snapshot.controllerMigrationSlot;
+        if (!this.state.snapshot || !this.state.snapshot.connected ||
+            !confirmation.connectionIdentity || confirmation.connectionIdentity !== currentIdentity ||
+            confirmation.previousSlot !== (Number.isInteger(currentPreviousSlot) ? currentPreviousSlot : null)) {
+            this.setState({controllerConfirmation: null});
+            return;
+        }
+        const options = Number.isInteger(confirmation.previousSlot) ?
+            {previousSlot: confirmation.previousSlot} : null;
+        if (options) this.runAction('installController', confirmation.slot, options);
+        else this.runAction('installController', confirmation.slot);
     }
 
     handleCancelControllerInstall () {
@@ -423,19 +534,46 @@ class SpikePrimeControlCenter extends React.Component {
     }
 
     handleStandaloneSlotChanged (event) {
-        this.setState({standaloneSlot: Number(event.target.value), standaloneConfirmation: null});
+        const standaloneSlot = event.target.value === '' ? null : Number(event.target.value);
+        this.setState({standaloneSlot, standaloneConfirmation: null});
     }
 
     handleReviewStandaloneSlot () {
-        this.setState({standaloneConfirmation: this.state.standaloneSlot});
+        if (!Number.isInteger(this.state.standaloneSlot) ||
+            this.isReservedSlot(this.state.standaloneSlot)) return;
+        this.setState({
+            standaloneConfirmation: {
+                slot: this.state.standaloneSlot,
+                connectionIdentity: this.currentConnectionIdentity
+            }
+        });
     }
 
     handleConfirmStandaloneRun () {
-        this.runStandalone(this.state.standaloneConfirmation);
+        const confirmation = this.state.standaloneConfirmation;
+        const currentIdentity = this.getConnectionIdentity(this.state.snapshot);
+        if (!confirmation || confirmation.slot !== this.state.standaloneSlot ||
+            !this.state.snapshot || !this.state.snapshot.connected ||
+            !confirmation.connectionIdentity || confirmation.connectionIdentity !== currentIdentity ||
+            this.isReservedSlot(this.state.standaloneSlot)) {
+            this.setState({standaloneConfirmation: null});
+            return;
+        }
+        this.runStandalone(confirmation.slot);
     }
 
     handleCancelStandaloneRun () {
         this.setState({standaloneConfirmation: null});
+    }
+
+    isReservedSlot (slot) {
+        const snapshot = this.state.snapshot;
+        return Boolean(snapshot && Number.isInteger(snapshot.controllerSlot) &&
+            slot === snapshot.controllerSlot);
+    }
+
+    handleDisplayModeChanged (event) {
+        this.setState({displayMode: event.target.value});
     }
 
     renderSensor (snapshot, value, receivedAt) {
@@ -448,16 +586,85 @@ class SpikePrimeControlCenter extends React.Component {
 
     renderPort (port, snapshot) {
         const w = this.getWords();
-        const portSensor = snapshot.portSensors && snapshot.portSensors[port];
-        const motor = snapshot.motorPorts && snapshot.motorPorts[port];
+        const portSensor = snapshot && snapshot.portSensors && snapshot.portSensors[port];
+        const motor = snapshot && snapshot.motorPorts && snapshot.motorPorts[port];
         const reading = portSensor || motor || {};
         const type = reading.type || (motor ? 'motor' : null);
         const receivedAt = reading.receivedAt;
         const detected = Boolean(type && Number.isFinite(receivedAt));
-        const stale = detected && this.state.now - receivedAt > STALE_AFTER_MS;
+        const stale = Boolean(snapshot && snapshot.connected && detected &&
+            this.state.now - receivedAt > STALE_AFTER_MS);
         const deviceLabel = type === 'motor' ? w.motor : type === 'color' ? w.color :
             type === 'distance' ? w.distance : type === 'force' ? w.force :
                 type === 'matrix3' ? w.matrix : w.unknownDevice;
+        const icon = type === 'motor' ? '⚙' : type === 'force' ? '◉' :
+            type === 'distance' ? '⌁' : type === 'color' ? '◐' : type === 'matrix3' ? '▦' : '·';
+        let value = w.noReading;
+        if (detected && type === 'motor') {
+            const angle = this.state.displayMode === 'state' ?
+                ((motor && motor.relativePosition) ?? reading.relativePosition ?? reading.degreesCounted) :
+                ((motor && motor.absolutePosition) ?? reading.absolutePosition);
+            value = hasNumber(angle) ? `${angle}°` : w.noReading;
+        } else if (detected && type === 'force') {
+            value = this.state.displayMode === 'state' ?
+                (typeof reading.pressed === 'boolean' ? (reading.pressed ? w.pressed : w.released) : w.noReading) :
+                (hasNumber(reading.force) ? `${reading.force}%` : w.noReading);
+        } else if (detected && type === 'distance') {
+            value = hasNumber(reading.distanceMM) ? `${reading.distanceMM} mm` : w.noReading;
+        } else if (detected && type === 'color') {
+            value = this.state.displayMode === 'state' ?
+                (hasNumber(reading.reflection) ? `${w.reflection} ${reading.reflection}%` : w.noReflection) :
+                this.getColorName(reading.color);
+        } else if (detected) {
+            value = deviceLabel;
+        }
+        const accessibleValue = stale ? `${w.stale}; ${w.lastValue}: ${value}` : value;
+        const ariaLabel = `${port}: ${deviceLabel}, ${accessibleValue}`;
+        const portClassName = `${styles.livePort} ${stale ? styles.portStale : ''}`;
+        const speed = (motor && motor.speed) ?? reading.speed;
+        return (
+            <div
+                aria-label={ariaLabel}
+                className={portClassName}
+                key={port}
+            >
+                <div className={styles.portIdentity}>
+                    <span
+                        aria-hidden="true"
+                        className={styles.deviceIcon}
+                    >{icon}</span>
+                    <strong>{port}</strong>
+                </div>
+                <span
+                    className={styles.portValue}
+                    title={!snapshot || !snapshot.connected ? w.noConnection : value}
+                >
+                    {!snapshot || !snapshot.connected ? w.noConnection : value}
+                </span>
+                <span className={styles.portDevice}>{type && type !== 'motor' && !stale ? deviceLabel : ''}</span>
+                {stale ? <span className={styles.stale}>{w.stale}</span> : null}
+                {type === 'motor' && detected && !stale ? <span className={styles.portSpeed}>
+                    {w.rawSpeed} {hasNumber(speed) ? speed : '—'}
+                </span> : null}
+            </div>
+        );
+    }
+
+    renderPortDetails (port, snapshot) {
+        const w = this.getWords();
+        const portSensor = snapshot && snapshot.portSensors && snapshot.portSensors[port];
+        const motor = snapshot && snapshot.motorPorts && snapshot.motorPorts[port];
+        const reading = portSensor || motor || {};
+        const type = reading.type || (motor ? 'motor' : null);
+        const receivedAt = reading.receivedAt;
+        const detected = Boolean(type && Number.isFinite(receivedAt));
+        const stale = Boolean(snapshot && snapshot.connected && detected &&
+            this.state.now - receivedAt > STALE_AFTER_MS);
+        const absolutePosition = (motor && motor.absolutePosition) ?? reading.absolutePosition;
+        const countedPosition = (motor && motor.relativePosition) ??
+            reading.relativePosition ?? reading.degreesCounted;
+        const speed = (motor && motor.speed) ?? reading.speed;
+        const colorDescription = this.getColorName(reading.color);
         return (
             <div
                 className={`${styles.portCard} ${stale ? styles.portStale : ''}`}
@@ -465,48 +672,43 @@ class SpikePrimeControlCenter extends React.Component {
             >
                 <div className={styles.portHeading}>
                     <strong>{port}</strong>
-                    <span>{snapshot.connected ? (detected ? deviceLabel : w.noReading) : w.noConnection}</span>
+                    <span>{type || w.noReading}</span>
                 </div>
+                {!snapshot || !snapshot.connected ? <div>{w.noConnection}</div> : null}
+                {snapshot && snapshot.connected && !detected ? <div>{w.noReading}</div> : null}
                 {type === 'motor' && detected ? (
                     <>
-                        <div>{w.angle}{': '}{withUnit(motor.absolutePosition ?? reading.absolutePosition, '°')}</div>
-                        <div>
-                            {w.relative}{': '}
-                            {withUnit(
-                                motor.relativePosition ?? reading.relativePosition ?? reading.degreesCounted,
-                                '°'
-                            )}
-                        </div>
-                        <div>{w.speed}{': '}{withUnit(motor.speed ?? reading.speed, '°/s')}</div>
+                        <div>{w.absoluteAngle}{': '}{withUnit(absolutePosition, '°')}</div>
+                        <div>{w.countedAngle}{': '}{withUnit(countedPosition, '°')}</div>
+                        <div>{w.rawSpeed}{': '}{hasNumber(speed) ? speed : '—'}</div>
                     </>
                 ) : null}
                 {type === 'force' && detected ? (
-                    <>
-                        <div>{w.forceValue}{': '}{withUnit(reading.force, '%')}</div>
-                        <div>{reading.pressed ? w.pressed : w.released}</div>
-                    </>
+                    <div>
+                        {this.state.displayMode === 'state' ?
+                            (typeof reading.pressed === 'boolean' ?
+                                (reading.pressed ? w.pressed : w.released) : w.noReading) :
+                            `${w.forceValue}: ${withUnit(reading.force, '%')}`}
+                    </div>
                 ) : null}
                 {type === 'distance' && detected ? (
-                    <div>
-                        {w.distanceValue}{': '}{withUnit(reading.distanceMM, 'mm')}
-                    </div>
+                    <div>{w.distanceValue}{': '}{withUnit(reading.distanceMM, 'mm')}</div>
                 ) : null}
                 {type === 'color' && detected ? (
-                    <>
-                        <div>{w.colorValue}{': '}{hasNumber(reading.color) ? reading.color : '—'}</div>
-                        <div>
-                            {w.rgb}{': '}
-                            {hasNumber(reading.red) ?
-                                `${reading.red}, ${reading.green}, ${reading.blue}` :
-                                '—'}
-                        </div>
-                    </>
+                    this.state.displayMode === 'state' ? (
+                        <div>{w.reflection}{': '}{hasNumber(reading.reflection) ?
+                            withUnit(reading.reflection, '%') : w.noReflection}</div>
+                    ) : (
+                        <>
+                            <div>{w.colorValue}{': '}{colorDescription}</div>
+                            <div>{w.rgb}{': '}{hasNumber(reading.red) ?
+                                `${reading.red}, ${reading.green}, ${reading.blue}` : '—'}</div>
+                        </>
+                    )
                 ) : null}
-                {type === 'matrix3' && detected ? (
-                    <div>
-                        {w.matrix}{': '}{reading.pixels ? reading.pixels.length : '—'}
-                    </div>
-                ) : null}
+                {type === 'matrix3' && detected ? <div>
+                    {w.matrix}{': '}{reading.pixels ? reading.pixels.length : '—'}
+                </div> : null}
                 {stale ? <div className={styles.stale}>{w.stale}</div> : null}
             </div>
         );
@@ -517,6 +719,12 @@ class SpikePrimeControlCenter extends React.Component {
         const {snapshot, open, busy, error} = this.state;
         const api = this.getAPI();
         const connected = Boolean(snapshot && snapshot.connected);
+        const lastError = error || (snapshot && snapshot.lastCommunicationError);
+        const connectionError = !connected && Boolean(lastError);
+        const hubStatusLabel = connected ? w.connected :
+            (connectionError ? w.connectionError : w.disconnected);
+        const hubButtonClass = `${styles.hubButton} ${connected ? styles.hubConnected : ''} ` +
+            `${connectionError ? styles.hubError : ''}`;
         const controllerReady = Boolean(snapshot && snapshot.controllerReady);
         const router = this.getRouter();
         const sourceURL = this.getLoadedSourceURL(snapshot);
@@ -528,21 +736,76 @@ class SpikePrimeControlCenter extends React.Component {
         const routerId = (snapshot && snapshot.hubRouterId) || (router && router.instanceId) || '—';
         const slots = Array.from({length: 20}, (_, slot) => slot);
         const reservedSlot = snapshot && Number.isInteger(snapshot.controllerSlot) ?
-            snapshot.controllerSlot : this.state.controllerSlot;
-        const availableStandaloneSlots = slots.filter(slot => slot !== reservedSlot);
+            snapshot.controllerSlot : null;
+        const standaloneSlotReserved = this.isReservedSlot(this.state.standaloneSlot);
+        const controllerInstallDisabled = busy || !connected || !api ||
+            !Number.isInteger(this.state.controllerSlot);
         return (
             <div className={styles.root}>
-                <button
-                    aria-expanded={open}
-                    aria-label={w.title}
-                    className={`${styles.hubButton} ${connected ? styles.hubConnected : ''}`}
-                    onClick={this.handleTogglePanel}
-                    title={w.title}
-                    type="button"
+                <div
+                    aria-label={w.liveView}
+                    className={styles.liveBar}
                 >
-                    <span aria-hidden="true">{'◉'}</span>
-                    <span className={styles.connectionDot} />
-                </button>
+                    <button
+                        aria-expanded={open}
+                        aria-label={`${w.title}: ${hubStatusLabel}`}
+                        className={hubButtonClass}
+                        onClick={this.handleTogglePanel}
+                        title={lastError || w.title}
+                        type="button"
+                    >
+                        <span aria-hidden="true">{'⬡'}</span>
+                        <span className={styles.connectionDot} />
+                    </button>
+                    <span className={styles.hubStatus}>{hubStatusLabel}</span>
+                    <div
+                        aria-label={w.ports}
+                        className={styles.livePorts}
+                    >
+                        {PORTS.map(port => this.renderPort(port, snapshot))}
+                    </div>
+                    <div className={styles.runControls}>
+                        <span className={styles.pcRunLabel}>{w.pcRunLabel}</span>
+                        <label className={styles.standaloneControls}>
+                            <span>{w.standaloneLabel}</span>
+                            <select
+                                aria-label={w.standaloneSlot}
+                                disabled={busy}
+                                onChange={this.handleStandaloneSlotChanged}
+                                value={this.state.standaloneSlot}
+                            >
+                                {slots.map(slot => (<option
+                                    disabled={slot === reservedSlot}
+                                    key={slot}
+                                    value={slot}
+                                >
+                                    {slot}{slot === reservedSlot ? ` · ${w.systemSlot}` : ''}
+                                </option>))}
+                            </select>
+                        </label>
+                        {this.state.standaloneConfirmation === null ? <button
+                            disabled={busy || !connected || !api ||
+                                !Number.isInteger(this.state.standaloneSlot) || standaloneSlotReserved}
+                            onClick={this.handleReviewStandaloneSlot}
+                            type="button"
+                        >{w.runStandalone}</button> : <div className={styles.inlineConfirm}>
+                            <span>{w.slotWarning}</span>
+                            <button
+                                disabled={busy || !connected ||
+                                    this.isReservedSlot(this.state.standaloneConfirmation.slot)}
+                                onClick={this.handleConfirmStandaloneRun}
+                                type="button"
+                            >
+                                {`${w.confirmUpload} ${this.state.standaloneConfirmation.slot}`}
+                            </button>
+                            <button
+                                disabled={busy}
+                                onClick={this.handleCancelStandaloneRun}
+                                type="button"
+                            >{w.cancel}</button>
+                        </div>}
+                    </div>
+                </div>
                 {open ? (
                     <section
                         aria-label={w.title}
@@ -638,7 +901,8 @@ class SpikePrimeControlCenter extends React.Component {
                                 </>
                             ) : null}
                         </details>
-                        <div className={styles.installBox}>
+                        <details className={styles.installBox}>
+                            <summary>{w.controller}</summary>
                             <label>{w.controllerSlot}
                                 <select
                                     aria-label={w.controllerSlot}
@@ -650,31 +914,35 @@ class SpikePrimeControlCenter extends React.Component {
                                         key={slot}
                                         value={slot}
                                     >
-                                        {slot}{slot === 19 ? ` · ${w.systemSlot}` : ''}
+                                        {slot}{slot === reservedSlot ? ` · ${w.systemSlot}` : ''}
                                     </option>))}
                                 </select>
                             </label>
-                            {controllerReady ? (
-                                <p>
-                                    {w.controller}{': '}{w.ready}{' · '}
-                                    {w.controllerSlot}{' '}{snapshot.controllerSlot}
-                                </p>
-                            ) : this.state.controllerConfirmation === null ? (
+                            {controllerReady ? <p>
+                                {w.controller}{': '}{w.ready}{' · '}
+                                {w.controllerSlot}{' '}{snapshot.controllerSlot}
+                            </p> : null}
+                            {this.state.controllerConfirmation === null ? (
                                 <button
-                                    disabled={busy || !connected || !api}
+                                    disabled={controllerInstallDisabled}
                                     onClick={this.handleReviewControllerSlot}
                                     type="button"
                                 >{w.install}</button>
                             ) : (
                                 <div className={styles.confirmBox}>
                                     <p>{w.controllerWarning}</p>
+                                    {Number.isInteger(this.state.controllerConfirmation.previousSlot) ? (
+                                        <p>{w.oldControllerRemoval.replace(
+                                            '{slot}', this.state.controllerConfirmation.previousSlot
+                                        )}</p>
+                                    ) : null}
                                     <button
                                         disabled={busy || !connected}
                                         onClick={this.handleConfirmControllerInstall}
                                         type="button"
                                     >
                                         {busy ? w.installing :
-                                            `${w.installTo} ${this.state.controllerConfirmation}`}
+                                            `${w.installTo} ${this.state.controllerConfirmation.slot}`}
                                     </button>
                                     <button
                                         disabled={busy}
@@ -685,7 +953,7 @@ class SpikePrimeControlCenter extends React.Component {
                                     </button>
                                 </div>
                             )}
-                        </div>
+                        </details>
                         {connected ? (
                             <>
                                 <div className={styles.metadata}>
@@ -706,61 +974,27 @@ class SpikePrimeControlCenter extends React.Component {
                                     ))}
                                 </div>
                                 <h3 className={styles.sectionTitle}>{w.ports}</h3>
+                                <label className={styles.displayMode}>{w.displayMode}
+                                    <select
+                                        aria-label={w.displayMode}
+                                        onChange={this.handleDisplayModeChanged}
+                                        value={this.state.displayMode}
+                                    >
+                                        <option value="value">{w.valueMode}</option>
+                                        <option value="state">{w.stateMode}</option>
+                                    </select>
+                                </label>
                                 <div className={styles.portGrid}>
-                                    {PORTS.map(port => this.renderPort(port, snapshot))}
+                                    {PORTS.map(port => this.renderPortDetails(port, snapshot))}
                                 </div>
                             </>
                         ) : null}
-                        <details className={styles.offline}>
-                            <summary>{w.offline}</summary>
-                            <p>{w.offlineHelp}</p>
-                            <label>{w.standaloneSlot}
-                                <select
-                                    aria-label={w.standaloneSlot}
-                                    disabled={busy}
-                                    onChange={this.handleStandaloneSlotChanged}
-                                    value={this.state.standaloneSlot}
-                                >
-                                    {availableStandaloneSlots.map(slot => (<option
-                                        key={slot}
-                                        value={slot}
-                                    >
-                                        {slot}{slot === 19 ? ` · ${w.systemSlot}` : ''}
-                                    </option>))}
-                                </select>
-                            </label>
-                            {this.state.standaloneConfirmation === null ? (
-                                <button
-                                    disabled={busy || !connected || !api}
-                                    onClick={this.handleReviewStandaloneSlot}
-                                    type="button"
-                                >{w.review}</button>
-                            ) : (
-                                <div className={styles.confirmBox}>
-                                    <p>{w.slotWarning}</p>
-                                    <button
-                                        disabled={busy || !connected}
-                                        onClick={this.handleConfirmStandaloneRun}
-                                        type="button"
-                                    >
-                                        {busy ? w.working : `${w.confirmUpload} ${this.state.standaloneConfirmation}`}
-                                    </button>
-                                    <button
-                                        disabled={busy}
-                                        onClick={this.handleCancelStandaloneRun}
-                                        type="button"
-                                    >
-                                        {w.cancel}
-                                    </button>
-                                </div>
-                            )}
-                        </details>
-                        {error || (snapshot && snapshot.lastCommunicationError) ? (
+                        {lastError ? (
                             <div
                                 className={styles.error}
                                 role="status"
                             >
-                                <strong>{w.error}{': '}</strong>{error || snapshot.lastCommunicationError}
+                                <strong>{w.error}{': '}</strong>{lastError}
                             </div>
                         ) : null}
                     </section>
