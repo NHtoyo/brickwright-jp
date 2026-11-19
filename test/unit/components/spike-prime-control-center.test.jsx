@@ -191,7 +191,7 @@ describe('SPIKE Prime control center', () => {
         component.find('button').filterWhere(button => button.text() === 'Install controller').simulate('click');
         component.update();
         expect(component.text()).toContain('Install to slot 0');
-        expect(component.text()).toContain('remembered controller in slot 19 will be cleared');
+        expect(component.text()).toContain('slot 19 is cleared before the new program starts');
         expect(api.installController).not.toHaveBeenCalled();
         await act(async () => {
             component.find('button').filterWhere(button => button.text() === 'Install to slot 0').simulate('click');
@@ -254,6 +254,7 @@ describe('SPIKE Prime control center', () => {
                 status: 'failed',
                 previousSlot: 19,
                 newControllerReady: false,
+                previousSlotRemains: false,
                 error: {name: 'Error', message: 'hello timed out'}
             }
         });
@@ -271,7 +272,8 @@ describe('SPIKE Prime control center', () => {
         component.update();
         expect(component.text()).toContain('The new controller did not reach ready state.');
         expect(component.text()).not.toContain('The new controller is ready');
-        expect(component.text()).toContain('Install to slot 0');
+        expect(component.text()).toContain('Previous slot 19: the previous controller was cleared after the new transfer.');
+        expect(component.text()).not.toContain('Install to slot 0');
         component.unmount();
     });
 

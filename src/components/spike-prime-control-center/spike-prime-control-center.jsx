@@ -47,13 +47,16 @@ const words = {
         install: 'Install controller',
         installTo: 'Install to slot',
         controllerWarning: 'The hub slot contents cannot be read here. Installing clears the selected slot.',
-        oldControllerRemoval: 'After the new controller returns hello and is ready, the remembered controller ' +
-            'in slot {slot} will be cleared.',
-        controllerNotReady: 'The new controller did not reach ready state. Previous controller slot {slot} ' +
-            'was not removed. {reason}',
+        oldControllerRemoval: 'After the new controller is fully transferred, the remembered controller in ' +
+            'slot {slot} is cleared before the new program starts.',
+        controllerNotReady: 'The new controller did not reach ready state. Previous slot {slot}: ' +
+            '{slotStatus}. {reason}',
         controllerInstallNotReady: 'The controller did not reach ready state. {reason}',
         controllerCleanupUnconfirmed: 'The new controller is ready, but cleanup of previous slot {slot} ' +
-            'was not confirmed. {reason}',
+            'was not confirmed: {slotStatus}. {reason}',
+        previousSlotRemains: 'the previous controller is still present',
+        previousSlotCleared: 'the previous controller was cleared after the new transfer',
+        previousSlotUnknown: 'whether the previous controller remains is unknown',
         inspectDiagnostics: 'Check the communication diagnostics.',
         cancel: 'Cancel',
         installing: 'Installing and verifying…',
@@ -132,10 +135,13 @@ const words = {
         install: '制御プログラムを導入',
         installTo: '次のスロットに導入',
         controllerWarning: 'ハブ内のスロット内容はここでは読み取れません。導入すると選択したスロットを消去します。',
-        oldControllerRemoval: '新しい制御プログラムのhello応答を確認した後、以前のスロット {slot} を消去します。',
-        controllerNotReady: '新しい制御プログラムの起動を確認できません。以前のスロット {slot} は消去していません。{reason}',
+        oldControllerRemoval: '新しい制御プログラムの転送が完了すると、新しいプログラムの起動前に以前のスロット {slot} を消去します。',
+        controllerNotReady: '新しい制御プログラムの起動を確認できません。以前のスロット {slot}：{slotStatus}。{reason}',
         controllerInstallNotReady: '制御プログラムの起動を確認できませんでした。{reason}',
-        controllerCleanupUnconfirmed: '新しい制御プログラムは起動しましたが、以前のスロット {slot} の消去を確認できませんでした。{reason}',
+        controllerCleanupUnconfirmed: '新しい制御プログラムは起動しましたが、以前のスロット {slot} の消去状態を確認できません：{slotStatus}。{reason}',
+        previousSlotRemains: '以前の制御プログラムが残っています',
+        previousSlotCleared: '新しいプログラムの転送後に以前の制御プログラムを消去しました',
+        previousSlotUnknown: '以前の制御プログラムが残っているか確認できません',
         inspectDiagnostics: '通信診断を確認してください。',
         cancel: '戻る',
         installing: '転送・起動を確認中…',
@@ -381,14 +387,21 @@ class SpikePrimeControlCenter extends React.Component {
                 const cleanup = result && result.cleanup;
                 const rawReason = cleanup && (cleanup.error || cleanup.reason || cleanup.status);
                 const reason = rawReason && typeof rawReason === 'object' ? rawReason.message : rawReason;
+                const slotStatus = cleanup && cleanup.previousSlotRemains === true ?
+                    this.getWords().previousSlotRemains :
+                    cleanup && cleanup.previousSlotRemains === false ?
+                        this.getWords().previousSlotCleared : this.getWords().previousSlotUnknown;
                 if (cleanup && cleanup.newControllerReady === false) {
                     const message = Number.isInteger(expectedPreviousSlot) ?
                         this.getWords().controllerNotReady
                             .replace('{slot}', expectedPreviousSlot)
+                            .replace('{slotStatus}', slotStatus)
                             .replace('{reason}', reason || this.getWords().inspectDiagnostics) :
                         this.getWords().controllerInstallNotReady
                             .replace('{reason}', reason || this.getWords().inspectDiagnostics);
-                    throw new Error(message);
+                    this.updateIfMounted({controllerConfirmation: null, error: message});
+                    this.refresh();
+                    return;
                 }
                 if (Number.isInteger(expectedPreviousSlot) && cleanup && cleanup.status !== 'deleted') {
                     if (cleanup.newControllerReady === true) {
@@ -396,6 +409,7 @@ class SpikePrimeControlCenter extends React.Component {
                             controllerConfirmation: null,
                             error: this.getWords().controllerCleanupUnconfirmed
                                 .replace('{slot}', expectedPreviousSlot)
+                                .replace('{slotStatus}', slotStatus)
                                 .replace('{reason}', reason || this.getWords().inspectDiagnostics)
                         });
                         this.refresh();
@@ -403,14 +417,20 @@ class SpikePrimeControlCenter extends React.Component {
                     }
                     const message = this.getWords().controllerNotReady
                         .replace('{slot}', expectedPreviousSlot)
+                        .replace('{slotStatus}', slotStatus)
                         .replace('{reason}', reason || this.getWords().inspectDiagnostics);
-                    throw new Error(message);
+                    this.updateIfMounted({controllerConfirmation: null, error: message});
+                    this.refresh();
+                    return;
                 }
                 this.updateIfMounted({controllerConfirmation: null});
             }
             this.refresh();
         } catch (error) {
-            this.updateIfMounted({error: error.message || String(error)});
+            this.updateIfMounted({
+                ...(name === 'installController' ? {controllerConfirmation: null} : {}),
+                error: error.message || String(error)
+            });
             this.refresh();
         } finally {
             this.updateIfMounted({busy: false});
