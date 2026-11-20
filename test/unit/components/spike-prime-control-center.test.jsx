@@ -75,6 +75,130 @@ describe('SPIKE Prime control center', () => {
         component.unmount();
     });
 
+    test('does not probe on connection and verifies the controller only from its explicit Prime action', async () => {
+        snapshot = {
+            ...snapshot,
+            connected: true,
+            protocol: 'spike3',
+            detectedHubModel: 'prime',
+            effectiveHubModel: 'prime',
+            standaloneCapable: true
+        };
+        api.verifyController = jest.fn(() => Promise.resolve({version: 'controller/1'}));
+        const component = mount(
+            <SpikePrimeControlCenter intl={{locale: 'en'}} vm={vm} />
+        );
+
+        expect(api.verifyController).not.toHaveBeenCalled();
+        expect(api.installController).not.toHaveBeenCalled();
+        component.find('button[aria-label^="LEGO hub:"]').simulate('click');
+        component.find('details').filterWhere(details => details.find('summary').text() === 'Controller')
+            .find('summary').simulate('click');
+        expect(component.find('button').filterWhere(button => button.text() === 'Verify controller'))
+            .toHaveLength(1);
+        await act(async () => {
+            component.find('button').filterWhere(button => button.text() === 'Verify controller')
+                .simulate('click');
+            await Promise.resolve();
+        });
+        expect(api.verifyController).toHaveBeenCalledTimes(1);
+        expect(api.installController).not.toHaveBeenCalled();
+        component.unmount();
+    });
+
+    test('starts the explicitly confirmed saved controller without transferring or clearing the slot', async () => {
+        snapshot = {
+            ...snapshot,
+            connected: true,
+            protocol: 'spike3',
+            detectedHubModel: 'prime',
+            effectiveHubModel: 'prime',
+            standaloneCapable: true,
+            controllerSlot: 7,
+            deviceId: 'hub-session-a'
+        };
+        api.startSavedController = jest.fn(() => Promise.resolve({ready: true}));
+        api.getState.mockImplementation(() => snapshot);
+        const component = mount(<SpikePrimeControlCenter intl={{locale: 'ja-JP'}} vm={vm} />);
+        expect(api.startSavedController).not.toHaveBeenCalled();
+        component.find('button[aria-label^="LEGO ハブ:"]').simulate('click');
+        component.find('details').filterWhere(details => details.find('summary').text() === '制御プログラム')
+            .find('summary').simulate('click');
+
+        component.find('button').filterWhere(button => button.text() === '保存済みスロット7のプログラムを起動')
+            .simulate('click');
+        component.update();
+        expect(component.text()).toContain('スロット7に現在保存されているプログラムを起動します。転送・消去は行いません。');
+        expect(api.startSavedController).not.toHaveBeenCalled();
+        expect(api.installController).not.toHaveBeenCalled();
+
+        await act(async () => {
+            component.find('button').filterWhere(button => button.text() === 'スロット7を起動').simulate('click');
+            await Promise.resolve();
+        });
+        expect(api.startSavedController).toHaveBeenCalledTimes(1);
+        expect(api.startSavedController).toHaveBeenCalledWith(7);
+        expect(api.installController).not.toHaveBeenCalled();
+        expect(api.uploadAndRun).not.toHaveBeenCalled();
+        component.unmount();
+    });
+
+    test('cancels a saved-controller confirmation if the connected hub session changes', async () => {
+        snapshot = {
+            ...snapshot,
+            connected: true,
+            protocol: 'spike3',
+            detectedHubModel: 'prime',
+            effectiveHubModel: 'prime',
+            standaloneCapable: true,
+            controllerSlot: 7,
+            deviceId: 'hub-session-a'
+        };
+        api.startSavedController = jest.fn(() => Promise.resolve({ready: true}));
+        api.getState.mockImplementation(() => snapshot);
+        const component = mount(<SpikePrimeControlCenter intl={{locale: 'en'}} vm={vm} />);
+        component.find('button[aria-label^="LEGO hub:"]').simulate('click');
+        component.find('details').filterWhere(details => details.find('summary').text() === 'Controller')
+            .find('summary').simulate('click');
+        component.find('button').filterWhere(button => button.text() === 'Run saved controller in slot 7')
+            .simulate('click');
+        expect(component.text()).toContain('This starts the program currently stored in slot 7.');
+
+        snapshot = {...snapshot, deviceId: 'hub-session-b'};
+        await act(async () => {
+            component.instance().refresh();
+            await Promise.resolve();
+        });
+        component.update();
+        expect(component.text()).not.toContain('Start slot 7');
+        expect(api.startSavedController).not.toHaveBeenCalled();
+        component.unmount();
+    });
+
+    test('does not offer a saved-controller restart while that controller is already ready', () => {
+        snapshot = {
+            ...snapshot,
+            connected: true,
+            protocol: 'spike3',
+            detectedHubModel: 'prime',
+            effectiveHubModel: 'prime',
+            standaloneCapable: true,
+            controllerReady: true,
+            controllerSlot: 7,
+            deviceId: 'hub-session-a'
+        };
+        api.startSavedController = jest.fn(() => Promise.resolve({ready: true}));
+        api.getState.mockImplementation(() => snapshot);
+        const component = mount(<SpikePrimeControlCenter intl={{locale: 'en'}} vm={vm} />);
+        component.find('button[aria-label^="LEGO hub:"]').simulate('click');
+        component.find('details').filterWhere(details => details.find('summary').text() === 'Controller')
+            .find('summary').simulate('click');
+        expect(component.find('button').filterWhere(button => button.text() === 'Run saved controller in slot 7'))
+            .toHaveLength(0);
+        expect(api.startSavedController).not.toHaveBeenCalled();
+        component.unmount();
+    });
+
     test('selects SPIKE Essential, shows A/B only, and hides Prime slot controls', async () => {
         snapshot = {
             ...snapshot,

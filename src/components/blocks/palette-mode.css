@@ -86,6 +86,12 @@
     height: calc(100% - 5rem) !important;
 }
 
+.blocks-container :global(.scratchCategoryMenuItem.scratchCategoryId-bw-spike-prime-motor) {
+    margin-top: 0.5rem;
+    padding-top: 0.75rem;
+    border-top: 2px solid $ui-black-transparent;
+}
+
 [dir="rtl"] .palette-mode-control {
     border-top-left-radius: 0;
     border-top-right-radius: $space;

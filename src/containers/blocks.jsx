@@ -46,10 +46,9 @@ import LoadScratchBlocksHOC from '../lib/tw-load-scratch-blocks-hoc.jsx';
 import {findTopBlock} from '../lib/backpack/code-payload.js';
 import {gentlyRequestPersistentStorage} from '../lib/tw-persistent-storage.js';
 import {
-    getPaletteVisibility,
     getSpikePaletteModel,
     setSpikePaletteModel,
-    updatePaletteMode
+    isPaletteMode
 } from '../lib/palette-mode';
 import {getSpikeBlockColors} from '../lib/spike-toolbox-categories';
 
@@ -81,17 +80,22 @@ const messages = defineMessages({
     },
     PALETTE_SCRATCH: {
         defaultMessage: 'Scratch',
-        description: 'Toggle Scratch categories in the block palette',
-        id: 'gui.blocks.paletteScratchToggle'
+        description: 'Show only Scratch categories in the block palette',
+        id: 'gui.blocks.paletteScratch'
     },
     PALETTE_SPIKE: {
         defaultMessage: 'SPIKE',
-        description: 'Toggle SPIKE categories in the block palette',
-        id: 'gui.blocks.paletteSpikeToggle'
+        description: 'Show only SPIKE categories in the block palette',
+        id: 'gui.blocks.paletteSpike'
+    },
+    PALETTE_BOTH: {
+        defaultMessage: 'Both',
+        description: 'Show Scratch and SPIKE categories in separate sections',
+        id: 'gui.blocks.paletteBoth'
     },
     PALETTE_MODE_LABEL: {
-        defaultMessage: 'Block categories',
-        description: 'Accessible label for Scratch and SPIKE palette toggles',
+        defaultMessage: 'Block palette',
+        description: 'Accessible label for the Scratch/SPIKE palette mode selector',
         id: 'gui.blocks.paletteModeLabel'
     },
     SPIKE_PALETTE_LABEL: {
@@ -147,12 +151,16 @@ const paletteOptions = [
     {
         id: 'spike',
         label: messages.PALETTE_SPIKE
+    },
+    {
+        id: 'both',
+        label: messages.PALETTE_BOTH
     }
 ];
 
 const getPaletteMode = target => {
     const mode = target && target.sprite && target.sprite.brickwrightPaletteMode;
-    return mode === 'scratch' || mode === 'spike' ? mode : 'both';
+    return isPaletteMode(mode) ? mode : 'both';
 };
 
 const ESSENTIAL_SUPPORTED_BLOCK_OPCODES = [
@@ -171,6 +179,7 @@ const ESSENTIAL_SUPPORTED_BLOCK_OPCODES = [
 const formatSpikeCategoryLabels = locale => {
     const isJapanese = /^ja(?:-|$)/i.test(locale || '');
     return isJapanese ? {
+        spikePrefix: 'SPIKE',
         motor: 'モーター',
         movement: '移動',
         light: 'ライト',
@@ -183,6 +192,7 @@ const formatSpikeCategoryLabels = locale => {
         myBlocks: 'マイブロック',
         other: 'その他'
     } : {
+        spikePrefix: 'SPIKE',
         motor: 'Motors',
         movement: 'Movement',
         light: 'Lights',
@@ -882,12 +892,8 @@ class Blocks extends React.Component {
         this.requestToolboxUpdate();
     }
     handlePaletteModeChange (event) {
-        const palette = event.currentTarget.dataset.palette;
-        const mode = updatePaletteMode(
-            this.state.paletteMode,
-            palette,
-            event.currentTarget.checked
-        );
+        const mode = event.currentTarget.value;
+        if (!isPaletteMode(mode)) return;
         if (mode === this.state.paletteMode) return;
         const target = this.props.vm.editingTarget || this.props.vm.runtime.getTargetForStage();
         if (!target || !target.sprite) return;
@@ -937,7 +943,6 @@ class Blocks extends React.Component {
             ...props
         } = this.props;
         /* eslint-enable no-unused-vars */
-        const paletteVisibility = getPaletteVisibility(this.state.paletteMode);
         const modelLabel = this.state.detectedHubModel === 'essential' ?
             intl.formatMessage(messages.SPIKE_PALETTE_ESSENTIAL) :
             this.state.detectedHubModel === 'prime' ? intl.formatMessage(messages.SPIKE_PALETTE_PRIME) : null;
@@ -946,7 +951,7 @@ class Blocks extends React.Component {
                 <div className={paletteStyles.blocksContainer}>
                     <div
                         className={paletteStyles.paletteModeControl}
-                        role="group"
+                        role="radiogroup"
                         aria-label={intl.formatMessage(messages.PALETTE_MODE_LABEL)}
                     >
                         {paletteOptions.map(({id, label}) => (
@@ -955,11 +960,10 @@ class Blocks extends React.Component {
                                 className={paletteStyles.paletteToggle}
                             >
                                 <input
-                                    type="checkbox"
-                                    checked={paletteVisibility[id]}
-                                    disabled={paletteVisibility[id] &&
-                                        !paletteVisibility[id === 'scratch' ? 'spike' : 'scratch']}
-                                    data-palette={id}
+                                    type="radio"
+                                    name="brickwright-palette-mode"
+                                    value={id}
+                                    checked={this.state.paletteMode === id}
                                     aria-label={intl.formatMessage(label)}
                                     onChange={this.handlePaletteModeChange}
                                 />

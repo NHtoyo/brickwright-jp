@@ -1,3 +1,5 @@
+export const isPaletteMode = mode => ['scratch', 'spike', 'both'].includes(mode);
+
 export const getPaletteVisibility = mode => ({
     scratch: mode !== 'spike',
     spike: mode !== 'scratch'

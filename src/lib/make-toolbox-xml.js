@@ -35,6 +35,7 @@ export const filterSpikeCategoryXML = (categoryXML, supportedOpcodes) => {
 };
 
 const categoryLabelsDefault = {
+    spikePrefix: 'SPIKE',
     motor: 'Motors',
     movement: 'Movement',
     light: 'Light',
@@ -46,23 +47,6 @@ const categoryLabelsDefault = {
     variables: 'Variables',
     myBlocks: 'My Blocks',
     other: 'Other'
-};
-
-const copyBlockNodes = (xml, doc) => {
-    if (!xml || typeof DOMParser === 'undefined') return [];
-    const parsed = new DOMParser().parseFromString(xml, 'application/xml');
-    if (parsed.getElementsByTagName('parsererror').length > 0) return [];
-    return Array.from(parsed.documentElement.children)
-        .filter(child => ['block', 'label'].includes(child.tagName.toLowerCase()))
-        .map(child => {
-            const clone = doc.importNode(child, true);
-            // Toolbox templates can be copied into more than one category.
-            // Let Blockly assign flyout IDs instead of reusing template IDs.
-            [clone, ...Array.from(clone.getElementsByTagName('*'))].forEach(node => {
-                if (['block', 'shadow'].includes(node.tagName.toLowerCase())) node.removeAttribute('id');
-            });
-            return clone;
-        });
 };
 
 const renderCategory = (doc, {
@@ -94,20 +78,19 @@ const reorganizeToolboxCategories = ({
     supportedOpcodes,
     categoryLabels = categoryLabelsDefault
 }) => {
+    const showScratch = paletteMode !== 'spike';
+    const showSpike = paletteMode !== 'scratch';
+    const scratchCategories = showScratch ? [
+        ...standardXML.map(category => category.xml),
+        ...otherCategories.map(category => category.xml)
+    ].filter(Boolean) : [];
+
     if (typeof DOMParser === 'undefined' || typeof XMLSerializer === 'undefined') {
-        return [
-            ...standardXML.map(category => category.xml),
-            ...(paletteMode === 'spike' ? [] : otherCategories.map(category => category.xml))
-        ].filter(Boolean);
+        // Keep the canonical Scratch/other-extension XML intact in environments
+        // without the DOM APIs needed to split SPIKE blocks into their own groups.
+        return scratchCategories;
     }
     const document = new DOMParser().parseFromString('<xml></xml>', 'application/xml');
-    const root = document.documentElement;
-    const coreByCategory = {};
-    standardXML.forEach(({id, xml}) => {
-        if (!id || !xml) return;
-        coreByCategory[id] = copyBlockNodes(xml, document);
-    });
-
     const spikeDoc = spikeCategoryXML ?
         new DOMParser().parseFromString(filterSpikeCategoryXML(spikeCategoryXML, supportedOpcodes), 'application/xml') :
         null;
@@ -128,68 +111,41 @@ const reorganizeToolboxCategories = ({
         });
     }
 
+    if (!showSpike) return scratchCategories;
+
     const localizedLabels = {...categoryLabelsDefault, ...categoryLabels};
-    const categories = {
-        motor: {id: 'bw-spike-motor', name: localizedLabels.motor, blocks: []},
-        movement: {id: 'motion', name: '%{BKY_CATEGORY_MOTION}', blocks: []},
-        light: {id: 'bw-spike-light', name: localizedLabels.light, blocks: []},
-        sound: {id: 'sound', name: '%{BKY_CATEGORY_SOUND}', blocks: []},
-        events: {id: 'event', name: '%{BKY_CATEGORY_EVENTS}', blocks: []},
-        control: {id: 'spikeprime', name: '%{BKY_CATEGORY_CONTROL}', blocks: [], showStatusButton: true},
-        sensors: {id: 'sensing', name: '%{BKY_CATEGORY_SENSING}', blocks: []},
-        operators: {id: 'operators', name: '%{BKY_CATEGORY_OPERATORS}', blocks: []},
-        variables: {id: 'data', name: '%{BKY_CATEGORY_VARIABLES}', blocks: [], custom: 'VARIABLE'},
-        myBlocks: {id: 'procedures', name: '%{BKY_CATEGORY_MYBLOCKS}', blocks: [], custom: 'PROCEDURE'},
-        other: {id: 'bw-spike-other', name: localizedLabels.other, blocks: []}
+    const spikePrefix = localizedLabels.spikePrefix || 'SPIKE';
+    const spikeCategories = {
+        motor: {id: 'bw-spike-prime-motor', name: localizedLabels.motor},
+        movement: {id: 'bw-spike-prime-movement', name: localizedLabels.movement},
+        light: {id: 'bw-spike-prime-light', name: localizedLabels.light},
+        sound: {id: 'bw-spike-prime-sound', name: localizedLabels.sound},
+        events: {id: 'bw-spike-prime-events', name: localizedLabels.events},
+        // The hub status button is provided by the always-visible GUI overlay.
+        // A second category status action would rely on the old extension id.
+        control: {id: 'bw-spike-prime-control', name: localizedLabels.control},
+        sensors: {id: 'bw-spike-prime-sensors', name: localizedLabels.sensors},
+        operators: {id: 'bw-spike-prime-operators', name: localizedLabels.operators},
+        variables: {id: 'bw-spike-prime-variables', name: localizedLabels.variables},
+        myBlocks: {id: 'bw-spike-prime-my-blocks', name: localizedLabels.myBlocks},
+        other: {id: 'bw-spike-prime-other', name: localizedLabels.other}
     };
-
-    const includeScratch = paletteMode !== 'spike';
-    const includeSpike = paletteMode !== 'scratch';
-    if (includeSpike) {
-        SPIKE_CATEGORY_ORDER.forEach(category => {
-            categories[category].name = localizedLabels[category];
-        });
-    }
-    if (includeScratch) {
-        categories.movement.blocks.push(...(coreByCategory.motion || []));
-        categories.sound.blocks.push(...(coreByCategory.sound || []));
-        categories.events.blocks.push(...(coreByCategory.event || []));
-        categories.control.blocks.push(...(coreByCategory.control || []));
-        categories.sensors.blocks.push(...(coreByCategory.sensing || []));
-        categories.operators.blocks.push(...(coreByCategory.operators || []));
-        categories.variables.blocks.push(...(coreByCategory.data || []));
-        categories.myBlocks.blocks.push(...(coreByCategory.procedures || coreByCategory.more || []));
-        // Scratch appearance blocks remain intact and are grouped in Other;
-        // their block labels and serialized types are never rewritten.
-        categories.other.blocks.push(...(coreByCategory.looks || []));
-    }
-    if (includeSpike) {
-        SPIKE_CATEGORY_ORDER.forEach(category => {
-            categories[category].blocks.push(...spikeBlocksByCategory[category]);
-        });
-    }
-
+    const spikeXML = [];
     SPIKE_CATEGORY_ORDER.forEach(category => {
-        const info = categories[category];
-        if ((includeScratch && info.custom) || info.blocks.length > 0) {
-            root.appendChild(renderCategory(document, {
-                ...info,
-                category,
-                blocks: info.blocks
-            }));
-        }
-    });
-
-    if (paletteMode !== 'spike') {
-        otherCategories.forEach(({xml}) => {
-            if (!xml) return;
-            const parsed = new DOMParser().parseFromString(xml, 'application/xml');
-            if (parsed.getElementsByTagName('parsererror').length === 0) {
-                root.appendChild(document.importNode(parsed.documentElement, true));
-            }
+        const blocks = spikeBlocksByCategory[category];
+        if (!blocks.length) return;
+        const info = spikeCategories[category];
+        const categoryElement = renderCategory(document, {
+            ...info,
+            name: `${spikePrefix} · ${info.name}`,
+            category,
+            blocks
         });
-    }
-    return Array.from(root.children).map(element => new XMLSerializer().serializeToString(element));
+        spikeXML.push(new XMLSerializer().serializeToString(categoryElement));
+    });
+    // Scratch's standard categories and other extensions keep their original
+    // XML, order, names, theme and block IDs. SPIKE is a distinct section below.
+    return [...scratchCategories, ...spikeXML];
 };
 
 const translate = (id, english) => {

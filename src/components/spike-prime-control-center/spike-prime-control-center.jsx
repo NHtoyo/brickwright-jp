@@ -59,6 +59,13 @@ const words = {
         apiMissing: 'Not registered',
         ready: 'Ready',
         unknown: 'Not verified',
+        verifyController: 'Verify controller',
+        verifyingController: 'Checking controller…',
+        runSavedController: 'Run saved controller in slot {slot}',
+        runSavedControllerWarning: 'This starts the program currently stored in slot {slot}. ' +
+            'It will not upload or erase anything.',
+        runSavedControllerConfirm: 'Start slot {slot}',
+        startingController: 'Starting and verifying…',
         install: 'Install controller',
         installTo: 'Install to slot',
         controllerWarning: 'The hub slot contents cannot be read here. Installing clears the selected slot.',
@@ -169,6 +176,12 @@ const words = {
         apiMissing: '登録されていません',
         ready: '起動確認済み',
         unknown: '応答未確認',
+        verifyController: '制御プログラムを確認',
+        verifyingController: '制御プログラムを確認中…',
+        runSavedController: '保存済みスロット{slot}のプログラムを起動',
+        runSavedControllerWarning: 'スロット{slot}に現在保存されているプログラムを起動します。転送・消去は行いません。',
+        runSavedControllerConfirm: 'スロット{slot}を起動',
+        startingController: '起動を確認中…',
         install: '制御プログラムを導入',
         installTo: '次のスロットに導入',
         controllerWarning: 'ハブ内のスロット内容はここでは読み取れません。導入すると選択したスロットを消去します。',
@@ -359,6 +372,7 @@ class SpikePrimeControlCenter extends React.Component {
             buildInfo: null,
             controllerSlot: 0,
             controllerConfirmation: null,
+            savedControllerConfirmation: null,
             standaloneSlot: 0,
             standaloneConfirmation: null,
             selectedHubModel: 'auto',
@@ -375,6 +389,9 @@ class SpikePrimeControlCenter extends React.Component {
             'refresh', 'handleTogglePanel', 'handleClosePanel', 'handleConnect', 'handleDisconnect',
             'handleStopHub', 'handleControllerSlotChanged', 'handleReviewControllerSlot',
             'handleConfirmControllerInstall', 'handleCancelControllerInstall',
+            'handleVerifyController',
+            'handleReviewSavedController', 'handleConfirmSavedController',
+            'handleCancelSavedController',
             'handleStandaloneSlotChanged', 'handleReviewStandaloneSlot',
             'handleConfirmStandaloneRun', 'handleCancelStandaloneRun',
             'handleConnectionModeChanged', 'handlePeripheralListUpdate',
@@ -516,11 +533,22 @@ class SpikePrimeControlCenter extends React.Component {
         const wasConnected = Boolean(this.state.snapshot && this.state.snapshot.connected);
         if (wasConnected && (!snapshot || !snapshot.connected ||
             this.currentConnectionIdentity !== nextConnectionIdentity)) {
-            this.setState({controllerConfirmation: null, standaloneConfirmation: null});
+            this.setState({
+                controllerConfirmation: null,
+                savedControllerConfirmation: null,
+                standaloneConfirmation: null
+            });
         }
         this.currentConnectionIdentity = nextConnectionIdentity;
         const controllerSlot = snapshot && Number.isInteger(snapshot.controllerSlot) ?
             snapshot.controllerSlot : null;
+        const savedControllerConfirmation = this.state.savedControllerConfirmation;
+        if (savedControllerConfirmation && (!snapshot || !snapshot.connected ||
+            savedControllerConfirmation.slot !== controllerSlot ||
+            savedControllerConfirmation.connectionIdentity !== nextConnectionIdentity ||
+            this.getEffectiveModel(snapshot) !== 'prime')) {
+            this.setState({savedControllerConfirmation: null});
+        }
         if (Number.isInteger(controllerSlot) && this.state.standaloneSlot === controllerSlot &&
             this.state.standaloneConfirmation !== null) {
             // Keep the chosen destination visible if it becomes reserved, but
@@ -618,6 +646,9 @@ class SpikePrimeControlCenter extends React.Component {
                 }
                 this.updateIfMounted({controllerConfirmation: null});
             }
+            if (name === 'startSavedController') {
+                this.updateIfMounted({savedControllerConfirmation: null});
+            }
             this.refresh();
         } catch (error) {
             const unsupportedDevice = error && (error.kind === 'unsupported-device' ||
@@ -626,6 +657,7 @@ class SpikePrimeControlCenter extends React.Component {
                 error.code === 'ERR_SPIKE_UNSUPPORTED_CAPABILITY');
             this.updateIfMounted({
                 ...(name === 'installController' ? {controllerConfirmation: null} : {}),
+                ...(name === 'startSavedController' ? {savedControllerConfirmation: null} : {}),
                 error: unsupportedDevice ? this.getWords().unsupportedDevice :
                     unsupported ? this.getWords().unsupportedOperation : error.message || String(error),
                 errorKind: unsupportedDevice ? 'unsupported-device' :
@@ -796,6 +828,43 @@ class SpikePrimeControlCenter extends React.Component {
 
     handleStopHub () {
         this.runAction('stop');
+    }
+
+    handleVerifyController () {
+        this.runAction('verifyController');
+    }
+
+    handleReviewSavedController () {
+        const snapshot = this.state.snapshot;
+        const slot = snapshot && snapshot.controllerSlot;
+        const api = this.getAPI();
+        if (!snapshot || !snapshot.connected || this.getEffectiveModel(snapshot) !== 'prime' ||
+            !Number.isInteger(slot) || !this.currentConnectionIdentity ||
+            !api || typeof api.startSavedController !== 'function') return;
+        this.setState({
+            savedControllerConfirmation: {
+                slot,
+                connectionIdentity: this.currentConnectionIdentity
+            }
+        });
+    }
+
+    handleConfirmSavedController () {
+        const confirmation = this.state.savedControllerConfirmation;
+        const snapshot = this.state.snapshot;
+        const currentIdentity = this.getConnectionIdentity(snapshot);
+        if (!confirmation || !snapshot || !snapshot.connected ||
+            this.getEffectiveModel(snapshot) !== 'prime' ||
+            confirmation.slot !== snapshot.controllerSlot ||
+            !confirmation.connectionIdentity || confirmation.connectionIdentity !== currentIdentity) {
+            this.setState({savedControllerConfirmation: null});
+            return;
+        }
+        this.runAction('startSavedController', confirmation.slot);
+    }
+
+    handleCancelSavedController () {
+        this.setState({savedControllerConfirmation: null});
     }
 
     handleControllerSlotChanged (event) {
@@ -1313,6 +1382,35 @@ class SpikePrimeControlCenter extends React.Component {
                         </details>
                         {standaloneCapable ? <details className={styles.installBox}>
                             <summary>{w.controller}</summary>
+                            {connected && effectiveModel === 'prime' && !controllerReady && api &&
+                                Number.isInteger(snapshot.controllerSlot) &&
+                                typeof api.startSavedController === 'function' ? (
+                                    this.state.savedControllerConfirmation === null ? (
+                                        <button
+                                            disabled={busy}
+                                            onClick={this.handleReviewSavedController}
+                                            type="button"
+                                        >{w.runSavedController.replace('{slot}', snapshot.controllerSlot)}</button>
+                                    ) : (
+                                        <div className={styles.confirmBox}>
+                                            <p>{w.runSavedControllerWarning.replace(
+                                                '{slot}', this.state.savedControllerConfirmation.slot
+                                            )}</p>
+                                            <button
+                                                disabled={busy}
+                                                onClick={this.handleConfirmSavedController}
+                                                type="button"
+                                            >{busy ? w.startingController : w.runSavedControllerConfirm.replace(
+                                                    '{slot}', this.state.savedControllerConfirmation.slot
+                                                )}</button>
+                                            <button
+                                                disabled={busy}
+                                                onClick={this.handleCancelSavedController}
+                                                type="button"
+                                            >{w.cancel}</button>
+                                        </div>
+                                    )
+                                ) : null}
                             <label>{w.controllerSlot}
                                 <select
                                     aria-label={w.controllerSlot}
@@ -1332,6 +1430,11 @@ class SpikePrimeControlCenter extends React.Component {
                                 {w.controller}{': '}{w.ready}{' · '}
                                 {w.controllerSlot}{' '}{snapshot.controllerSlot}
                             </p> : null}
+                            {connected && api && typeof api.verifyController === 'function' ? <button
+                                disabled={busy}
+                                onClick={this.handleVerifyController}
+                                type="button"
+                            >{busy ? w.verifyingController : w.verifyController}</button> : null}
                             {this.state.controllerConfirmation === null ? (
                                 <button
                                     disabled={controllerInstallDisabled}

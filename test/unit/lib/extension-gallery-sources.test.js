@@ -110,7 +110,7 @@ describe('extension gallery sources', () => {
         expect(devURL.searchParams.get(LOCAL_EXTENSION_BUILD_QUERY)).toBe('build-42');
         expect(getStandardSpikeExtensionURL('production')).toBe(PACKAGED_SPIKE_EXTENSION_URL);
         expect(PACKAGED_SPIKE_EXTENSION_URL).toContain(
-            '/NHtoyo/brickwright-jp-extensions@ee574f44fc7ac826840bebe7525f370ff940d6ce/'
+            '/NHtoyo/brickwright-jp-extensions@408f2a946cb6387b3f30aa7a78ae92ac6a1e5103/'
         );
         expect(isStandardSpikeExtensionId('spikeprime')).toBe(true);
         expect(isStandardSpikeExtensionId('legospike_turbowarp_transpile')).toBe(false);
@@ -125,7 +125,7 @@ describe('extension gallery sources', () => {
         expect(isTrustedPackagedSpikeExtensionURL(PACKAGED_SPIKE_EXTENSION_URL)).toBe(true);
         expect(isTrustedPackagedSpikeExtensionURL(`${PACKAGED_SPIKE_EXTENSION_URL}?version=latest`)).toBe(false);
         expect(isTrustedPackagedSpikeExtensionURL(
-            PACKAGED_SPIKE_EXTENSION_URL.replace('ee574f44fc7ac826840bebe7525f370ff940d6ce', 'main')
+            PACKAGED_SPIKE_EXTENSION_URL.replace('408f2a946cb6387b3f30aa7a78ae92ac6a1e5103', 'main')
         )).toBe(false);
         expect(isTrustedPackagedSpikeExtensionURL(
             PACKAGED_SPIKE_EXTENSION_URL.replace('extensions/CrispStrobe/', 'extensions/Other/')
