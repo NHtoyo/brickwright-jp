@@ -38,6 +38,11 @@ jobs:
       - name: Install
         run: npm ci --ignore-scripts --include=dev --no-audit --no-fund
 
+      # Palette visibility is stored in SB3 through the reviewed scratch-vm
+      # patch. npm ci skips postinstall, so apply the pinned patch explicitly.
+      - name: Apply Brickwright scratch-vm patch
+        run: npx patch-package --error-on-fail
+
       # Check out the source repo so the drift check compares against a real
       # git tree (deterministic — no raw.githubusercontent CDN lag).
       - name: Checkout sb3-creator (source of vendored files)

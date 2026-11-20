@@ -11,6 +11,7 @@ import VM from 'scratch-vm';
 import log from '../lib/log.js';
 import Prompt from './prompt.jsx';
 import BlocksComponent from '../components/blocks/blocks.jsx';
+import paletteStyles from '../components/blocks/palette-mode.css';
 import ExtensionLibrary from './extension-library.jsx';
 import extensionData from '../lib/libraries/extensions/index.jsx';
 import CustomProcedures from './custom-procedures.jsx';
@@ -70,6 +71,26 @@ const messages = defineMessages({
         // eslint-disable-next-line max-len
         description: 'Button in extension list to learn how to use the "return" block from the Custom Reporters extension.',
         id: 'tw.blocks.PROCEDURES_DOCS'
+    },
+    PALETTE_SCRATCH: {
+        defaultMessage: 'Scratch',
+        description: 'Show Scratch categories only',
+        id: 'gui.blocks.paletteScratch'
+    },
+    PALETTE_SPIKE: {
+        defaultMessage: 'SPIKE',
+        description: 'Show SPIKE categories only',
+        id: 'gui.blocks.paletteSpike'
+    },
+    PALETTE_BOTH: {
+        defaultMessage: 'Both',
+        description: 'Show Scratch and SPIKE categories',
+        id: 'gui.blocks.paletteBoth'
+    },
+    PALETTE_MODE_LABEL: {
+        defaultMessage: 'Visible block categories',
+        description: 'Label for Scratch and SPIKE palette visibility controls',
+        id: 'gui.blocks.paletteModeLabel'
     }
 });
 
@@ -85,6 +106,26 @@ const addFunctionListener = (object, property, callback) => {
 const DroppableBlocks = DropAreaHOC([
     DragConstants.BACKPACK_CODE
 ])(BlocksComponent);
+
+const paletteModes = [
+    {
+        id: 'scratch',
+        label: messages.PALETTE_SCRATCH
+    },
+    {
+        id: 'spike',
+        label: messages.PALETTE_SPIKE
+    },
+    {
+        id: 'both',
+        label: messages.PALETTE_BOTH
+    }
+];
+
+const getPaletteMode = target => {
+    const mode = target && target.sprite && target.sprite.brickwrightPaletteMode;
+    return mode === 'scratch' || mode === 'spike' ? mode : 'both';
+};
 
 class Blocks extends React.Component {
     constructor (props) {
@@ -109,6 +150,7 @@ class Blocks extends React.Component {
             'handlePromptCallback',
             'handlePromptClose',
             'handleCustomProceduresClose',
+            'handlePaletteModeChange',
             'onScriptGlowOn',
             'onScriptGlowOff',
             'onBlockGlowOn',
@@ -129,7 +171,8 @@ class Blocks extends React.Component {
         this.ScratchBlocks.recordSoundCallback = this.handleOpenSoundRecorder;
 
         this.state = {
-            prompt: null
+            prompt: null,
+            paletteMode: getPaletteMode(props.vm.editingTarget)
         };
         this.onTargetsUpdate = debounce(this.onTargetsUpdate, 100);
         this.toolboxUpdateQueue = [];
@@ -222,7 +265,7 @@ class Blocks extends React.Component {
         // nothing. See lib/bw-debug/block-menu.js.
         import(/* webpackChunkName: "bw-debug-menu" */ '../lib/bw-debug/block-menu.js')
             .then(({installBreakpointMenu}) => {
-                if (!this.workspace) return;   // unmounted while loading
+                if (!this.workspace) return; // unmounted while loading
                 this.breakpointMenu = installBreakpointMenu(
                     this.ScratchBlocks, this.props.vm, () => this.props.locale);
                 // Blockly rebuilds a block's SVG on load, drag and undo, so the
@@ -253,6 +296,7 @@ class Blocks extends React.Component {
     shouldComponentUpdate (nextProps, nextState) {
         return (
             this.state.prompt !== nextState.prompt ||
+            this.state.paletteMode !== nextState.paletteMode ||
             this.props.isVisible !== nextProps.isVisible ||
             this._renderedToolboxXML !== nextProps.toolboxXML ||
             this.props.extensionLibraryVisible !== nextProps.extensionLibraryVisible ||
@@ -422,6 +466,14 @@ class Blocks extends React.Component {
     }
 
     onTargetsUpdate () {
+        const editingTarget = this.props.vm.editingTarget || this.props.vm.runtime.getTargetForStage();
+        const paletteMode = getPaletteMode(editingTarget);
+        if (paletteMode !== this.state.paletteMode) {
+            this.setState({paletteMode}, () => {
+                const toolboxXML = this.getToolboxXML();
+                if (toolboxXML) this.props.updateToolboxState(toolboxXML);
+            });
+        }
         if (this.props.vm.editingTarget && this.workspace.getFlyout()) {
             ['glide', 'move', 'set'].forEach(prefix => {
                 this.updateToolboxBlockValue(`${prefix}x`, Math.round(this.props.vm.editingTarget.x).toString());
@@ -480,7 +532,8 @@ class Blocks extends React.Component {
                 targetCostumes[targetCostumes.length - 1].name,
                 stageCostumes[stageCostumes.length - 1].name,
                 targetSounds.length > 0 ? targetSounds[targetSounds.length - 1].name : '',
-                this.props.theme.getBlockColors()
+                this.props.theme.getBlockColors(),
+                getPaletteMode(target)
             );
         } catch {
             return null;
@@ -686,6 +739,17 @@ class Blocks extends React.Component {
         this.workspace.enableProcedureReturns();
         this.requestToolboxUpdate();
     }
+    handlePaletteModeChange (event) {
+        const mode = event.currentTarget.dataset.paletteMode;
+        const target = this.props.vm.editingTarget || this.props.vm.runtime.getTargetForStage();
+        if (!target || !target.sprite || getPaletteMode(target) === mode) return;
+        target.sprite.brickwrightPaletteMode = mode;
+        this.props.vm.runtime.emitProjectChanged();
+        this.setState({paletteMode: mode}, () => {
+            const toolboxXML = this.getToolboxXML();
+            if (toolboxXML) this.props.updateToolboxState(toolboxXML);
+        });
+    }
     render () {
         /* eslint-disable no-unused-vars */
         const {
@@ -697,6 +761,7 @@ class Blocks extends React.Component {
             options,
             stageSize,
             vm,
+            intl,
             isRtl,
             isVisible,
             onActivateColorPicker,
@@ -717,11 +782,31 @@ class Blocks extends React.Component {
         /* eslint-enable no-unused-vars */
         return (
             <React.Fragment>
-                <DroppableBlocks
-                    componentRef={this.setBlocks}
-                    onDrop={this.handleDrop}
-                    {...props}
-                />
+                <div className={paletteStyles.blocksContainer}>
+                    <div
+                        className={paletteStyles.paletteModeControl}
+                        role="group"
+                        aria-label={intl.formatMessage(messages.PALETTE_MODE_LABEL)}
+                    >
+                        {paletteModes.map(({id, label}) => (
+                            <button
+                                key={id}
+                                type="button"
+                                className={paletteStyles.paletteModeButton}
+                                aria-pressed={this.state.paletteMode === id}
+                                data-palette-mode={id}
+                                onClick={this.handlePaletteModeChange}
+                            >
+                                {intl.formatMessage(label)}
+                            </button>
+                        ))}
+                    </div>
+                    <DroppableBlocks
+                        componentRef={this.setBlocks}
+                        onDrop={this.handleDrop}
+                        {...props}
+                    />
+                </div>
                 {this.state.prompt ? (
                     <Prompt
                         defaultValue={this.state.prompt.defaultValue}

@@ -5,9 +5,37 @@ export const NH_TOYO_DEV_EXTENSION_SOURCE_ID = 'nhtoyo-development';
 export const LOCAL_SPIKE_EXTENSION_PATH =
     '/CrispStrobe/legospike_turbowarp_transpile.js';
 export const LOCAL_EXTENSION_BUILD_QUERY = 'bwDevBuild';
+export const STANDARD_SPIKE_EXTENSION_ID = 'spikeprime';
+// Immutable source for packaged Brickwright builds. Update this only after
+// reviewing the corresponding NHtoyo extension commit and its provenance.
+export const PACKAGED_SPIKE_EXTENSION_COMMIT =
+    'fe5a72f63a157b82c2ba34dfc21028f19b22c6c1';
+export const PACKAGED_SPIKE_EXTENSION_URL =
+    `https://cdn.jsdelivr.net/gh/NHtoyo/brickwright-jp-extensions@${PACKAGED_SPIKE_EXTENSION_COMMIT}/extensions/CrispStrobe/legospike_turbowarp_transpile.js`;
 
 const ORIGINAL_EXTENSION_BASE_URL = 'https://crispstrobe.github.io/extensions/';
 const LOCAL_EXTENSION_BASE_URL = 'http://localhost:8000/';
+const DEVELOPMENT_BUILD_ID = `${Date.now().toString(36)}-${Math.random().toString(36)
+    .slice(2, 8)}`;
+
+export const getStandardSpikeExtensionURL = (
+    nodeEnvironment = process.env.NODE_ENV,
+    buildId = DEVELOPMENT_BUILD_ID
+) => {
+    if (nodeEnvironment !== 'development') return PACKAGED_SPIKE_EXTENSION_URL;
+    const url = new URL(LOCAL_SPIKE_EXTENSION_PATH.replace(/^\//, ''), LOCAL_EXTENSION_BASE_URL);
+    url.searchParams.set(LOCAL_EXTENSION_BUILD_QUERY, String(buildId));
+    return url.href;
+};
+
+export const isStandardSpikeExtensionId = extensionId =>
+    extensionId === STANDARD_SPIKE_EXTENSION_ID;
+
+export const filterStandardSpikeGalleryDuplicates = items =>
+    items.filter(item => !(
+        item && typeof item === 'object' &&
+        isStandardSpikeExtensionId(item.extensionId)
+    ));
 
 export const getExtensionGallerySources = (isDevelopment, buildId) => {
     const original = {
@@ -78,12 +106,34 @@ export const identifyExtensionSource = url => {
             buildId: null
         };
     }
+    if (parsed.href === PACKAGED_SPIKE_EXTENSION_URL) {
+        return {
+            id: 'nhtoyo-packaged',
+            label: 'NHtoyo Brickwright extensions (pinned commit)',
+            assetPath: parsed.pathname,
+            buildId: PACKAGED_SPIKE_EXTENSION_COMMIT
+        };
+    }
     return {
         id: 'unknown',
         label: `${parsed.origin}${parsed.pathname}`,
         assetPath: parsed.pathname,
         buildId: parsed.searchParams.get(LOCAL_EXTENSION_BUILD_QUERY)
     };
+};
+
+export const isTrustedPackagedSpikeExtensionURL = url => {
+    try {
+        const parsed = new URL(url);
+        return parsed.href === PACKAGED_SPIKE_EXTENSION_URL &&
+            parsed.protocol === 'https:' &&
+            parsed.username === '' &&
+            parsed.password === '' &&
+            parsed.hash === '' &&
+            [...parsed.searchParams.keys()].length === 0;
+    } catch (error) {
+        return false;
+    }
 };
 
 export const isTrustedLocalSpikeDevelopmentURL = (

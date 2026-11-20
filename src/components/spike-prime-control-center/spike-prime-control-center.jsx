@@ -2,6 +2,11 @@ import PropTypes from 'prop-types';
 import React from 'react';
 import VM from 'scratch-vm';
 import bindAll from 'lodash.bindall';
+import {
+    getStandardSpikeExtensionSourceURL,
+    loadStandardSpikeExtension
+} from '../../lib/spike-prime-extension-loader';
+import {STANDARD_SPIKE_EXTENSION_ID} from '../../lib/extension-gallery-sources';
 
 import styles from './spike-prime-control-center.css';
 
@@ -14,7 +19,18 @@ const SPIKE_COLOR_NAMES = {
 
 const words = {
     en: {
-        title: 'SPIKE hub',
+        title: 'LEGO hub',
+        model: 'Hub model',
+        modelAuto: 'Auto detect',
+        modelPrime: 'SPIKE Prime',
+        modelEssential: 'SPIKE Essential',
+        detectedModel: 'Detected model',
+        activeModel: 'Using model',
+        modelMismatch: 'Selected and detected models differ. The detected hub protocol will be used.',
+        portUnavailable: 'Unavailable on this hub',
+        loadingExtension: 'Loading the standard SPIKE extension…',
+        extensionLoadError: 'Could not load the standard SPIKE extension.',
+        retryExtensionLoad: 'Retry loading',
         connect: 'Connect',
         disconnect: 'Disconnect',
         connecting: 'Connecting…',
@@ -29,7 +45,7 @@ const words = {
         connected: 'Connected',
         disconnected: 'Disconnected',
         connectionError: 'Connection error',
-        unavailable: 'Add the SPIKE Prime extension from Add-ons to connect a hub.',
+        unavailable: 'The standard SPIKE extension is not available yet.',
         firmware: 'Hub OS',
         controller: 'Controller',
         controllerSlot: 'Controller slot',
@@ -102,7 +118,18 @@ const words = {
         lastValue: 'last value'
     },
     ja: {
-        title: 'SPIKE ハブ',
+        title: 'LEGO ハブ',
+        model: 'ハブのモデル',
+        modelAuto: '自動判別',
+        modelPrime: 'SPIKE Prime',
+        modelEssential: 'SPIKE Essential',
+        detectedModel: '検出したモデル',
+        activeModel: '使用モデル',
+        modelMismatch: '選択したモデルと検出したモデルが異なります。実際に検出したハブの通信方式を使います。',
+        portUnavailable: 'このハブでは使用できません',
+        loadingExtension: 'SPIKE標準拡張を読み込み中…',
+        extensionLoadError: 'SPIKE標準拡張を読み込めませんでした。',
+        retryExtensionLoad: '読み込みを再試行',
         connect: '接続',
         disconnect: '切断',
         connecting: '接続中…',
@@ -117,13 +144,13 @@ const words = {
         connected: '接続済み',
         disconnected: '未接続',
         connectionError: '接続エラー',
-        unavailable: 'ハブを接続するには「アドオン」からSPIKE Prime拡張を追加してください。',
+        unavailable: 'SPIKE標準拡張はまだ利用できません。',
         firmware: 'Hub OS',
         controller: '制御プログラム',
         controllerSlot: '制御プログラム用スロット',
         standaloneSlot: '単独実行の保存先',
         systemSlot: '制御プログラム用に予約',
-        developmentSource: '読み込み中の拡張',
+        developmentSource: '読み込んだ拡張',
         sourceBranch: 'ブランチ',
         sourceCommit: 'コミット',
         sourceUnavailable: '読み込み元情報を取得できません',
@@ -212,10 +239,15 @@ class SpikePrimeControlCenter extends React.Component {
             controllerSlot: 0,
             controllerConfirmation: null,
             standaloneSlot: 0,
-            standaloneConfirmation: null
+            standaloneConfirmation: null,
+            selectedHubModel: 'auto',
+            extensionLoadStatus: 'loading',
+            extensionLoadError: null,
+            extensionSourceConflict: null
         };
         this.mounted = false;
         this.poll = null;
+        this.modelSelectionTouched = false;
         this.routerAdapters = new WeakMap();
         this.currentConnectionIdentity = null;
         bindAll(this, [
@@ -225,7 +257,8 @@ class SpikePrimeControlCenter extends React.Component {
             'handleStandaloneSlotChanged', 'handleReviewStandaloneSlot',
             'handleConfirmStandaloneRun', 'handleCancelStandaloneRun',
             'handleConnectionModeChanged', 'handlePeripheralListUpdate',
-            'handlePeripheralRequestError', 'handleConnectPeripheral', 'handleDisplayModeChanged'
+            'handlePeripheralRequestError', 'handleConnectPeripheral', 'handleDisplayModeChanged',
+            'handleHubModelChanged', 'handleRetryExtensionLoad'
         ]);
     }
 
@@ -233,6 +266,7 @@ class SpikePrimeControlCenter extends React.Component {
         this.mounted = true;
         this.props.vm.on('PERIPHERAL_LIST_UPDATE', this.handlePeripheralListUpdate);
         this.props.vm.on('PERIPHERAL_REQUEST_ERROR', this.handlePeripheralRequestError);
+        this.loadStandardExtension();
         this.refresh();
         this.poll = setInterval(this.refresh, 200);
     }
@@ -242,6 +276,37 @@ class SpikePrimeControlCenter extends React.Component {
         this.props.vm.removeListener('PERIPHERAL_LIST_UPDATE', this.handlePeripheralListUpdate);
         this.props.vm.removeListener('PERIPHERAL_REQUEST_ERROR', this.handlePeripheralRequestError);
         if (this.poll) clearInterval(this.poll);
+    }
+
+    async loadStandardExtension () {
+        if (process.env.NODE_ENV === 'test' && this.getRouter()) {
+            this.setState({extensionLoadStatus: 'loaded'});
+            return;
+        }
+        try {
+            const result = await loadStandardSpikeExtension(this.props.vm);
+            if (!this.mounted) return;
+            if (result.status === 'source-conflict') {
+                this.setState({
+                    extensionLoadStatus: 'conflict',
+                    extensionSourceConflict: result.loadedURL
+                });
+            } else {
+                this.setState({
+                    extensionLoadStatus: 'loaded',
+                    extensionLoadError: null,
+                    extensionSourceConflict: null
+                });
+            }
+            this.refresh();
+        } catch (error) {
+            if (this.mounted) {
+                this.setState({
+                    extensionLoadStatus: 'error',
+                    extensionLoadError: error.message || String(error)
+                });
+            }
+        }
     }
 
     getRouter () {
@@ -296,6 +361,7 @@ class SpikePrimeControlCenter extends React.Component {
                     },
                     connectPeripheral: peripheralId => router.connect(peripheralId),
                     setMode: mode => router.setMode(mode),
+                    setHubModel: () => {},
                     disconnect: () => router.disconnect(),
                     stop: () => router.stopAll()
                 });
@@ -341,7 +407,12 @@ class SpikePrimeControlCenter extends React.Component {
             // different slot is explicitly selected.
             this.setState({standaloneConfirmation: null});
         }
-        this.updateIfMounted({snapshot, now: Date.now()});
+        this.updateIfMounted({
+            snapshot,
+            now: Date.now(),
+            selectedHubModel: !this.modelSelectionTouched && snapshot && snapshot.selectedHubModel ?
+                snapshot.selectedHubModel : this.state.selectedHubModel
+        });
         this.loadBuildInfo(snapshot);
     }
 
@@ -349,7 +420,8 @@ class SpikePrimeControlCenter extends React.Component {
         const manager = this.props.vm.extensionManager;
         const urls = manager && typeof manager.getExtensionURLs === 'function' ?
             manager.getExtensionURLs() : {};
-        return urls.spikeprime || (snapshot && snapshot.sourceURL) || '';
+        return urls[STANDARD_SPIKE_EXTENSION_ID] || (snapshot && snapshot.sourceURL) ||
+            getStandardSpikeExtensionSourceURL(this.props.vm) || '';
     }
 
     loadBuildInfo (snapshot) {
@@ -476,7 +548,46 @@ class SpikePrimeControlCenter extends React.Component {
     }
 
     handleConnect () {
-        this.runAction('connect', this.state.connectionMode);
+        this.runAction('connect', this.state.connectionMode, this.state.selectedHubModel);
+    }
+
+    handleHubModelChanged (event) {
+        const selectedHubModel = event.target.value;
+        // A poll can run between the user's selection and the extension API
+        // applying it. Keep the explicit choice until the view is reloaded;
+        // otherwise an older `getState()` snapshot snaps the select back to
+        // Auto and, in particular, exposes slot controls for Essential.
+        this.modelSelectionTouched = true;
+        this.setState({selectedHubModel});
+        const api = this.getAPI();
+        if (api && typeof api.setHubModel === 'function') {
+            try {
+                const result = api.setHubModel(selectedHubModel);
+                if (result && typeof result.catch === 'function') {
+                    result.catch(error => this.updateIfMounted({error: error.message || String(error)}));
+                }
+            } catch (error) {
+                this.updateIfMounted({error: error.message || String(error)});
+            }
+        }
+    }
+
+    handleRetryExtensionLoad () {
+        this.setState({extensionLoadStatus: 'loading', extensionLoadError: null});
+        loadStandardSpikeExtension(this.props.vm)
+            .then(result => {
+                if (!this.mounted) return;
+                this.setState({
+                    extensionLoadStatus: result.status,
+                    extensionSourceConflict: result.loadedURL || null,
+                    extensionLoadError: null
+                });
+                this.refresh();
+            })
+            .catch(error => this.updateIfMounted({
+                extensionLoadStatus: 'error',
+                extensionLoadError: error.message || String(error)
+            }));
     }
 
     handleConnectionModeChanged (event) {
@@ -484,6 +595,48 @@ class SpikePrimeControlCenter extends React.Component {
         this.setState({connectionMode, peripherals: []});
         const api = this.getAPI();
         if (api && typeof api.setMode === 'function') api.setMode(connectionMode);
+    }
+
+    getEffectiveModel (snapshot = this.state.snapshot) {
+        // A disconnected router can retain the last transport/protocol in its
+        // diagnostics. Do not infer the offline model from that stale value;
+        // only an explicit user selection or a live hub identification is
+        // authoritative for hiding model-specific controls.
+        if (this.state.selectedHubModel !== 'auto') return this.state.selectedHubModel;
+        if (!snapshot || !snapshot.connected) return null;
+        if (snapshot && snapshot.connected) {
+            if (snapshot.detectedHubModel) return snapshot.detectedHubModel;
+            if (snapshot.effectiveHubModel) return snapshot.effectiveHubModel;
+            if (snapshot.protocol === 'lwp3' || snapshot.protocol === 'essential') return 'essential';
+            if (snapshot.protocol === 'spike3' || snapshot.protocol === 'prime') return 'prime';
+        }
+        return null;
+    }
+
+    isEssentialHub (snapshot = this.state.snapshot) {
+        return this.getEffectiveModel(snapshot) === 'essential';
+    }
+
+    isStandaloneCapable (snapshot = this.state.snapshot) {
+        // Keep offline download settings available before a hub is selected.
+        // The extension may report false while disconnected because it has no
+        // active protocol yet; the user's explicit Essential choice is the
+        // only case where slot-based execution is known to be unsupported.
+        if (!snapshot || !snapshot.connected) return !this.isEssentialHub(snapshot);
+        if (snapshot && typeof snapshot.standaloneCapable === 'boolean') {
+            return snapshot.standaloneCapable;
+        }
+        return !this.isEssentialHub(snapshot);
+    }
+
+    isPortAvailable (port, snapshot = this.state.snapshot) {
+        if (snapshot && Array.isArray(snapshot.availablePorts)) {
+            if (!snapshot.connected) {
+                return !this.isEssentialHub(snapshot) || ['A', 'B'].includes(port);
+            }
+            return snapshot.availablePorts.includes(port);
+        }
+        return !this.isEssentialHub(snapshot) || ['A', 'B'].includes(port);
     }
 
     handlePeripheralListUpdate (peripheralList) {
@@ -606,6 +759,26 @@ class SpikePrimeControlCenter extends React.Component {
 
     renderPort (port, snapshot) {
         const w = this.getWords();
+        if (!this.isPortAvailable(port, snapshot)) {
+            return (
+                <div
+                    aria-disabled="true"
+                    aria-label={`${port}: ${w.portUnavailable}`}
+                    className={`${styles.livePort} ${styles.portUnavailable}`}
+                    key={port}
+                    title={w.portUnavailable}
+                >
+                    <div className={styles.portIdentity}>
+                        <span
+                            aria-hidden="true"
+                            className={styles.deviceIcon}
+                        >{'⊘'}</span>
+                        <strong>{port}</strong>
+                    </div>
+                    <span className={styles.portValue}>{w.portUnavailable}</span>
+                </div>
+            );
+        }
         const portSensor = snapshot && snapshot.portSensors && snapshot.portSensors[port];
         const motor = snapshot && snapshot.motorPorts && snapshot.motorPorts[port];
         const reading = portSensor || motor || {};
@@ -672,6 +845,14 @@ class SpikePrimeControlCenter extends React.Component {
 
     renderPortDetails (port, snapshot) {
         const w = this.getWords();
+        if (!this.isPortAvailable(port, snapshot)) {
+            return (<div
+                className={`${styles.portCard} ${styles.portUnavailable}`}
+                key={port}
+            >
+                <div className={styles.portHeading}><strong>{port}</strong><span>{w.portUnavailable}</span></div>
+            </div>);
+        }
         const portSensor = snapshot && snapshot.portSensors && snapshot.portSensors[port];
         const motor = snapshot && snapshot.motorPorts && snapshot.motorPorts[port];
         const reading = portSensor || motor || {};
@@ -746,6 +927,12 @@ class SpikePrimeControlCenter extends React.Component {
         const hubButtonClass = `${styles.hubButton} ${connected ? styles.hubConnected : ''} ` +
             `${connectionError ? styles.hubError : ''}`;
         const controllerReady = Boolean(snapshot && snapshot.controllerReady);
+        const detectedModel = snapshot && snapshot.detectedHubModel;
+        const effectiveModel = this.getEffectiveModel(snapshot);
+        const standaloneCapable = this.isStandaloneCapable(snapshot);
+        const modelMismatch = Boolean(snapshot && snapshot.modelMismatch) ||
+            Boolean(detectedModel && this.state.selectedHubModel !== 'auto' &&
+                detectedModel !== this.state.selectedHubModel);
         const router = this.getRouter();
         const sourceURL = this.getLoadedSourceURL(snapshot);
         const routerRegistered = Boolean(
@@ -758,7 +945,7 @@ class SpikePrimeControlCenter extends React.Component {
         const reservedSlot = snapshot && Number.isInteger(snapshot.controllerSlot) ?
             snapshot.controllerSlot : null;
         const standaloneSlotReserved = this.isReservedSlot(this.state.standaloneSlot);
-        const controllerInstallDisabled = busy || !connected || !api ||
+        const controllerInstallDisabled = busy || !connected || !api || !standaloneCapable ||
             !Number.isInteger(this.state.controllerSlot);
         return (
             <div className={styles.root}>
@@ -786,44 +973,48 @@ class SpikePrimeControlCenter extends React.Component {
                     </div>
                     <div className={styles.runControls}>
                         <span className={styles.pcRunLabel}>{w.pcRunLabel}</span>
-                        <label className={styles.standaloneControls}>
-                            <span>{w.standaloneLabel}</span>
-                            <select
-                                aria-label={w.standaloneSlot}
-                                disabled={busy}
-                                onChange={this.handleStandaloneSlotChanged}
-                                value={this.state.standaloneSlot}
-                            >
-                                {slots.map(slot => (<option
-                                    disabled={slot === reservedSlot}
-                                    key={slot}
-                                    value={slot}
-                                >
-                                    {slot}{slot === reservedSlot ? ` · ${w.systemSlot}` : ''}
-                                </option>))}
-                            </select>
-                        </label>
-                        {this.state.standaloneConfirmation === null ? <button
-                            disabled={busy || !connected || !api ||
-                                !Number.isInteger(this.state.standaloneSlot) || standaloneSlotReserved}
-                            onClick={this.handleReviewStandaloneSlot}
-                            type="button"
-                        >{w.runStandalone}</button> : <div className={styles.inlineConfirm}>
-                            <span>{w.slotWarning}</span>
-                            <button
-                                disabled={busy || !connected ||
-                                    this.isReservedSlot(this.state.standaloneConfirmation.slot)}
-                                onClick={this.handleConfirmStandaloneRun}
-                                type="button"
-                            >
-                                {`${w.confirmUpload} ${this.state.standaloneConfirmation.slot}`}
-                            </button>
-                            <button
-                                disabled={busy}
-                                onClick={this.handleCancelStandaloneRun}
-                                type="button"
-                            >{w.cancel}</button>
-                        </div>}
+                        {standaloneCapable ? (
+                            <>
+                                <label className={styles.standaloneControls}>
+                                    <span>{w.standaloneLabel}</span>
+                                    <select
+                                        aria-label={w.standaloneSlot}
+                                        disabled={busy}
+                                        onChange={this.handleStandaloneSlotChanged}
+                                        value={this.state.standaloneSlot}
+                                    >
+                                        {slots.map(slot => (<option
+                                            disabled={slot === reservedSlot}
+                                            key={slot}
+                                            value={slot}
+                                        >
+                                            {slot}{slot === reservedSlot ? ` · ${w.systemSlot}` : ''}
+                                        </option>))}
+                                    </select>
+                                </label>
+                                {this.state.standaloneConfirmation === null ? <button
+                                    disabled={busy || !connected || !api ||
+                                        !Number.isInteger(this.state.standaloneSlot) || standaloneSlotReserved}
+                                    onClick={this.handleReviewStandaloneSlot}
+                                    type="button"
+                                >{w.runStandalone}</button> : <div className={styles.inlineConfirm}>
+                                    <span>{w.slotWarning}</span>
+                                    <button
+                                        disabled={busy || !connected ||
+                                            this.isReservedSlot(this.state.standaloneConfirmation.slot)}
+                                        onClick={this.handleConfirmStandaloneRun}
+                                        type="button"
+                                    >
+                                        {`${w.confirmUpload} ${this.state.standaloneConfirmation.slot}`}
+                                    </button>
+                                    <button
+                                        disabled={busy}
+                                        onClick={this.handleCancelStandaloneRun}
+                                        type="button"
+                                    >{w.cancel}</button>
+                                </div>}
+                            </>
+                        ) : null}
                     </div>
                 </div>
                 {open ? (
@@ -867,6 +1058,40 @@ class SpikePrimeControlCenter extends React.Component {
                                 type="button"
                             >{w.stopHub}</button> : null}
                         </div>
+                        <div className={styles.modelSettings}>
+                            <label>{w.model}
+                                <select
+                                    aria-label={w.model}
+                                    disabled={busy}
+                                    onChange={this.handleHubModelChanged}
+                                    value={this.state.selectedHubModel}
+                                >
+                                    <option value="auto">{w.modelAuto}</option>
+                                    <option value="prime">{w.modelPrime}</option>
+                                    <option value="essential">{w.modelEssential}</option>
+                                </select>
+                            </label>
+                            <div className={styles.modelStatus}>
+                                <span>{w.detectedModel}{': '}{detectedModel === 'essential' ? w.modelEssential :
+                                    detectedModel === 'prime' ? w.modelPrime : w.unknown}</span>
+                                {effectiveModel ? <span>{w.activeModel}{': '}{effectiveModel === 'essential' ?
+                                    w.modelEssential : w.modelPrime}</span> : null}
+                            </div>
+                            {modelMismatch ? <div
+                                className={styles.modelWarning}
+                                role="status"
+                            >
+                                {w.modelMismatch}
+                            </div> : null}
+                            {snapshot && snapshot.modelStatus === 'unsupported' ? (
+                                <div
+                                    className={styles.modelWarning}
+                                    role="status"
+                                >
+                                    {snapshot.modelWarning || w.modelMismatch}
+                                </div>
+                            ) : null}
+                        </div>
                         <div className={styles.connectionSettings}>
                             <label>{w.connectionMode}
                                 <select
@@ -888,7 +1113,39 @@ class SpikePrimeControlCenter extends React.Component {
                                 </span>
                             </div>
                         </div>
-                        {api ? null : <p className={styles.help}>{w.unavailable}</p>}
+                        {this.state.extensionLoadStatus === 'loading' ? (
+                            <p
+                                className={styles.help}
+                                role="status"
+                            >{w.loadingExtension}</p>
+                        ) : null}
+                        {this.state.extensionLoadStatus === 'error' ? (
+                            <div
+                                className={styles.error}
+                                role="status"
+                            >
+                                <strong>{w.extensionLoadError}{' '}</strong>
+                                {this.state.extensionLoadError}
+                                <button
+                                    onClick={this.handleRetryExtensionLoad}
+                                    type="button"
+                                >
+                                    {w.retryExtensionLoad}
+                                </button>
+                            </div>
+                        ) : null}
+                        {this.state.extensionLoadStatus === 'conflict' ? (
+                            <div
+                                className={styles.error}
+                                role="status"
+                            >
+                                {w.sourceConflict.replace('{extensionId}', STANDARD_SPIKE_EXTENSION_ID)
+                                    .replace('{loaded}', this.state.extensionSourceConflict || w.sourceUnavailable)
+                                    .replace('{requested}', this.getLoadedSourceURL(snapshot))}
+                            </div>
+                        ) : null}
+                        {!api && this.state.extensionLoadStatus === 'loaded' ?
+                            <p className={styles.help}>{w.unavailable}</p> : null}
                         {this.state.peripherals.length > 0 && !connected ? (
                             <div className={styles.deviceList}>
                                 <strong>{w.devices}</strong>
@@ -921,7 +1178,7 @@ class SpikePrimeControlCenter extends React.Component {
                                 </>
                             ) : null}
                         </details>
-                        <details className={styles.installBox}>
+                        {standaloneCapable ? <details className={styles.installBox}>
                             <summary>{w.controller}</summary>
                             <label>{w.controllerSlot}
                                 <select
@@ -973,12 +1230,16 @@ class SpikePrimeControlCenter extends React.Component {
                                     </button>
                                 </div>
                             )}
-                        </details>
+                        </details> : null}
                         {connected ? (
                             <>
                                 <div className={styles.metadata}>
                                     <span>{w.firmware}{': '}{snapshot.firmwareVersion || '—'}</span>
-                                    <span>{w.controller}{': '}{controllerReady ? w.ready : w.unknown}</span>
+                                    {standaloneCapable ? (
+                                        <span>
+                                            {w.controller}{': '}{controllerReady ? w.ready : w.unknown}
+                                        </span>
+                                    ) : null}
                                 </div>
                                 <h3 className={styles.sectionTitle}>{w.imu}</h3>
                                 <div className={styles.imuGrid}>

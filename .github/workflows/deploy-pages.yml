@@ -41,6 +41,10 @@ jobs:
       - name: Install
         run: npm ci --ignore-scripts --include=dev --no-audit --no-fund
 
+      # Keep production SB3 serialization consistent with the source editor.
+      - name: Apply Brickwright scratch-vm patch
+        run: npx patch-package --error-on-fail
+
       - name: Stub micro:bit firmware URL
         run: |
           mkdir -p src/generated

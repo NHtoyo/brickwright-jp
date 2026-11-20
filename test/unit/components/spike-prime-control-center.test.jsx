@@ -18,6 +18,14 @@ describe('SPIKE Prime control center', () => {
             available: true,
             connected: false,
             protocol: 'spike3',
+            selectedHubModel: 'auto',
+            detectedHubModel: null,
+            effectiveHubModel: null,
+            modelMismatch: false,
+            modelStatus: 'waiting',
+            modelWarning: null,
+            availablePorts: ['A', 'B', 'C', 'D', 'E', 'F'],
+            standaloneCapable: true,
             controllerReady: false,
             controllerStatus: 'disconnected',
             controllerSlot: null,
@@ -32,6 +40,9 @@ describe('SPIKE Prime control center', () => {
             hubRouterId: 'test-router',
             getState: jest.fn(() => snapshot),
             connect: jest.fn(() => Promise.resolve()),
+            setHubModel: jest.fn(model => {
+                snapshot = {...snapshot, selectedHubModel: model};
+            }),
             disconnect: jest.fn(() => Promise.resolve()),
             installController: jest.fn(() => Promise.resolve()),
             stop: jest.fn(() => Promise.resolve()),
@@ -52,7 +63,7 @@ describe('SPIKE Prime control center', () => {
                 vm={vm}
             />
         );
-        component.find('button[aria-label^="SPIKE hub:"]').simulate('click');
+        component.find('button[aria-label^="LEGO hub:"]').simulate('click');
         await act(async () => {
             component
                 .find('button')
@@ -61,6 +72,109 @@ describe('SPIKE Prime control center', () => {
             await Promise.resolve();
         });
         expect(api.connect).toHaveBeenCalledTimes(1);
+        component.unmount();
+    });
+
+    test('selects SPIKE Essential, disables C-F, and hides Prime slot controls', async () => {
+        snapshot = {
+            ...snapshot,
+            connected: true,
+            protocol: 'lwp3',
+            selectedHubModel: 'auto',
+            detectedHubModel: 'essential',
+            effectiveHubModel: 'essential',
+            availablePorts: ['A', 'B'],
+            standaloneCapable: false,
+            portSensors: {
+                A: {type: 'motor', absolutePosition: -12, speed: 3, receivedAt: Date.now()}
+            }
+        };
+        api.setHubModel.mockImplementation(model => {
+            snapshot = {
+                ...snapshot,
+                selectedHubModel: model,
+                modelMismatch: model === 'prime',
+                modelWarning: model === 'prime' ? 'Mismatch from fake API' : null
+            };
+        });
+        const component = mount(
+            <SpikePrimeControlCenter intl={{locale: 'en'}} vm={vm} />
+        );
+        expect(component.find('select[aria-label="Hub standalone"]')).toHaveLength(0);
+        expect(component.find('select[aria-label="Controller slot"]')).toHaveLength(0);
+        expect(component.find('[aria-label^="A:"]').prop('aria-label')).toContain('Motor');
+        for (const port of ['C', 'D', 'E', 'F']) {
+            expect(component.find(`[aria-label^="${port}:"]`).prop('aria-label'))
+                .toContain('Unavailable on this hub');
+            expect(component.find(`[aria-label^="${port}:"]`).prop('aria-disabled')).toBe('true');
+        }
+
+        component.find('button[aria-label^="LEGO hub:"]').simulate('click');
+        component.find('select[aria-label="Hub model"]').simulate('change', {
+            target: {value: 'prime'}
+        });
+        await act(async () => {
+            await Promise.resolve();
+        });
+        component.update();
+        expect(api.setHubModel).toHaveBeenCalledWith('prime');
+        expect(component.text()).toContain('Selected and detected models differ');
+        component.unmount();
+    });
+
+    test('keeps a user-selected hub model when the polling snapshot is stale', async () => {
+        // A disconnected extension can report standaloneCapable=false until it
+        // identifies the active transport, but Prime slot settings still need
+        // to be configurable before a connection is made.
+        snapshot = {...snapshot, standaloneCapable: false};
+        api.getState.mockImplementation(() => snapshot);
+        const component = mount(
+            <SpikePrimeControlCenter intl={{locale: 'en'}} vm={vm} />
+        );
+        component.find('button[aria-label^="LEGO hub:"]').simulate('click');
+        expect(component.find('select[aria-label="Standalone slot"]')).toHaveLength(1);
+        await act(async () => {
+            component.find('select[aria-label="Hub model"]').simulate('change', {
+                target: {value: 'essential'}
+            });
+            await Promise.resolve();
+        });
+        component.update();
+        expect(component.find('select[aria-label="Hub model"]').prop('value')).toBe('essential');
+
+        // The extension has not acknowledged the selection yet; its poll still
+        // reports the old Auto value. The control must retain the explicit user choice.
+        component.instance().refresh();
+        component.update();
+        expect(component.find('select[aria-label="Hub model"]').prop('value')).toBe('essential');
+        expect(component.find('select[aria-label="Standalone slot"]')).toHaveLength(0);
+        expect(component.text()).not.toContain('Controller slot');
+        component.unmount();
+    });
+
+    test('does not infer an offline Essential hub from a stale protocol snapshot', () => {
+        snapshot = {
+            ...snapshot,
+            connected: false,
+            protocol: 'lwp3-essential',
+            selectedHubModel: 'auto',
+            detectedHubModel: null,
+            effectiveHubModel: null,
+            modelStatus: 'not-connected',
+            availablePorts: ['A', 'B'],
+            standaloneCapable: false
+        };
+        api.getState.mockImplementation(() => snapshot);
+        const component = mount(
+            <SpikePrimeControlCenter intl={{locale: 'en'}} vm={vm} />
+        );
+
+        // Model identity only becomes authoritative after a live identification
+        // or an explicit selection. Offline slot settings remain configurable.
+        expect(component.find('select[aria-label="Standalone slot"]')).toHaveLength(1);
+        component.find('button[aria-label^="LEGO hub:"]').simulate('click');
+        expect(component.find('select[aria-label="Controller slot"]')).toHaveLength(1);
+        expect(component.find('[aria-label^="C:"]').prop('aria-label')).not.toContain('Unavailable on this hub');
         component.unmount();
     });
 
@@ -109,11 +223,11 @@ describe('SPIKE Prime control center', () => {
         expect(component.text()).toContain('0%');
         expect(component.text()).toContain('まだ受信していません');
         expect(component.text()).toContain('値の更新が止まっています');
-        expect(component.find('section[aria-label="SPIKE ハブ"]')).toHaveLength(0);
+        expect(component.find('section[aria-label="LEGO ハブ"]')).toHaveLength(0);
         expect(component.find('[aria-label^="A:"]').prop('aria-label')).toContain('0%');
         expect(component.find('[aria-label^="F:"]').prop('aria-label')).toContain('0 mm');
         expect(component.find('[aria-label^="B:"]').prop('aria-label')).toContain('赤');
-        component.find('button[aria-label^="SPIKE ハブ:"]').simulate('click');
+        component.find('button[aria-label^="LEGO ハブ:"]').simulate('click');
         component.find('select[aria-label="ポート表示"]').simulate('change', {target: {value: 'state'}});
         component.update();
         expect(component.text()).toContain('押されていません');
@@ -158,7 +272,7 @@ describe('SPIKE Prime control center', () => {
         );
         expect(component.find('select[aria-label="単独実行の保存先"] option')).toHaveLength(20);
         expect(component.text()).toContain('PC上のScratch：緑の旗で実行');
-        component.find('button[aria-label^="SPIKE ハブ:"]').simulate('click');
+        component.find('button[aria-label^="LEGO ハブ:"]').simulate('click');
         expect(component.find('select[aria-label="接続方式"]')).toHaveLength(1);
         component.find('details').filterWhere(details => details.find('summary').text() === '制御プログラム').
             find('summary').simulate('click');
@@ -183,7 +297,7 @@ describe('SPIKE Prime control center', () => {
         const component = mount(
             <SpikePrimeControlCenter intl={{locale: 'en'}} vm={vm} />
         );
-        component.find('button[aria-label^="SPIKE hub:"]').simulate('click');
+        component.find('button[aria-label^="LEGO hub:"]').simulate('click');
         component.find('details').filterWhere(details => details.find('summary').text() === 'Controller').
             find('summary').simulate('click');
         expect(component.find('select[aria-label="Controller slot"]').prop('value')).toBe(0);
@@ -220,7 +334,7 @@ describe('SPIKE Prime control center', () => {
             }
         });
         const component = mount(<SpikePrimeControlCenter intl={{locale: 'ja-JP'}} vm={vm} />);
-        component.find('button[aria-label^="SPIKE ハブ:"]').simulate('click');
+        component.find('button[aria-label^="LEGO ハブ:"]').simulate('click');
         component.find('details').filterWhere(details => details.find('summary').text() === '制御プログラム')
             .find('summary').simulate('click');
         component.find('button').filterWhere(button => button.text() === '制御プログラムを導入').simulate('click');
@@ -259,7 +373,7 @@ describe('SPIKE Prime control center', () => {
             }
         });
         const component = mount(<SpikePrimeControlCenter intl={{locale: 'en'}} vm={vm} />);
-        component.find('button[aria-label^="SPIKE hub:"]').simulate('click');
+        component.find('button[aria-label^="LEGO hub:"]').simulate('click');
         component.find('details').filterWhere(details => details.find('summary').text() === 'Controller')
             .find('summary').simulate('click');
         component.find('button').filterWhere(button => button.text() === 'Install controller').simulate('click');

@@ -7,7 +7,12 @@ import {
     isTrustedLocalSpikeDevelopmentURL,
     LOCAL_EXTENSION_BUILD_QUERY,
     NH_TOYO_DEV_EXTENSION_SOURCE_ID,
-    ORIGINAL_EXTENSION_SOURCE_ID
+    ORIGINAL_EXTENSION_SOURCE_ID,
+    PACKAGED_SPIKE_EXTENSION_URL,
+    filterStandardSpikeGalleryDuplicates,
+    getStandardSpikeExtensionURL,
+    isStandardSpikeExtensionId,
+    isTrustedPackagedSpikeExtensionURL
 } from '../../../src/lib/extension-gallery-sources';
 
 describe('extension gallery sources', () => {
@@ -96,5 +101,34 @@ describe('extension gallery sources', () => {
                 'development'
             )
         ).toBe(false);
+    });
+
+    test('uses a local cache-keyed build in development and an immutable source in packaged builds', () => {
+        const devURL = new URL(getStandardSpikeExtensionURL('development', 'build-42'));
+        expect(devURL.origin).toBe('http://localhost:8000');
+        expect(devURL.pathname).toBe('/CrispStrobe/legospike_turbowarp_transpile.js');
+        expect(devURL.searchParams.get(LOCAL_EXTENSION_BUILD_QUERY)).toBe('build-42');
+        expect(getStandardSpikeExtensionURL('production')).toBe(PACKAGED_SPIKE_EXTENSION_URL);
+        expect(PACKAGED_SPIKE_EXTENSION_URL).toContain(
+            '/NHtoyo/brickwright-jp-extensions@fe5a72f63a157b82c2ba34dfc21028f19b22c6c1/'
+        );
+        expect(isStandardSpikeExtensionId('spikeprime')).toBe(true);
+        expect(isStandardSpikeExtensionId('legospike_turbowarp_transpile')).toBe(false);
+        expect(filterStandardSpikeGalleryDuplicates([
+            {extensionId: 'spikeprime'},
+            {extensionId: 'microbit'},
+            '---'
+        ])).toEqual([{extensionId: 'microbit'}, '---']);
+    });
+
+    test('trusts only the exact pinned packaged SPIKE URL', () => {
+        expect(isTrustedPackagedSpikeExtensionURL(PACKAGED_SPIKE_EXTENSION_URL)).toBe(true);
+        expect(isTrustedPackagedSpikeExtensionURL(`${PACKAGED_SPIKE_EXTENSION_URL}?version=latest`)).toBe(false);
+        expect(isTrustedPackagedSpikeExtensionURL(
+            PACKAGED_SPIKE_EXTENSION_URL.replace('fe5a72f63a157b82c2ba34dfc21028f19b22c6c1', 'main')
+        )).toBe(false);
+        expect(isTrustedPackagedSpikeExtensionURL(
+            PACKAGED_SPIKE_EXTENSION_URL.replace('extensions/CrispStrobe/', 'extensions/Other/')
+        )).toBe(false);
     });
 });

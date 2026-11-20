@@ -111,12 +111,14 @@ describe('SPIKE control center with the actual extension source and Scratch VM',
             expect(api.getState().runtimeRegistered).toBe(true);
             expect(api.getState().sourceURL).toContain('legospike_turbowarp_transpile.js');
             expect(extension.isConnected()).toBe(api.getState().connected);
+            api.setHubModel('prime');
 
             // Feed the real SPIKE 3 device-notification decoder the same wire
             // message shape used by the BLE transport. This is not synthetic GUI
             // state: it exercises the parser in the checked-out extension source.
             const hub = router._spike3;
             router._activeProtocol = 'spike3';
+            hub._diagnostics.detectedHubModel = 'prime';
             hub._link = {
                 isConnected: () => true,
                 _device: {name: 'Fake SPIKE Prime'}
@@ -155,7 +157,7 @@ describe('SPIKE control center with the actual extension source and Scratch VM',
             expect(component.text()).toContain('20%');
             // Live port values are visible before the optional detail panel is
             // opened, so routine monitoring never depends on a popup.
-            expect(component.find('section[aria-label="SPIKE hub"]')).toHaveLength(0);
+            expect(component.find('section[aria-label="LEGO hub"]')).toHaveLength(0);
 
             // Exercise the installed VM's real greenFlag sequence (which emits
             // PROJECT_STOP_ALL followed synchronously by PROJECT_START), then
@@ -171,7 +173,7 @@ describe('SPIKE control center with the actual extension source and Scratch VM',
             expect(hub._link).toBe(linkBeforeScratchRun);
             expect(component.text()).toContain('-42°');
 
-            component.find('button[aria-label^="SPIKE hub:"]').simulate('click');
+            component.find('button[aria-label^="LEGO hub:"]').simulate('click');
             component.find('details').filterWhere(details => details.find('summary').text() === 'Controller')
                 .find('summary').simulate('click');
             expect(component.text()).toContain('Connected · Fake SPIKE Prime');
@@ -203,10 +205,12 @@ describe('SPIKE control center with the actual extension source and Scratch VM',
         'keeps zero and negative measurements visible and marks a notification stream stale',
         async () => {
             const vm = new VM();
-            loadRealSpikeExtension(vm);
+            const extension = loadRealSpikeExtension(vm);
             const router = vm.runtime.peripheralExtensions.spikeprime;
+            router.getControlCenterAPI().setHubModel('prime');
             const hub = router._spike3;
             router._activeProtocol = 'spike3';
+            hub._diagnostics.detectedHubModel = 'prime';
             hub._link = {
                 isConnected: () => true,
                 _device: {name: 'Fake SPIKE Prime'}

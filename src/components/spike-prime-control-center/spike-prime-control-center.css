@@ -55,6 +55,19 @@
     padding: 2px 4px;
 }
 
+.port-unavailable {
+    background: #e5e7eb;
+    border-color: #d1d5db;
+    color: #6b7280;
+    cursor: not-allowed;
+}
+
+.port-unavailable .device-icon,
+.port-unavailable .port-device,
+.port-unavailable .port-value {
+    color: #6b7280;
+}
+
 .device-icon {
     color: #475569;
     font-size: 0.82rem;
@@ -284,6 +297,51 @@
     padding: 8px 0;
 }
 
+.model-settings {
+    background: #f8fafc;
+    border: 1px solid #e2e8f0;
+    border-radius: 6px;
+    margin: 8px 0;
+    padding: 8px;
+}
+
+.model-settings label {
+    align-items: center;
+    display: flex;
+    gap: 8px;
+    justify-content: space-between;
+}
+
+.model-settings select {
+    background: #fff;
+    border: 1px solid #cbd5e1;
+    border-radius: 5px;
+    color: #111827;
+    font: inherit;
+    min-height: 32px;
+    padding: 5px 9px;
+}
+
+.model-status {
+    color: #475569;
+    display: flex;
+    flex-wrap: wrap;
+    font-size: 0.72rem;
+    gap: 4px 12px;
+    margin-top: 5px;
+}
+
+.model-warning {
+    background: #fff7ed;
+    border: 1px solid #fed7aa;
+    border-radius: 5px;
+    color: #9a3412;
+    font-size: 0.76rem;
+    line-height: 1.35;
+    margin-top: 7px;
+    padding: 6px;
+}
+
 .connection-settings label {
     align-items: center;
     display: flex;
@@ -503,5 +561,22 @@
 
     .port-grid {
         grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+}
+
+@media (max-width: 1100px) {
+    .live-bar {
+        flex-wrap: wrap;
+        overflow-x: visible;
+    }
+
+    .live-ports {
+        flex: 1 1 260px;
+        min-width: 240px;
+    }
+
+    .run-controls {
+        flex: 1 1 100%;
+        flex-wrap: wrap;
     }
 }

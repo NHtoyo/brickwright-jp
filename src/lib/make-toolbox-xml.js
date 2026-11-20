@@ -770,10 +770,11 @@ const xmlClose = '</xml>';
  * @param {?string} backdropName - The name of the default selected backdrop dropdown.
  * @param {?string} soundName -  The name of the default selected sound dropdown.
  * @param {?object} colors - The colors for the theme.
+ * @param {'both'|'scratch'|'spike'} paletteMode - Which built-in palettes to show.
  * @returns {string} - a ScratchBlocks-style XML document for the contents of the toolbox.
  */
 const makeToolboxXML = function (isInitialSetup, isStage = true, targetId, categoriesXML = [],
-    costumeName = '', backdropName = '', soundName = '', colors = defaultBlockColors) {
+    costumeName = '', backdropName = '', soundName = '', colors = defaultBlockColors, paletteMode = 'both') {
     isStage = isInitialSetup || isStage;
     const gap = [categorySeparator];
 
@@ -809,6 +810,11 @@ const makeToolboxXML = function (isInitialSetup, isStage = true, targetId, categ
         turbowarpXML = turbowarpXML.replace('<block', `${extraTurboWarpBlocks}<block`);
     }
 
+    if (paletteMode === 'spike') {
+        const spikeCategory = categoriesXML.filter(category => category.id === 'spikeprime');
+        return [xmlOpen, ...spikeCategory.map(category => category.xml), xmlClose].join('\n');
+    }
+
     const everything = [
         xmlOpen,
         motionXML, gap,
@@ -827,6 +833,7 @@ const makeToolboxXML = function (isInitialSetup, isStage = true, targetId, categ
     }
 
     for (const extensionCategory of categoriesXML) {
+        if (paletteMode === 'scratch' && extensionCategory.id === 'spikeprime') continue;
         everything.push(gap, extensionCategory.xml);
     }
 
