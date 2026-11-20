@@ -48,7 +48,6 @@ const words = {
         firmware: 'Hub OS',
         controller: 'Controller',
         controllerSlot: 'Controller slot',
-        standaloneSlot: 'Standalone slot',
         systemSlot: 'Reserved for controller',
         developmentSource: 'Loaded extension',
         sourceBranch: 'Branch',
@@ -114,7 +113,6 @@ const words = {
         liveView: 'Live hub view',
         pcRunLabel: 'PC Scratch: use the green flag',
         standaloneLabel: 'Hub standalone',
-        runStandalone: 'Review transfer',
         absoluteAngle: 'Absolute angle',
         countedAngle: 'Counted angle',
         rawSpeed: 'speed',
@@ -132,11 +130,6 @@ const words = {
         diagnostics: 'Communication diagnostics',
         diagnosticsLog: 'Open diagnostics log',
         controllerSettings: 'Controller setup',
-        standaloneMenu: 'Run on hub',
-        frontStandalone: 'Standalone program',
-        transferAndRun: 'Transfer and run',
-        confirmTransfer: 'Clear, upload, and run slot {slot}',
-        slotReviewWarning: 'Slot {slot} will be cleared before the program is transferred.',
         noConnectedDevices: 'No connected devices'
     },
     ja: {
@@ -170,7 +163,6 @@ const words = {
         firmware: 'Hub OS',
         controller: '制御プログラム',
         controllerSlot: '制御プログラム用スロット',
-        standaloneSlot: '単独実行の保存先',
         systemSlot: '制御プログラム用に予約',
         developmentSource: '読み込んだ拡張',
         sourceBranch: 'ブランチ',
@@ -231,7 +223,6 @@ const words = {
         liveView: 'ハブのライブ表示',
         pcRunLabel: 'PC上のScratch：緑の旗で実行',
         standaloneLabel: 'ハブで単独実行',
-        runStandalone: '転送内容を確認',
         absoluteAngle: '絶対角度',
         countedAngle: 'カウント角度',
         rawSpeed: '速度値',
@@ -249,11 +240,6 @@ const words = {
         diagnostics: '通信診断',
         diagnosticsLog: '診断ログを開く',
         controllerSettings: '制御プログラムの設定',
-        standaloneMenu: 'ハブで単独実行',
-        frontStandalone: 'ハブで単独実行',
-        transferAndRun: '転送して実行',
-        confirmTransfer: 'スロット{slot}を消去して転送・実行',
-        slotReviewWarning: '転送前にスロット{slot}を消去します。',
         noConnectedDevices: '接続されている機器はありません'
     }
 };
@@ -383,8 +369,6 @@ class SpikePrimeControlCenter extends React.Component {
             controllerSlot: 0,
             controllerConfirmation: null,
             savedControllerConfirmation: null,
-            standaloneSlot: 0,
-            standaloneConfirmation: null,
             selectedHubModel: 'auto',
             extensionLoadStatus: 'loading',
             extensionLoadError: null,
@@ -402,8 +386,6 @@ class SpikePrimeControlCenter extends React.Component {
             'handleVerifyController',
             'handleReviewSavedController', 'handleConfirmSavedController',
             'handleCancelSavedController',
-            'handleStandaloneSlotChanged', 'handleReviewStandaloneSlot',
-            'handleConfirmStandaloneRun', 'handleCancelStandaloneRun',
             'handleConnectionModeChanged', 'handlePeripheralListUpdate',
             'handlePeripheralRequestError', 'handleConnectPeripheral', 'handleDisplayModeChanged',
             'handleHubModelChanged', 'handleRetryExtensionLoad', 'handleOpenDiagnosticsLog'
@@ -545,8 +527,7 @@ class SpikePrimeControlCenter extends React.Component {
             this.currentConnectionIdentity !== nextConnectionIdentity)) {
             this.setState({
                 controllerConfirmation: null,
-                savedControllerConfirmation: null,
-                standaloneConfirmation: null
+                savedControllerConfirmation: null
             });
         }
         this.currentConnectionIdentity = nextConnectionIdentity;
@@ -558,13 +539,6 @@ class SpikePrimeControlCenter extends React.Component {
             savedControllerConfirmation.connectionIdentity !== nextConnectionIdentity ||
             this.getEffectiveModel(snapshot) !== 'prime')) {
             this.setState({savedControllerConfirmation: null});
-        }
-        if (Number.isInteger(controllerSlot) && this.state.standaloneSlot === controllerSlot &&
-            this.state.standaloneConfirmation !== null) {
-            // Keep the chosen destination visible if it becomes reserved, but
-            // clear an outdated confirmation. The UI blocks the write until a
-            // different slot is explicitly selected.
-            this.setState({standaloneConfirmation: null});
         }
         this.updateIfMounted({
             snapshot,
@@ -674,22 +648,6 @@ class SpikePrimeControlCenter extends React.Component {
                     unsupported ? 'unsupported-capability' : error.kind || null
             });
             this.refresh();
-        } finally {
-            this.updateIfMounted({busy: false});
-        }
-    }
-
-    async runStandalone (slot) {
-        const api = this.getAPI();
-        if (!api || !Number.isInteger(slot) || this.isReservedSlot(slot)) return;
-        this.updateIfMounted({busy: true, error: ''});
-        try {
-            const source = api.generatePython();
-            await api.uploadAndRun(slot, source);
-            this.updateIfMounted({standaloneConfirmation: null});
-            this.refresh();
-        } catch (error) {
-            this.updateIfMounted({error: error.message || String(error)});
         } finally {
             this.updateIfMounted({busy: false});
         }
@@ -917,39 +875,6 @@ class SpikePrimeControlCenter extends React.Component {
         this.setState({controllerConfirmation: null});
     }
 
-    handleStandaloneSlotChanged (event) {
-        const standaloneSlot = event.target.value === '' ? null : Number(event.target.value);
-        this.setState({standaloneSlot, standaloneConfirmation: null});
-    }
-
-    handleReviewStandaloneSlot () {
-        if (!Number.isInteger(this.state.standaloneSlot) ||
-            this.isReservedSlot(this.state.standaloneSlot)) return;
-        this.setState({
-            standaloneConfirmation: {
-                slot: this.state.standaloneSlot,
-                connectionIdentity: this.currentConnectionIdentity
-            }
-        });
-    }
-
-    handleConfirmStandaloneRun () {
-        const confirmation = this.state.standaloneConfirmation;
-        const currentIdentity = this.getConnectionIdentity(this.state.snapshot);
-        if (!confirmation || confirmation.slot !== this.state.standaloneSlot ||
-            !this.state.snapshot || !this.state.snapshot.connected ||
-            !confirmation.connectionIdentity || confirmation.connectionIdentity !== currentIdentity ||
-            this.isReservedSlot(this.state.standaloneSlot)) {
-            this.setState({standaloneConfirmation: null});
-            return;
-        }
-        this.runStandalone(confirmation.slot);
-    }
-
-    handleCancelStandaloneRun () {
-        this.setState({standaloneConfirmation: null});
-    }
-
     isReservedSlot (slot) {
         const snapshot = this.state.snapshot;
         return Boolean(snapshot && Number.isInteger(snapshot.controllerSlot) &&
@@ -1164,70 +1089,6 @@ class SpikePrimeControlCenter extends React.Component {
         );
     }
 
-    renderStandaloneControls (w, slots, reservedSlot, standaloneCapable, connected, api, busy) {
-        if (!standaloneCapable) return null;
-        const selectedSlot = this.state.standaloneSlot;
-        const reserved = this.isReservedSlot(selectedSlot);
-        const confirmation = this.state.standaloneConfirmation;
-        const canReview = connected && api && Number.isInteger(selectedSlot) && !reserved;
-        return (
-            <div
-                aria-label={w.standaloneMenu}
-                className={styles.frontRunControls}
-            >
-                <span className={styles.frontRunMode}>{w.frontStandalone}</span>
-                <span className={styles.frontPcRun}>{w.pcRunLabel}</span>
-                <label className={styles.frontSlotLabel}>
-                    <span>{w.standaloneSlot}</span>
-                    <select
-                        aria-label={w.standaloneSlot}
-                        disabled={busy}
-                        onChange={this.handleStandaloneSlotChanged}
-                        value={selectedSlot}
-                    >
-                        {slots.map(slot => (
-                            <option
-                                disabled={slot === reservedSlot}
-                                key={slot}
-                                value={slot}
-                            >
-                                {slot}{slot === reservedSlot ? ` · ${w.systemSlot}` : ''}
-                            </option>
-                        ))}
-                    </select>
-                </label>
-                {confirmation ? (
-                    <div
-                        className={styles.frontRunConfirmation}
-                        role="group"
-                    >
-                        <span>{w.slotReviewWarning.replace('{slot}', confirmation.slot)}</span>
-                        <button
-                            disabled={busy || !connected || this.isReservedSlot(confirmation.slot)}
-                            onClick={this.handleConfirmStandaloneRun}
-                            type="button"
-                        >{w.confirmTransfer.replace('{slot}', confirmation.slot)}</button>
-                        <button
-                            disabled={busy}
-                            onClick={this.handleCancelStandaloneRun}
-                            type="button"
-                        >
-                            {w.cancel}
-                        </button>
-                    </div>
-                ) : (
-                    <button
-                        aria-label={`${w.transferAndRun} ${selectedSlot}`}
-                        disabled={busy || !canReview}
-                        onClick={this.handleReviewStandaloneSlot}
-                        type="button"
-                    >{w.transferAndRun}</button>
-                )}
-                {reserved ? <span className={styles.frontReserved}>{w.systemSlot}</span> : null}
-            </div>
-        );
-    }
-
     render () {
         const w = this.getWords();
         const {snapshot, open, busy, error} = this.state;
@@ -1284,9 +1145,6 @@ class SpikePrimeControlCenter extends React.Component {
                     >
                         {PORTS.map(port => this.renderPort(port, snapshot))}
                     </div>
-                    {this.renderStandaloneControls(
-                        w, slots, reservedSlot, standaloneCapable, connected, api, busy
-                    )}
                 </div>
                 {open ? (
                     <section

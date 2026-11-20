@@ -253,9 +253,8 @@ describe('SPIKE Prime control center', () => {
         const component = mount(
             <SpikePrimeControlCenter intl={{locale: 'en'}} vm={vm} />
         );
-        expect(component.find('select[aria-label="Standalone slot"]')).toHaveLength(1);
+        expect(component.find('select[aria-label="Standalone slot"]')).toHaveLength(0);
         component.find('button[aria-label^="LEGO hub:"]').simulate('click');
-        expect(component.find('select[aria-label="Standalone slot"]')).toHaveLength(1);
         await act(async () => {
             component.find('select[aria-label="Hub model"]').simulate('change', {
                 target: {value: 'essential'}
@@ -293,11 +292,10 @@ describe('SPIKE Prime control center', () => {
             <SpikePrimeControlCenter intl={{locale: 'en'}} vm={vm} />
         );
 
-        // Auto mode stays configurable offline; only an explicitly selected
-        // Essential hub hides slot-based execution.
-        expect(component.find('select[aria-label="Standalone slot"]')).toHaveLength(1);
+        // The compact destination selector now lives beside the existing stage
+        // green flag, not in the hub details panel.
+        expect(component.find('select[aria-label="Standalone slot"]')).toHaveLength(0);
         component.find('button[aria-label^="LEGO hub:"]').simulate('click');
-        expect(component.find('select[aria-label="Standalone slot"]')).toHaveLength(1);
         expect(component.find('select[aria-label="Controller slot"]')).toHaveLength(1);
         expect(component.find('[aria-label^="C:"]')).toHaveLength(0);
         component.unmount();
@@ -474,34 +472,7 @@ describe('SPIKE Prime control center', () => {
         component.unmount();
     });
 
-    test('slot selection stays available and transfer is guarded by review', async () => {
-        snapshot = {...snapshot, connected: true, deviceName: 'SPIKE Prime', controllerSlot: 19};
-        api.getState.mockImplementation(() => snapshot);
-        const component = mount(
-            <SpikePrimeControlCenter
-                intl={{locale: 'en'}}
-                vm={vm}
-            />
-        );
-        const slotSelect = component.find('select[aria-label="Standalone slot"]');
-        expect(slotSelect.prop('value')).toBe(0);
-        expect(slotSelect.find('option')).toHaveLength(20);
-        expect(slotSelect.find('option').filterWhere(option => option.prop('value') === 19).prop('disabled')).toBe(true);
-        slotSelect.simulate('change', {target: {value: '7'}});
-        component.find('button').filterWhere(button => button.text() === 'Transfer and run').simulate('click');
-        component.update();
-        expect(component.text()).toContain('Slot 7 will be cleared before the program is transferred.');
-        expect(api.uploadAndRun).not.toHaveBeenCalled();
-        await act(async () => {
-            component.find('button').filterWhere(button => button.text() === 'Clear, upload, and run slot 7').simulate('click');
-            await Promise.resolve();
-        });
-        expect(api.generatePython).toHaveBeenCalledTimes(1);
-        expect(api.uploadAndRun).toHaveBeenCalledWith(7, 'print("offline")');
-        component.unmount();
-    });
-
-    test('controller and standalone slot settings remain visible before connecting', () => {
+    test('controller setup remains available in the hub panel without a second run control', () => {
         api.getState.mockImplementation(() => snapshot);
         const component = mount(
             <SpikePrimeControlCenter
@@ -509,11 +480,11 @@ describe('SPIKE Prime control center', () => {
                 vm={vm}
             />
         );
-        expect(component.find('select[aria-label="単独実行の保存先"]')).toHaveLength(1);
+        expect(component.find('select[aria-label="単独実行の保存先"]')).toHaveLength(0);
         component.find('button[aria-label^="LEGO ハブ:"]').simulate('click');
         expect(component.find('select[aria-label="接続方式"]')).toHaveLength(1);
-        expect(component.find('select[aria-label="単独実行の保存先"] option')).toHaveLength(20);
-        expect(component.text()).toContain('PC上のScratch：緑の旗で実行');
+        expect(component.find('select[aria-label="単独実行の保存先"]')).toHaveLength(0);
+        expect(component.text()).not.toContain('ハブで単独実行');
         component.find('details').filterWhere(details => details.find('summary').text() === '制御プログラム').
             find('summary').simulate('click');
         expect(component.find('select[aria-label="制御プログラム用スロット"] option')).toHaveLength(20);
@@ -631,29 +602,4 @@ describe('SPIKE Prime control center', () => {
         component.unmount();
     });
 
-    test('keeps a newly reserved destination visible, clears old confirmation, and blocks a write', async () => {
-        snapshot = {...snapshot, connected: true, deviceName: 'SPIKE Prime'};
-        api.getState.mockImplementation(() => snapshot);
-        const component = mount(
-            <SpikePrimeControlCenter intl={{locale: 'en'}} vm={vm} />
-        );
-        component.find('button[aria-label^="LEGO hub:"]').simulate('click');
-        component.find('select[aria-label="Standalone slot"]').simulate('change', {target: {value: '1'}});
-        expect(component.find('select[aria-label="Standalone slot"]').prop('value')).toBe(1);
-        component.find('button').filterWhere(button => button.text() === 'Transfer and run').simulate('click');
-        expect(component.text()).toContain('Slot 1 will be cleared before the program is transferred.');
-        snapshot = {...snapshot, controllerSlot: 1};
-        await act(async () => {
-            component.instance().refresh();
-            await Promise.resolve();
-        });
-        component.update();
-        expect(component.find('select[aria-label="Standalone slot"]').prop('value')).toBe(1);
-        expect(component.find('select[aria-label="Standalone slot"] option')
-            .filterWhere(option => option.prop('value') === 1).prop('disabled')).toBe(true);
-        expect(component.text()).not.toContain('Clear, upload, and run slot 1');
-        expect(component.find('button').filterWhere(button => button.text() === 'Transfer and run').prop('disabled')).toBe(true);
-        expect(api.uploadAndRun).not.toHaveBeenCalled();
-        component.unmount();
-    });
 });

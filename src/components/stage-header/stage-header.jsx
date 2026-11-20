@@ -146,7 +146,10 @@ const StageHeaderComponent = function (props) {
                     style={{width: stageDimensions.width}}
                 >
                     <div className={styles.hardwareControls}>
-                        <Controls vm={vm} />
+                        <Controls
+                            showSpikeDestination={false}
+                            vm={vm}
+                        />
                     </div>
                     <div
                         className={styles.fullscreenButtonsRow}
@@ -204,6 +207,7 @@ const StageHeaderComponent = function (props) {
                         <Controls
                             vm={vm}
                             isSmall={stageSizeMode === STAGE_SIZE_MODES.small}
+                            showSpikeDestination={!isPlayerOnly}
                         />
                     </div>
                     <div

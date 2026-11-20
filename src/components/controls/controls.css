@@ -1,3 +1,59 @@
 .controls-container {
     display: flex;
+    align-items: center;
+    gap: 0.25rem;
+    position: relative;
+}
+
+.spike-destination {
+    align-items: center;
+    color: #475569;
+    display: inline-flex;
+    font-size: 0.7rem;
+    gap: 0.25rem;
+    white-space: nowrap;
+}
+
+.spike-destination select {
+    background: #fff;
+    border: 1px solid #cbd5e1;
+    border-radius: 0.25rem;
+    color: #1f2937;
+    font: inherit;
+    font-size: 0.7rem;
+    max-width: 6.25rem;
+    padding: 0.15rem 0.2rem;
+}
+
+.spike-hub-confirmation {
+    background: #fff7ed;
+    border: 1px solid #fed7aa;
+    border-radius: 0.3rem;
+    box-shadow: 0 2px 8px rgba(15, 23, 42, 0.14);
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.25rem;
+    left: 0;
+    max-width: min(25rem, 90vw);
+    padding: 0.3rem;
+    position: absolute;
+    top: calc(100% + 0.25rem);
+    z-index: 100;
+}
+
+.spike-hub-confirmation span {
+    color: #9a3412;
+    flex: 1 1 100%;
+    font-size: 0.7rem;
+}
+
+.spike-hub-confirmation button {
+    cursor: pointer;
+    font: inherit;
+    font-size: 0.7rem;
+}
+
+.spike-hub-run-error {
+    color: #b91c1c;
+    font-size: 0.68rem;
 }
