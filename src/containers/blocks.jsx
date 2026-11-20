@@ -45,7 +45,13 @@ import AddonHooks from '../addons/hooks.js';
 import LoadScratchBlocksHOC from '../lib/tw-load-scratch-blocks-hoc.jsx';
 import {findTopBlock} from '../lib/backpack/code-payload.js';
 import {gentlyRequestPersistentStorage} from '../lib/tw-persistent-storage.js';
-import {getPaletteVisibility, updatePaletteMode} from '../lib/palette-mode';
+import {
+    getPaletteVisibility,
+    getSpikePaletteModel,
+    setSpikePaletteModel,
+    updatePaletteMode
+} from '../lib/palette-mode';
+import {getSpikeBlockColors} from '../lib/spike-toolbox-categories';
 
 // TW: Strings we add to scratch-blocks are localized here
 const messages = defineMessages({
@@ -87,6 +93,36 @@ const messages = defineMessages({
         defaultMessage: 'Block categories',
         description: 'Accessible label for Scratch and SPIKE palette toggles',
         id: 'gui.blocks.paletteModeLabel'
+    },
+    SPIKE_PALETTE_LABEL: {
+        defaultMessage: 'SPIKE blocks',
+        description: 'Choose which SPIKE hub model blocks to show',
+        id: 'gui.blocks.spikePaletteLabel'
+    },
+    SPIKE_PALETTE_AUTO: {
+        defaultMessage: 'Auto',
+        description: 'Automatically select SPIKE blocks for the connected hub',
+        id: 'gui.blocks.spikePaletteAuto'
+    },
+    SPIKE_PALETTE_AUTO_DETECTED: {
+        defaultMessage: 'Auto ({model})',
+        description: 'Automatic SPIKE palette selection with detected model',
+        id: 'gui.blocks.spikePaletteAutoDetected'
+    },
+    SPIKE_PALETTE_PRIME: {
+        defaultMessage: 'SPIKE Prime',
+        description: 'Show SPIKE Prime blocks',
+        id: 'gui.blocks.spikePalettePrime'
+    },
+    SPIKE_PALETTE_ESSENTIAL: {
+        defaultMessage: 'SPIKE Basic',
+        description: 'Show SPIKE Basic blocks',
+        id: 'gui.blocks.spikePaletteEssential'
+    },
+    SPIKE_PALETTE_ALL: {
+        defaultMessage: 'All blocks',
+        description: 'Show all SPIKE blocks regardless of hub model',
+        id: 'gui.blocks.spikePaletteAll'
     }
 });
 
@@ -119,6 +155,48 @@ const getPaletteMode = target => {
     return mode === 'scratch' || mode === 'spike' ? mode : 'both';
 };
 
+const ESSENTIAL_SUPPORTED_BLOCK_OPCODES = [
+    'connectHub', 'disconnectHub', 'isConnected', 'getHubType', 'getFirmwareVersion',
+    'getConnectionMode', 'getCommunicationDiagnostics', 'getCommunicationDiagnosticsSummary',
+    'openCommunicationDiagnosticsLog', 'setConnectionMode', 'setMovementMotors', 'moveForward',
+    'steer', 'motorPairMove', 'startTank', 'setMovementSpeed', 'stopMovement', 'motorRunFor',
+    'motorRunToPosition', 'motorStart', 'motorStop', 'startMotor', 'stopMotor', 'motorSetSpeed',
+    'motorStartPower', 'motorSetStopAction', 'getPosition', 'getRelativePosition',
+    'getAbsolutePosition', 'getSpeed', 'resetMotorPosition', 'setMatrix3x3ColorGrid',
+    'setMatrix3x3Custom', 'setMatrix3x3SolidColor', 'clearMatrix3x3', 'setLightMatrixPixel',
+    'getBatteryLevel', 'getTimer', 'resetTimer', 'getDistance', 'getDistanceIn', 'getColor',
+    'getForce', 'isForceSensorPressed', 'whenColor', 'isColor', 'whenForceSensor'
+];
+
+const formatSpikeCategoryLabels = locale => {
+    const isJapanese = /^ja(?:-|$)/i.test(locale || '');
+    return isJapanese ? {
+        motor: 'モーター',
+        movement: '移動',
+        light: 'ライト',
+        sound: '音',
+        events: 'イベント',
+        control: '制御',
+        sensors: 'センサー',
+        operators: '演算',
+        variables: '変数',
+        myBlocks: 'マイブロック',
+        other: 'その他'
+    } : {
+        motor: 'Motors',
+        movement: 'Movement',
+        light: 'Lights',
+        sound: 'Sound',
+        events: 'Events',
+        control: 'Control',
+        sensors: 'Sensors',
+        operators: 'Operators',
+        variables: 'Variables',
+        myBlocks: 'My Blocks',
+        other: 'Other'
+    };
+};
+
 class Blocks extends React.Component {
     constructor (props) {
         super(props);
@@ -143,6 +221,7 @@ class Blocks extends React.Component {
             'handlePromptClose',
             'handleCustomProceduresClose',
             'handlePaletteModeChange',
+            'handleSpikePaletteModelChange',
             'onScriptGlowOn',
             'onScriptGlowOff',
             'onBlockGlowOn',
@@ -165,7 +244,9 @@ class Blocks extends React.Component {
 
         this.state = {
             prompt: null,
-            paletteMode: getPaletteMode(props.vm.editingTarget)
+            paletteMode: getPaletteMode(props.vm.editingTarget),
+            spikePaletteModel: getSpikePaletteModel(),
+            detectedHubModel: null
         };
         this.onTargetsUpdate = debounce(this.onTargetsUpdate, 100);
         this.toolboxUpdateQueue = [];
@@ -290,6 +371,8 @@ class Blocks extends React.Component {
         return (
             this.state.prompt !== nextState.prompt ||
             this.state.paletteMode !== nextState.paletteMode ||
+            this.state.spikePaletteModel !== nextState.spikePaletteModel ||
+            this.state.detectedHubModel !== nextState.detectedHubModel ||
             this.props.isVisible !== nextProps.isVisible ||
             this._renderedToolboxXML !== nextProps.toolboxXML ||
             this.props.extensionLibraryVisible !== nextProps.extensionLibraryVisible ||
@@ -530,20 +613,31 @@ class Blocks extends React.Component {
             const router = runtime.peripheralExtensions && runtime.peripheralExtensions.spikeprime;
             const controlAPI = runtime.brickwrightSpikePrimeControl ||
                 (router && typeof router.getControlCenterAPI === 'function' ? router.getControlCenterAPI() : null);
+            let controlState = null;
             let supportedSpikeBlockOpcodes = null;
             if (controlAPI) {
                 try {
-                    if (typeof controlAPI.getSupportedBlockOpcodes === 'function') {
-                        supportedSpikeBlockOpcodes = controlAPI.getSupportedBlockOpcodes();
-                    } else if (typeof controlAPI.getState === 'function') {
-                        const controlState = controlAPI.getState();
-                        supportedSpikeBlockOpcodes = controlState && controlState.supportedBlockOpcodes;
+                    if (typeof controlAPI.getState === 'function') controlState = controlAPI.getState();
+                    if (['essential', 'prime'].includes(this.state.spikePaletteModel)) {
+                        supportedSpikeBlockOpcodes = typeof controlAPI.getSupportedBlockOpcodes === 'function' ?
+                            controlAPI.getSupportedBlockOpcodes(this.state.spikePaletteModel) :
+                            (this.state.spikePaletteModel === 'essential' ? ESSENTIAL_SUPPORTED_BLOCK_OPCODES : null);
+                        if (this.state.spikePaletteModel === 'essential' &&
+                            !Array.isArray(supportedSpikeBlockOpcodes)) {
+                            supportedSpikeBlockOpcodes = ESSENTIAL_SUPPORTED_BLOCK_OPCODES;
+                        }
+                    } else if (this.state.spikePaletteModel === 'auto' && controlState && controlState.connected &&
+                        Array.isArray(controlState && controlState.supportedBlockOpcodes)) {
+                        supportedSpikeBlockOpcodes = controlState.supportedBlockOpcodes;
                     }
                 } catch (error) {
                     // Model capability metadata is optional; a transient API
                     // failure must not hide the whole Blockly toolbox.
                     supportedSpikeBlockOpcodes = null;
                 }
+            }
+            if (this.state.spikePaletteModel === 'essential' && !Array.isArray(supportedSpikeBlockOpcodes)) {
+                supportedSpikeBlockOpcodes = ESSENTIAL_SUPPORTED_BLOCK_OPCODES;
             }
             const dynamicBlocksXML = injectExtensionCategoryTheme(
                 this.props.vm.runtime.getBlocksXML(target),
@@ -555,7 +649,8 @@ class Blocks extends React.Component {
                 targetSounds.length > 0 ? targetSounds[targetSounds.length - 1].name : '',
                 this.props.theme.getBlockColors(),
                 getPaletteMode(target),
-                Array.isArray(supportedSpikeBlockOpcodes) ? supportedSpikeBlockOpcodes : null
+                Array.isArray(supportedSpikeBlockOpcodes) ? supportedSpikeBlockOpcodes : null,
+                formatSpikeCategoryLabels(this.props.locale)
             );
         } catch {
             return null;
@@ -634,7 +729,12 @@ class Blocks extends React.Component {
                     if (blockInfo.info && blockInfo.info.isDynamic) {
                         dynamicBlocksInfo.push(blockInfo);
                     } else if (blockInfo.json) {
-                        staticBlocksJson.push(injectExtensionBlockTheme(blockInfo.json, this.props.theme));
+                        const themedBlock = injectExtensionBlockTheme(blockInfo.json, this.props.theme);
+                        if (themedBlock.type && themedBlock.type.startsWith('spikeprime_')) {
+                            const opcode = themedBlock.type.slice('spikeprime_'.length);
+                            Object.assign(themedBlock, getSpikeBlockColors(opcode));
+                        }
+                        staticBlocksJson.push(themedBlock);
                     }
                     // otherwise it's a non-block entry such as '---'
                 });
@@ -676,8 +776,23 @@ class Blocks extends React.Component {
         this.handleExtensionAdded(categoryInfo);
     }
     handleSpikePrimeModelChange () {
-        const toolboxXML = this.getToolboxXML();
-        if (toolboxXML) this.props.updateToolboxState(toolboxXML);
+        const runtime = this.props.vm.runtime;
+        const router = runtime.peripheralExtensions && runtime.peripheralExtensions.spikeprime;
+        const api = runtime.brickwrightSpikePrimeControl ||
+            (router && typeof router.getControlCenterAPI === 'function' ? router.getControlCenterAPI() : null);
+        let detectedHubModel = null;
+        try {
+            const snapshot = api && typeof api.getState === 'function' ? api.getState() : null;
+            detectedHubModel = snapshot && snapshot.connected &&
+                (snapshot.detectedHubModel || snapshot.effectiveHubModel) ?
+                (snapshot.detectedHubModel || snapshot.effectiveHubModel) : null;
+        } catch (error) {
+            detectedHubModel = null;
+        }
+        this.setState({detectedHubModel}, () => {
+            const toolboxXML = this.getToolboxXML();
+            if (toolboxXML) this.props.updateToolboxState(toolboxXML);
+        });
     }
     handleCategorySelected (categoryId) {
         const extension = extensionData.find(ext => ext.extensionId === categoryId);
@@ -710,6 +825,7 @@ class Blocks extends React.Component {
     }
     handleStatusButtonUpdate () {
         this.ScratchBlocks.refreshStatusButtons(this.workspace);
+        this.handleSpikePrimeModelChange();
     }
     handleOpenSoundRecorder () {
         this.props.onOpenSoundRecorder();
@@ -782,6 +898,15 @@ class Blocks extends React.Component {
             if (toolboxXML) this.props.updateToolboxState(toolboxXML);
         });
     }
+    handleSpikePaletteModelChange (event) {
+        const spikePaletteModel = event.target.value;
+        if (!['auto', 'prime', 'essential', 'all'].includes(spikePaletteModel)) return;
+        setSpikePaletteModel(spikePaletteModel);
+        this.setState({spikePaletteModel}, () => {
+            const toolboxXML = this.getToolboxXML();
+            if (toolboxXML) this.props.updateToolboxState(toolboxXML);
+        });
+    }
     render () {
         /* eslint-disable no-unused-vars */
         const {
@@ -813,6 +938,9 @@ class Blocks extends React.Component {
         } = this.props;
         /* eslint-enable no-unused-vars */
         const paletteVisibility = getPaletteVisibility(this.state.paletteMode);
+        const modelLabel = this.state.detectedHubModel === 'essential' ?
+            intl.formatMessage(messages.SPIKE_PALETTE_ESSENTIAL) :
+            this.state.detectedHubModel === 'prime' ? intl.formatMessage(messages.SPIKE_PALETTE_PRIME) : null;
         return (
             <React.Fragment>
                 <div className={paletteStyles.blocksContainer}>
@@ -838,6 +966,23 @@ class Blocks extends React.Component {
                                 <span>{intl.formatMessage(label)}</span>
                             </label>
                         ))}
+                        <label className={paletteStyles.modelSelect}>
+                            <select
+                                aria-label={intl.formatMessage(messages.SPIKE_PALETTE_LABEL)}
+                                title={intl.formatMessage(messages.SPIKE_PALETTE_LABEL)}
+                                onChange={this.handleSpikePaletteModelChange}
+                                value={this.state.spikePaletteModel}
+                            >
+                                <option value="auto">{modelLabel ?
+                                    intl.formatMessage(messages.SPIKE_PALETTE_AUTO_DETECTED, {model: modelLabel}) :
+                                    intl.formatMessage(messages.SPIKE_PALETTE_AUTO)}</option>
+                                <option value="prime">{intl.formatMessage(messages.SPIKE_PALETTE_PRIME)}</option>
+                                <option value="essential">
+                                    {intl.formatMessage(messages.SPIKE_PALETTE_ESSENTIAL)}
+                                </option>
+                                <option value="all">{intl.formatMessage(messages.SPIKE_PALETTE_ALL)}</option>
+                            </select>
+                        </label>
                     </div>
                     <DroppableBlocks
                         componentRef={this.setBlocks}

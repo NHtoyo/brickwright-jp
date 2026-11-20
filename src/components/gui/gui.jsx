@@ -418,10 +418,6 @@ const GUIComponent = props => {
                                 <TabPanel
                                     className={[tabClassNames.tabPanel, styles.blocksTabPanel].join(' ')}
                                 >
-                                    <SpikePrimeControlCenter
-                                        intl={intl}
-                                        vm={vm}
-                                    />
                                     <Box className={styles.blocksWrapper}>
                                         <Blocks
                                             key={`${blocksId}/${theme.id}`}
@@ -437,6 +433,10 @@ const GUIComponent = props => {
                                             vm={vm}
                                         />
                                     </Box>
+                                    <SpikePrimeControlCenter
+                                        intl={intl}
+                                        vm={vm}
+                                    />
                                     <Box className={styles.extensionButtonContainer}>
                                         <button
                                             className={styles.extensionButton}

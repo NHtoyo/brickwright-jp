@@ -147,13 +147,14 @@ describe('SPIKE control center with the actual extension source and Scratch VM',
                 await new Promise(resolve => setTimeout(resolve, 0));
             });
             expect(extension.isConnected()).toBe(true);
-            expect(component.text()).toContain('Connected');
+            expect(component.find('button[aria-label^="LEGO hub:"]').prop('aria-label'))
+                .toContain('Connected');
             expect(component.find('[aria-label^="A:"]')).toHaveLength(1);
             expect(component.find('[aria-label^="F:"]')).toHaveLength(1);
-            expect(component.find('[aria-label^="F:"]').prop('aria-label')).toContain('Motor');
+            expect(component.find('[aria-label^="F:"]').prop('aria-label')).toContain('Large motor');
             expect(component.text()).toContain('-42°');
             expect(component.text()).toContain('speed 12');
-            expect(component.text()).toContain('Force sensor');
+            expect(component.find('[aria-label^="A:"]').prop('aria-label')).toContain('Force sensor');
             expect(component.text()).toContain('20%');
             // Live port values are visible before the optional detail panel is
             // opened, so routine monitoring never depends on a popup.
@@ -202,7 +203,7 @@ describe('SPIKE control center with the actual extension source and Scratch VM',
     );
 
     testIfExtensionAvailable(
-        'keeps zero and negative measurements visible and marks a notification stream stale',
+        'keeps zero and negative measurements visible without treating stationary values as a failure',
         async () => {
             const vm = new VM();
             const extension = loadRealSpikeExtension(vm);
@@ -229,7 +230,7 @@ describe('SPIKE control center with the actual extension source and Scratch VM',
                 <SpikePrimeControlCenter intl={{locale: 'en'}} vm={vm} />
             );
             expect(component.text()).toContain('0°');
-            expect(component.find('[aria-label^="A:"]').prop('aria-label')).toContain('No reading yet');
+            expect(component.find('[aria-label^="F:"]').prop('aria-label')).toContain('Large motor');
 
             feedMotor(motorNotification(4, -42));
             await act(async () => {
@@ -242,9 +243,10 @@ describe('SPIKE control center with the actual extension source and Scratch VM',
                 await new Promise(resolve => setTimeout(resolve, 220));
             });
             component.update();
-            expect(component.text()).toContain('Reading is stale');
+            expect(component.text()).not.toContain('Reading is stale');
             expect(component.text()).toContain('-42°');
-            expect(component.find('[aria-label^="E:"]').prop('aria-label')).toContain('last value: -42°');
+            component.find('button[aria-label^="LEGO hub:"]').simulate('click');
+            expect(component.text()).toContain('Last update:');
             component.unmount();
         }
     );
