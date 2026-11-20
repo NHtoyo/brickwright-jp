@@ -40,20 +40,25 @@ describe('per-sprite palette mode persistence', () => {
         expect(spriteTarget(reloaded).sprite.brickwrightPaletteMode).toBe('spike');
     });
 
-    test('old projects and newly added sprites default to both', async () => {
-        const vm = new VM();
-        await vm.loadProject(projectFixture());
-        expect(spriteTarget(vm).sprite.brickwrightPaletteMode).toBe('both');
+    test('sprite3 export/addSprite preserves a non-default mode and loading an unrelated project resets it', async () => {
+        const sourceVM = new VM();
+        await sourceVM.loadProject(projectFixture());
+        const source = spriteTarget(sourceVM);
+        source.sprite.brickwrightPaletteMode = 'spike';
 
-        const source = spriteTarget(vm);
-        const exported = await vm.exportSprite(source.id, 'uint8array');
+        const exported = await sourceVM.exportSprite(source.id, 'uint8array');
         const destination = new VM();
         await destination.loadProject(projectFixture());
         await destination.addSprite(exported);
 
         const added = destination.runtime.targets.find(target => target.getName() !== 'Stage' &&
             target.getName() !== source.getName());
-        expect(added.sprite.brickwrightPaletteMode).toBe('both');
+        expect(added.sprite.brickwrightPaletteMode).toBe('spike');
+
+        // Reuse the same VM for an unrelated legacy project: no per-target
+        // mode from the prior project may leak into its newly loaded sprite.
+        await destination.loadProject(projectFixture());
+        expect(spriteTarget(destination).sprite.brickwrightPaletteMode).toBe('both');
     });
 
     test('sprite duplication copies its mode and deletion removes its saved state', async () => {
