@@ -45,6 +45,7 @@ import AddonHooks from '../addons/hooks.js';
 import LoadScratchBlocksHOC from '../lib/tw-load-scratch-blocks-hoc.jsx';
 import {findTopBlock} from '../lib/backpack/code-payload.js';
 import {gentlyRequestPersistentStorage} from '../lib/tw-persistent-storage.js';
+import {getPaletteVisibility, updatePaletteMode} from '../lib/palette-mode';
 
 // TW: Strings we add to scratch-blocks are localized here
 const messages = defineMessages({
@@ -74,22 +75,17 @@ const messages = defineMessages({
     },
     PALETTE_SCRATCH: {
         defaultMessage: 'Scratch',
-        description: 'Show Scratch categories only',
-        id: 'gui.blocks.paletteScratch'
+        description: 'Toggle Scratch categories in the block palette',
+        id: 'gui.blocks.paletteScratchToggle'
     },
     PALETTE_SPIKE: {
         defaultMessage: 'SPIKE',
-        description: 'Show SPIKE categories only',
-        id: 'gui.blocks.paletteSpike'
-    },
-    PALETTE_BOTH: {
-        defaultMessage: 'Both',
-        description: 'Show Scratch and SPIKE categories',
-        id: 'gui.blocks.paletteBoth'
+        description: 'Toggle SPIKE categories in the block palette',
+        id: 'gui.blocks.paletteSpikeToggle'
     },
     PALETTE_MODE_LABEL: {
-        defaultMessage: 'Visible block categories',
-        description: 'Label for Scratch and SPIKE palette visibility controls',
+        defaultMessage: 'Block categories',
+        description: 'Accessible label for Scratch and SPIKE palette toggles',
         id: 'gui.blocks.paletteModeLabel'
     }
 });
@@ -107,7 +103,7 @@ const DroppableBlocks = DropAreaHOC([
     DragConstants.BACKPACK_CODE
 ])(BlocksComponent);
 
-const paletteModes = [
+const paletteOptions = [
     {
         id: 'scratch',
         label: messages.PALETTE_SCRATCH
@@ -115,10 +111,6 @@ const paletteModes = [
     {
         id: 'spike',
         label: messages.PALETTE_SPIKE
-    },
-    {
-        id: 'both',
-        label: messages.PALETTE_BOTH
     }
 ];
 
@@ -158,6 +150,7 @@ class Blocks extends React.Component {
             'handleMonitorsUpdate',
             'handleExtensionAdded',
             'handleBlocksInfoUpdate',
+            'handleSpikePrimeModelChange',
             'onTargetsUpdate',
             'onVisualReport',
             'onWorkspaceUpdate',
@@ -437,6 +430,12 @@ class Blocks extends React.Component {
         this.props.vm.addListener('BLOCKSINFO_UPDATE', this.handleBlocksInfoUpdate);
         this.props.vm.addListener('PERIPHERAL_CONNECTED', this.handleStatusButtonUpdate);
         this.props.vm.addListener('PERIPHERAL_DISCONNECTED', this.handleStatusButtonUpdate);
+        const runtime = this.props.vm.runtime;
+        const router = runtime.peripheralExtensions && runtime.peripheralExtensions.spikeprime;
+        const api = runtime.brickwrightSpikePrimeControl ||
+            (router && typeof router.getControlCenterAPI === 'function' ? router.getControlCenterAPI() : null);
+        this.spikeModelChangeEvent = (api && api.modelChangeEvent) || 'brickwrightSpikePrimeModelChange';
+        this.props.vm.runtime.on(this.spikeModelChangeEvent, this.handleSpikePrimeModelChange);
     }
     detachVM () {
         this.props.vm.removeListener('SCRIPT_GLOW_ON', this.onScriptGlowOn);
@@ -451,6 +450,10 @@ class Blocks extends React.Component {
         this.props.vm.removeListener('BLOCKSINFO_UPDATE', this.handleBlocksInfoUpdate);
         this.props.vm.removeListener('PERIPHERAL_CONNECTED', this.handleStatusButtonUpdate);
         this.props.vm.removeListener('PERIPHERAL_DISCONNECTED', this.handleStatusButtonUpdate);
+        this.props.vm.runtime.removeListener(
+            this.spikeModelChangeEvent || 'brickwrightSpikePrimeModelChange',
+            this.handleSpikePrimeModelChange
+        );
     }
 
     updateToolboxBlockValue (id, value) {
@@ -524,6 +527,24 @@ class Blocks extends React.Component {
             const stageCostumes = stage.getCostumes();
             const targetCostumes = target.getCostumes();
             const targetSounds = target.getSounds();
+            const router = runtime.peripheralExtensions && runtime.peripheralExtensions.spikeprime;
+            const controlAPI = runtime.brickwrightSpikePrimeControl ||
+                (router && typeof router.getControlCenterAPI === 'function' ? router.getControlCenterAPI() : null);
+            let supportedSpikeBlockOpcodes = null;
+            if (controlAPI) {
+                try {
+                    if (typeof controlAPI.getSupportedBlockOpcodes === 'function') {
+                        supportedSpikeBlockOpcodes = controlAPI.getSupportedBlockOpcodes();
+                    } else if (typeof controlAPI.getState === 'function') {
+                        const controlState = controlAPI.getState();
+                        supportedSpikeBlockOpcodes = controlState && controlState.supportedBlockOpcodes;
+                    }
+                } catch (error) {
+                    // Model capability metadata is optional; a transient API
+                    // failure must not hide the whole Blockly toolbox.
+                    supportedSpikeBlockOpcodes = null;
+                }
+            }
             const dynamicBlocksXML = injectExtensionCategoryTheme(
                 this.props.vm.runtime.getBlocksXML(target),
                 this.props.theme
@@ -533,7 +554,8 @@ class Blocks extends React.Component {
                 stageCostumes[stageCostumes.length - 1].name,
                 targetSounds.length > 0 ? targetSounds[targetSounds.length - 1].name : '',
                 this.props.theme.getBlockColors(),
-                getPaletteMode(target)
+                getPaletteMode(target),
+                Array.isArray(supportedSpikeBlockOpcodes) ? supportedSpikeBlockOpcodes : null
             );
         } catch {
             return null;
@@ -653,6 +675,10 @@ class Blocks extends React.Component {
         // @todo Later we should replace this to avoid all the warnings from redefining blocks.
         this.handleExtensionAdded(categoryInfo);
     }
+    handleSpikePrimeModelChange () {
+        const toolboxXML = this.getToolboxXML();
+        if (toolboxXML) this.props.updateToolboxState(toolboxXML);
+    }
     handleCategorySelected (categoryId) {
         const extension = extensionData.find(ext => ext.extensionId === categoryId);
         if (extension && extension.launchPeripheralConnectionFlow) {
@@ -740,9 +766,15 @@ class Blocks extends React.Component {
         this.requestToolboxUpdate();
     }
     handlePaletteModeChange (event) {
-        const mode = event.currentTarget.dataset.paletteMode;
+        const palette = event.currentTarget.dataset.palette;
+        const mode = updatePaletteMode(
+            this.state.paletteMode,
+            palette,
+            event.currentTarget.checked
+        );
+        if (mode === this.state.paletteMode) return;
         const target = this.props.vm.editingTarget || this.props.vm.runtime.getTargetForStage();
-        if (!target || !target.sprite || getPaletteMode(target) === mode) return;
+        if (!target || !target.sprite) return;
         target.sprite.brickwrightPaletteMode = mode;
         this.props.vm.runtime.emitProjectChanged();
         this.setState({paletteMode: mode}, () => {
@@ -780,6 +812,7 @@ class Blocks extends React.Component {
             ...props
         } = this.props;
         /* eslint-enable no-unused-vars */
+        const paletteVisibility = getPaletteVisibility(this.state.paletteMode);
         return (
             <React.Fragment>
                 <div className={paletteStyles.blocksContainer}>
@@ -788,17 +821,22 @@ class Blocks extends React.Component {
                         role="group"
                         aria-label={intl.formatMessage(messages.PALETTE_MODE_LABEL)}
                     >
-                        {paletteModes.map(({id, label}) => (
-                            <button
+                        {paletteOptions.map(({id, label}) => (
+                            <label
                                 key={id}
-                                type="button"
-                                className={paletteStyles.paletteModeButton}
-                                aria-pressed={this.state.paletteMode === id}
-                                data-palette-mode={id}
-                                onClick={this.handlePaletteModeChange}
+                                className={paletteStyles.paletteToggle}
                             >
-                                {intl.formatMessage(label)}
-                            </button>
+                                <input
+                                    type="checkbox"
+                                    checked={paletteVisibility[id]}
+                                    disabled={paletteVisibility[id] &&
+                                        !paletteVisibility[id === 'scratch' ? 'spike' : 'scratch']}
+                                    data-palette={id}
+                                    aria-label={intl.formatMessage(label)}
+                                    onChange={this.handlePaletteModeChange}
+                                />
+                                <span>{intl.formatMessage(label)}</span>
+                            </label>
                         ))}
                     </div>
                     <DroppableBlocks

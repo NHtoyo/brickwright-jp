@@ -178,7 +178,7 @@ describe('SPIKE Prime control center', () => {
         component.unmount();
     });
 
-    test('shows zero, missing and stale readings without opening the detail panel', () => {
+    test('shows zero and missing readings without a false stale warning', () => {
         snapshot = {
             ...snapshot,
             connected: true,
@@ -221,8 +221,9 @@ describe('SPIKE Prime control center', () => {
         );
         expect(component.text()).toContain('0°');
         expect(component.text()).toContain('0%');
-        expect(component.text()).toContain('まだ受信していません');
-        expect(component.text()).toContain('値の更新が止まっています');
+        expect(component.text()).toContain('機器未接続');
+        expect(component.text()).not.toContain('値の更新が止まっています');
+        expect(component.text()).not.toContain('Reading is stale');
         expect(component.find('section[aria-label="LEGO ハブ"]')).toHaveLength(0);
         expect(component.find('[aria-label^="A:"]').prop('aria-label')).toContain('0%');
         expect(component.find('[aria-label^="F:"]').prop('aria-label')).toContain('0 mm');
@@ -232,6 +233,118 @@ describe('SPIKE Prime control center', () => {
         component.update();
         expect(component.text()).toContain('押されていません');
         expect(component.text()).toContain('反射光: 21 %');
+        component.unmount();
+    });
+
+    test('shows an Essential motor model before its first value and retains stationary values', () => {
+        snapshot = {
+            ...snapshot,
+            connected: true,
+            protocol: 'lwp3',
+            detectedHubModel: 'essential',
+            effectiveHubModel: 'essential',
+            availablePorts: ['A', 'B'],
+            standaloneCapable: false,
+            portSensors: {
+                A: {connected: true, deviceType: 0x41, type: 'motor', receivedAt: null},
+                B: {
+                    connected: true,
+                    deviceType: 0x3f,
+                    type: 'force',
+                    force: 0,
+                    pressed: false,
+                    receivedAt: Date.now() - 5000
+                }
+            }
+        };
+        api.getState.mockImplementation(() => snapshot);
+        const component = mount(
+            <SpikePrimeControlCenter intl={{locale: 'en'}} vm={vm} />
+        );
+        expect(component.find('[aria-label^="A:"]').prop('aria-label')).toContain('Small motor');
+        expect(component.find('[aria-label^="A:"]').text()).toContain('No reading yet');
+        expect(component.find('[aria-label^="B:"]').prop('aria-label')).toContain('Force sensor');
+        expect(component.find('[aria-label^="B:"]').prop('aria-label')).toContain('0%');
+        expect(component.text()).not.toContain('stale');
+        component.unmount();
+    });
+
+    test('uses localized motor names and clears cached readings after physical detach', () => {
+        snapshot = {
+            ...snapshot,
+            connected: true,
+            protocol: 'lwp3',
+            detectedHubModel: 'essential',
+            effectiveHubModel: 'essential',
+            availablePorts: ['A', 'B'],
+            standaloneCapable: false,
+            portSensors: {
+                A: {connected: true, deviceType: 0x41, type: 'motor', receivedAt: Date.now() - 4000},
+                B: {connected: false, type: 'unknown', receivedAt: null}
+            },
+            motorPorts: {
+                A: {absolutePosition: 0, relativePosition: 0, speed: 0, receivedAt: Date.now() - 4000},
+                B: {absolutePosition: 92, relativePosition: 92, speed: 20, receivedAt: Date.now() - 50}
+            }
+        };
+        api.getState.mockImplementation(() => snapshot);
+        const component = mount(
+            <SpikePrimeControlCenter intl={{locale: 'ja-JP'}} vm={vm} />
+        );
+        expect(component.find('[aria-label^="A:"]').prop('aria-label')).toContain('小型モーター');
+        expect(component.find('[aria-label^="A:"]').prop('aria-label')).toContain('0°');
+        expect(component.find('[aria-label^="B:"]').prop('aria-label')).toContain('機器未接続');
+        expect(component.find('[aria-label^="B:"]').prop('aria-label')).not.toContain('92');
+        component.find('button[aria-label^="LEGO ハブ:"]').simulate('click');
+        expect(component.text()).toContain('小型モーター');
+        expect(component.text()).toContain('最終受信：約');
+        expect(component.text()).not.toContain('値の更新が止まっています');
+        component.unmount();
+    });
+
+    test('reports an unsupported operation without classifying it as a connection failure', async () => {
+        snapshot = {...snapshot, connected: true, deviceName: 'SPIKE Essential'};
+        api.getState.mockImplementation(() => snapshot);
+        api.stop.mockRejectedValue(Object.assign(new Error('internal capability detail'), {
+            code: 'ERR_SPIKE_UNSUPPORTED_CAPABILITY',
+            kind: 'unsupported-capability'
+        }));
+        const component = mount(
+            <SpikePrimeControlCenter intl={{locale: 'ja-JP'}} vm={vm} />
+        );
+        component.find('button[aria-label^="LEGO ハブ:"]').simulate('click');
+        await act(async () => {
+            component.find('button').filterWhere(button => button.text() === 'ハブのプログラムを停止')
+                .simulate('click');
+            await Promise.resolve();
+        });
+        component.update();
+        expect(component.text()).toContain('接続中のハブではこの操作を利用できません。');
+        expect(component.find('button[aria-label^="LEGO ハブ:"]').prop('aria-label')).toContain('接続済み');
+        expect(component.text()).not.toContain('接続エラー');
+        component.unmount();
+    });
+
+    test('reports an unsupported accessory separately from transport failure', async () => {
+        snapshot = {...snapshot, connected: true, deviceName: 'SPIKE Essential'};
+        api.getState.mockImplementation(() => snapshot);
+        api.stop.mockRejectedValue(Object.assign(new Error('unsupported accessory'), {
+            code: 'ERR_SPIKE_DEVICE_UNSUPPORTED',
+            kind: 'unsupported-device'
+        }));
+        const component = mount(
+            <SpikePrimeControlCenter intl={{locale: 'ja-JP'}} vm={vm} />
+        );
+        component.find('button[aria-label^="LEGO ハブ:"]').simulate('click');
+        await act(async () => {
+            component.find('button').filterWhere(button => button.text() === 'ハブのプログラムを停止')
+                .simulate('click');
+            await Promise.resolve();
+        });
+        component.update();
+        expect(component.text()).toContain('この機器は接続中のハブでは利用できません。');
+        expect(component.find('button[aria-label^="LEGO ハブ:"]').prop('aria-label')).toContain('接続済み');
+        expect(component.text()).not.toContain('接続エラー');
         component.unmount();
     });
 

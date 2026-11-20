@@ -171,12 +171,6 @@
     max-width: 120px;
 }
 
-.live-port .stale {
-    grid-column: 1;
-    grid-row: 3;
-    white-space: nowrap;
-}
-
 .display-mode {
     align-items: center;
     display: flex;
@@ -504,11 +498,6 @@
     padding: 6px;
 }
 
-.port-stale {
-    background: #fff7ed;
-    border-color: #fed7aa;
-}
-
 .port-heading {
     align-items: center;
     display: flex;
@@ -534,11 +523,6 @@
 .muted {
     color: #64748b;
     font-size: 0.76rem;
-}
-
-.stale {
-    color: #b45309;
-    font-size: 0.72rem;
 }
 
 .error {

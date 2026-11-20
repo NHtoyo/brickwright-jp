@@ -11,7 +11,6 @@ import {STANDARD_SPIKE_EXTENSION_ID} from '../../lib/extension-gallery-sources';
 import styles from './spike-prime-control-center.css';
 
 const PORTS = ['A', 'B', 'C', 'D', 'E', 'F'];
-const STALE_AFTER_MS = 1500;
 const SPIKE_COLOR_NAMES = {
     en: ['black', 'magenta', 'purple', 'blue', 'azure', 'turquoise', 'green', 'yellow', 'orange', 'red', 'white'],
     ja: ['黒', 'マゼンタ', '紫', '青', '水色', 'ターコイズ', '緑', '黄', 'オレンジ', '赤', '白']
@@ -82,9 +81,12 @@ const words = {
         yaw: 'Yaw',
         ports: 'Ports',
         noReading: 'No reading yet',
-        stale: 'Reading is stale',
+        noDevice: 'No device',
         noConnection: 'Disconnected',
         motor: 'Motor',
+        motorSmall: 'Small motor',
+        motorMedium: 'Medium motor',
+        motorLarge: 'Large motor',
         color: 'Color sensor',
         distance: 'Distance sensor',
         force: 'Force sensor',
@@ -115,7 +117,9 @@ const words = {
         reflection: 'Reflection',
         noColor: 'No color detected',
         noReflection: 'Reflection unavailable',
-        lastValue: 'last value'
+        lastUpdate: 'Last update: {seconds}s ago',
+        unsupportedOperation: 'This operation is not supported by the connected hub model.',
+        unsupportedDevice: 'This device is not supported by the connected hub model.'
     },
     ja: {
         title: 'LEGO ハブ',
@@ -178,9 +182,12 @@ const words = {
         yaw: 'Yaw',
         ports: 'ポート',
         noReading: 'まだ受信していません',
-        stale: '値の更新が止まっています',
+        noDevice: '機器未接続',
         noConnection: '切断中',
         motor: 'モーター',
+        motorSmall: '小型モーター',
+        motorMedium: '中型モーター',
+        motorLarge: '大型モーター',
         color: 'カラーセンサー',
         distance: '距離センサー',
         force: 'フォースセンサー',
@@ -210,7 +217,9 @@ const words = {
         reflection: '反射光',
         noColor: '色を検出していません',
         noReflection: '反射光の値は未受信です',
-        lastValue: '最後の値'
+        lastUpdate: '最終受信：約{seconds}秒前',
+        unsupportedOperation: '接続中のハブではこの操作を利用できません。',
+        unsupportedDevice: 'この機器は接続中のハブでは利用できません。'
     }
 };
 
@@ -233,6 +242,7 @@ class SpikePrimeControlCenter extends React.Component {
             now: Date.now(),
             busy: false,
             error: '',
+            errorKind: null,
             connectionMode: 'web-ble',
             peripherals: [],
             buildInfo: null,
@@ -388,7 +398,7 @@ class SpikePrimeControlCenter extends React.Component {
         try {
             if (api && typeof api.getState === 'function') snapshot = api.getState();
         } catch (error) {
-            this.updateIfMounted({error: error.message || String(error)});
+            this.updateIfMounted({error: error.message || String(error), errorKind: error.kind || null});
         }
         const nextConnectionIdentity = snapshot && snapshot.connected ?
             this.getConnectionIdentity(snapshot) : null;
@@ -451,7 +461,7 @@ class SpikePrimeControlCenter extends React.Component {
     async runAction (name, ...args) {
         const api = this.getAPI();
         if (!api || typeof api[name] !== 'function') return;
-        this.updateIfMounted({busy: true, error: ''});
+        this.updateIfMounted({busy: true, error: '', errorKind: null});
         try {
             const result = await api[name](...args);
             const expectedPreviousSlot = name === 'installController' && args[1] && args[1].previousSlot;
@@ -499,9 +509,16 @@ class SpikePrimeControlCenter extends React.Component {
             }
             this.refresh();
         } catch (error) {
+            const unsupportedDevice = error && (error.kind === 'unsupported-device' ||
+                error.code === 'ERR_SPIKE_DEVICE_UNSUPPORTED');
+            const unsupported = error && (error.kind === 'unsupported-capability' ||
+                error.code === 'ERR_SPIKE_UNSUPPORTED_CAPABILITY');
             this.updateIfMounted({
                 ...(name === 'installController' ? {controllerConfirmation: null} : {}),
-                error: error.message || String(error)
+                error: unsupportedDevice ? this.getWords().unsupportedDevice :
+                    unsupported ? this.getWords().unsupportedOperation : error.message || String(error),
+                errorKind: unsupportedDevice ? 'unsupported-device' :
+                    unsupported ? 'unsupported-capability' : error.kind || null
             });
             this.refresh();
         } finally {
@@ -602,14 +619,14 @@ class SpikePrimeControlCenter extends React.Component {
         // diagnostics. Do not infer the offline model from that stale value;
         // only an explicit user selection or a live hub identification is
         // authoritative for hiding model-specific controls.
-        if (this.state.selectedHubModel !== 'auto') return this.state.selectedHubModel;
-        if (!snapshot || !snapshot.connected) return null;
         if (snapshot && snapshot.connected) {
             if (snapshot.detectedHubModel) return snapshot.detectedHubModel;
             if (snapshot.effectiveHubModel) return snapshot.effectiveHubModel;
             if (snapshot.protocol === 'lwp3' || snapshot.protocol === 'essential') return 'essential';
+            if (snapshot.protocol === 'lwp3-essential') return 'essential';
             if (snapshot.protocol === 'spike3' || snapshot.protocol === 'prime') return 'prime';
         }
+        if (this.state.selectedHubModel !== 'auto') return this.state.selectedHubModel;
         return null;
     }
 
@@ -753,8 +770,45 @@ class SpikePrimeControlCenter extends React.Component {
         const w = this.getWords();
         if (!snapshot || !snapshot.connected) return <span className={styles.muted}>{w.noConnection}</span>;
         if (!hasNumber(value)) return <span className={styles.muted}>{w.noReading}</span>;
-        const stale = Number.isFinite(receivedAt) && this.state.now - receivedAt > STALE_AFTER_MS;
-        return <span className={stale ? styles.stale : ''}>{withUnit(value, '°')}{stale ? ` · ${w.stale}` : ''}</span>;
+        const seconds = Number.isFinite(receivedAt) ?
+            Math.max(0, Math.floor((this.state.now - receivedAt) / 1000)) : null;
+        const updateTitle = seconds === null ? null :
+            w.lastUpdate.replace('{seconds}', seconds);
+        return <span {...(updateTitle ? {title: updateTitle} : {})}>{withUnit(value, '°')}</span>;
+    }
+
+    getPortType (reading, motor) {
+        if (!reading || reading.connected === false) return null;
+        const deviceType = reading.deviceType ?? reading.motorType ?? (motor && motor.motorType);
+        const deviceTypes = {
+            48: 'motor', // SPIKE medium motor
+            49: 'motor', // SPIKE large motor
+            61: 'color',
+            62: 'distance',
+            63: 'force',
+            64: 'matrix3',
+            65: 'motor' // SPIKE Essential small motor
+        };
+        return (reading.type && reading.type !== 'unknown' ? reading.type : null) ||
+            deviceTypes[Number(deviceType)] || (motor ? 'motor' : null);
+    }
+
+    getDeviceLabel (type, reading, w) {
+        if (type === 'motor') {
+            const deviceType = Number(reading && (reading.motorType ?? reading.deviceType));
+            if (deviceType === 0x30) return w.motorMedium;
+            if (deviceType === 0x31) return w.motorLarge;
+            if (deviceType === 0x41) return w.motorSmall;
+            return w.motor;
+        }
+        return type === 'color' ? w.color : type === 'distance' ? w.distance :
+            type === 'force' ? w.force : type === 'matrix3' ? w.matrix : w.unknownDevice;
+    }
+
+    renderLastUpdate (receivedAt) {
+        if (!Number.isFinite(receivedAt)) return null;
+        const seconds = Math.max(0, Math.floor((this.state.now - receivedAt) / 1000));
+        return <div className={styles.muted}>{this.getWords().lastUpdate.replace('{seconds}', seconds)}</div>;
     }
 
     renderPort (port, snapshot) {
@@ -781,22 +835,27 @@ class SpikePrimeControlCenter extends React.Component {
         }
         const portSensor = snapshot && snapshot.portSensors && snapshot.portSensors[port];
         const motor = snapshot && snapshot.motorPorts && snapshot.motorPorts[port];
-        const reading = portSensor || motor || {};
-        const type = reading.type || (motor ? 'motor' : null);
+        const detached = Boolean(portSensor && portSensor.connected === false);
+        // A detach notification is authoritative; do not resurrect an old
+        // motor value from the separate motor telemetry snapshot.
+        const reading = detached ? portSensor : (portSensor || motor || {});
+        const type = this.getPortType(reading, detached ? null : motor);
         const receivedAt = reading.receivedAt;
-        const detected = Boolean(type && Number.isFinite(receivedAt));
-        const stale = Boolean(snapshot && snapshot.connected && detected &&
-            this.state.now - receivedAt > STALE_AFTER_MS);
-        const deviceLabel = type === 'motor' ? w.motor : type === 'color' ? w.color :
-            type === 'distance' ? w.distance : type === 'force' ? w.force :
-                type === 'matrix3' ? w.matrix : w.unknownDevice;
+        const detected = Boolean(type && snapshot && snapshot.connected && Number.isFinite(receivedAt));
+        const attached = Boolean(!detached && snapshot && snapshot.connected &&
+            (reading.connected === true || type));
+        const deviceLabel = this.getDeviceLabel(type, reading, w);
         const icon = type === 'motor' ? '⚙' : type === 'force' ? '◉' :
             type === 'distance' ? '⌁' : type === 'color' ? '◐' : type === 'matrix3' ? '▦' : '·';
         let value = w.noReading;
-        if (detected && type === 'motor') {
+        if (!snapshot || !snapshot.connected) {
+            value = w.noConnection;
+        } else if (detached || !attached) {
+            value = w.noDevice;
+        } else if (detected && type === 'motor') {
             const angle = this.state.displayMode === 'state' ?
-                ((motor && motor.relativePosition) ?? reading.relativePosition ?? reading.degreesCounted) :
-                ((motor && motor.absolutePosition) ?? reading.absolutePosition);
+                (reading.relativePosition ?? reading.degreesCounted ?? (motor && motor.relativePosition)) :
+                (reading.absolutePosition ?? (motor && motor.absolutePosition));
             value = hasNumber(angle) ? `${angle}°` : w.noReading;
         } else if (detected && type === 'force') {
             value = this.state.displayMode === 'state' ?
@@ -811,10 +870,9 @@ class SpikePrimeControlCenter extends React.Component {
         } else if (detected) {
             value = deviceLabel;
         }
-        const accessibleValue = stale ? `${w.stale}; ${w.lastValue}: ${value}` : value;
-        const ariaLabel = `${port}: ${deviceLabel}, ${accessibleValue}`;
-        const portClassName = `${styles.livePort} ${stale ? styles.portStale : ''}`;
-        const speed = (motor && motor.speed) ?? reading.speed;
+        const ariaLabel = `${port}: ${attached ? deviceLabel : w.noDevice}, ${value}`;
+        const portClassName = styles.livePort;
+        const speed = reading.speed ?? (motor && motor.speed);
         return (
             <div
                 aria-label={ariaLabel}
@@ -830,13 +888,12 @@ class SpikePrimeControlCenter extends React.Component {
                 </div>
                 <span
                     className={styles.portValue}
-                    title={!snapshot || !snapshot.connected ? w.noConnection : value}
+                    title={value}
                 >
-                    {!snapshot || !snapshot.connected ? w.noConnection : value}
+                    {value}
                 </span>
-                <span className={styles.portDevice}>{type && type !== 'motor' && !stale ? deviceLabel : ''}</span>
-                {stale ? <span className={styles.stale}>{w.stale}</span> : null}
-                {type === 'motor' && detected && !stale ? <span className={styles.portSpeed}>
+                <span className={styles.portDevice}>{attached ? deviceLabel : ''}</span>
+                {type === 'motor' && detected ? <span className={styles.portSpeed}>
                     {w.rawSpeed} {hasNumber(speed) ? speed : '—'}
                 </span> : null}
             </div>
@@ -855,28 +912,30 @@ class SpikePrimeControlCenter extends React.Component {
         }
         const portSensor = snapshot && snapshot.portSensors && snapshot.portSensors[port];
         const motor = snapshot && snapshot.motorPorts && snapshot.motorPorts[port];
-        const reading = portSensor || motor || {};
-        const type = reading.type || (motor ? 'motor' : null);
+        const detached = Boolean(portSensor && portSensor.connected === false);
+        const reading = detached ? portSensor : (portSensor || motor || {});
+        const type = this.getPortType(reading, detached ? null : motor);
         const receivedAt = reading.receivedAt;
-        const detected = Boolean(type && Number.isFinite(receivedAt));
-        const stale = Boolean(snapshot && snapshot.connected && detected &&
-            this.state.now - receivedAt > STALE_AFTER_MS);
-        const absolutePosition = (motor && motor.absolutePosition) ?? reading.absolutePosition;
-        const countedPosition = (motor && motor.relativePosition) ??
-            reading.relativePosition ?? reading.degreesCounted;
-        const speed = (motor && motor.speed) ?? reading.speed;
+        const detected = Boolean(type && snapshot && snapshot.connected && Number.isFinite(receivedAt));
+        const attached = Boolean(!detached && snapshot && snapshot.connected &&
+            (reading.connected === true || type));
+        const absolutePosition = reading.absolutePosition ?? (motor && motor.absolutePosition);
+        const countedPosition = reading.relativePosition ?? reading.degreesCounted ??
+            (motor && motor.relativePosition);
+        const speed = reading.speed ?? (motor && motor.speed);
         const colorDescription = this.getColorName(reading.color);
         return (
             <div
-                className={`${styles.portCard} ${stale ? styles.portStale : ''}`}
+                className={styles.portCard}
                 key={port}
             >
                 <div className={styles.portHeading}>
                     <strong>{port}</strong>
-                    <span>{type || w.noReading}</span>
+                    <span>{attached ? this.getDeviceLabel(type, reading, w) : w.noDevice}</span>
                 </div>
                 {!snapshot || !snapshot.connected ? <div>{w.noConnection}</div> : null}
-                {snapshot && snapshot.connected && !detected ? <div>{w.noReading}</div> : null}
+                {snapshot && snapshot.connected && detached ? <div>{w.noDevice}</div> : null}
+                {snapshot && snapshot.connected && attached && !detected ? <div>{w.noReading}</div> : null}
                 {type === 'motor' && detected ? (
                     <>
                         <div>{w.absoluteAngle}{': '}{withUnit(absolutePosition, '°')}</div>
@@ -910,7 +969,7 @@ class SpikePrimeControlCenter extends React.Component {
                 {type === 'matrix3' && detected ? <div>
                     {w.matrix}{': '}{reading.pixels ? reading.pixels.length : '—'}
                 </div> : null}
-                {stale ? <div className={styles.stale}>{w.stale}</div> : null}
+                {attached ? this.renderLastUpdate(receivedAt) : null}
             </div>
         );
     }
@@ -921,7 +980,9 @@ class SpikePrimeControlCenter extends React.Component {
         const api = this.getAPI();
         const connected = Boolean(snapshot && snapshot.connected);
         const lastError = error || (snapshot && snapshot.lastCommunicationError);
-        const connectionError = !connected && Boolean(lastError);
+        const unsupportedError = this.state.errorKind === 'unsupported-capability' ||
+            this.state.errorKind === 'unsupported-device';
+        const connectionError = !connected && Boolean(lastError) && !unsupportedError;
         const hubStatusLabel = connected ? w.connected :
             (connectionError ? w.connectionError : w.disconnected);
         const hubButtonClass = `${styles.hubButton} ${connected ? styles.hubConnected : ''} ` +

@@ -5,6 +5,29 @@ const categorySeparator = '<sep gap="36"/>';
 
 const blockSeparator = '<sep gap="36"/>'; // At default scale, about 28px
 
+export const filterSpikeCategoryXML = (categoryXML, supportedOpcodes) => {
+    if (!Array.isArray(supportedOpcodes)) return categoryXML;
+    if (typeof DOMParser === 'undefined' || typeof XMLSerializer === 'undefined') {
+        return categoryXML;
+    }
+    const supportedTypes = new Set();
+    supportedOpcodes.forEach(opcode => {
+        if (typeof opcode !== 'string') return;
+        supportedTypes.add(opcode.startsWith('spikeprime_') ? opcode : `spikeprime_${opcode}`);
+    });
+    const parsed = new DOMParser().parseFromString(categoryXML, 'application/xml');
+    if (parsed.getElementsByTagName('parsererror').length > 0) return categoryXML;
+    const category = parsed.documentElement;
+    Array.from(category.children).forEach(child => {
+        if (child.tagName.toLowerCase() !== 'block') return;
+        const type = child.getAttribute('type');
+        if (type && type.startsWith('spikeprime_') && !supportedTypes.has(type)) {
+            category.removeChild(child);
+        }
+    });
+    return new XMLSerializer().serializeToString(parsed);
+};
+
 const translate = (id, english) => {
     if (LazyScratchBlocks.isLoaded()) {
         return LazyScratchBlocks.get().ScratchMsgs.translate(id, english);
@@ -771,10 +794,12 @@ const xmlClose = '</xml>';
  * @param {?string} soundName -  The name of the default selected sound dropdown.
  * @param {?object} colors - The colors for the theme.
  * @param {'both'|'scratch'|'spike'} paletteMode - Which built-in palettes to show.
+ * @param {(Array.<string>|null)} supportedSpikeBlockOpcodes - Optional list of supported SPIKE block opcodes.
  * @returns {string} - a ScratchBlocks-style XML document for the contents of the toolbox.
  */
 const makeToolboxXML = function (isInitialSetup, isStage = true, targetId, categoriesXML = [],
-    costumeName = '', backdropName = '', soundName = '', colors = defaultBlockColors, paletteMode = 'both') {
+    costumeName = '', backdropName = '', soundName = '', colors = defaultBlockColors,
+    paletteMode = 'both', supportedSpikeBlockOpcodes = null) {
     isStage = isInitialSetup || isStage;
     const gap = [categorySeparator];
 
@@ -783,6 +808,14 @@ const makeToolboxXML = function (isInitialSetup, isStage = true, targetId, categ
     soundName = xmlEscape(soundName);
 
     categoriesXML = categoriesXML.slice();
+    if (Array.isArray(supportedSpikeBlockOpcodes)) {
+        categoriesXML = categoriesXML.map(categoryInfo => (
+            categoryInfo.id === 'spikeprime' ? {
+                ...categoryInfo,
+                xml: filterSpikeCategoryXML(categoryInfo.xml, supportedSpikeBlockOpcodes)
+            } : categoryInfo
+        ));
+    }
     const moveCategory = categoryId => {
         const index = categoriesXML.findIndex(categoryInfo => categoryInfo.id === categoryId);
         if (index >= 0) {

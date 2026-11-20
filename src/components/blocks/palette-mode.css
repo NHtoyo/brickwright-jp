@@ -15,46 +15,55 @@
     z-index: $z-index-extension-button;
     inset-block-start: 0;
     inset-inline-start: 0;
-    width: 250px;
-    height: 3.25rem;
+    min-width: 150px;
+    height: 2.5rem;
     box-sizing: border-box;
     display: flex;
     align-items: center;
-    gap: 2px;
-    padding: 4px 6px;
+    justify-content: flex-start;
+    gap: 10px;
+    padding: 3px 8px;
     background: $ui-white;
     border: 1px solid $ui-black-transparent;
     border-top-left-radius: $space;
+    color: $text-primary;
+    color-scheme: light dark;
 }
 
-.palette-mode-button {
-    flex: 1 1 0;
-    min-width: 0;
-    height: 2.25rem;
-    padding: 0 4px;
+.palette-toggle {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    min-height: 28px;
     color: $text-primary;
-    background: $ui-white;
-    border: 1px solid $ui-black-transparent;
-    border-radius: 4px;
-    font: inherit;
-    font-size: 0.75rem;
+    font-size: 0.72rem;
+    line-height: 1;
+    white-space: nowrap;
+    cursor: pointer;
+    user-select: none;
+}
+
+.palette-toggle input {
+    width: 14px;
+    height: 14px;
+    margin: 0;
+    accent-color: $motion-primary;
     cursor: pointer;
 }
 
-.palette-mode-button[aria-pressed="true"] {
-    color: $ui-white;
-    background: $motion-primary;
-    border-color: $motion-primary;
+.palette-toggle input:disabled {
+    cursor: not-allowed;
 }
 
-.palette-mode-button:focus-visible {
+.palette-toggle:focus-within {
     outline: 2px solid $motion-primary;
-    outline-offset: 1px;
+    outline-offset: 2px;
+    border-radius: 2px;
 }
 
 .blocks-container :global(.blocklyToolboxDiv) {
-    top: 3.25rem !important;
-    height: calc(100% - 6.5rem) !important;
+    top: 2.5rem !important;
+    height: calc(100% - 5rem) !important;
 }
 
 [dir="rtl"] .palette-mode-control {
@@ -64,6 +73,13 @@
 
 @media (max-width: 780px) {
     .palette-mode-control {
-        width: 220px;
+        min-width: 140px;
+        height: 2.375rem;
+        gap: 8px;
+    }
+
+    .blocks-container :global(.blocklyToolboxDiv) {
+        top: 2.375rem !important;
+        height: calc(100% - 4.75rem) !important;
     }
 }
