@@ -110,6 +110,8 @@ describe('SPIKE spatial motor port picker', () => {
         }));
         const {field} = makeShadowField(blocks);
         field.showEditor_();
+        expect(blocks.DropDownDiv.setColour).toHaveBeenCalledWith('#f8fafc', '#94a3b8');
+        expect(blocks.DropDownDiv.setCategory).toHaveBeenCalledWith('spikeprime-port-picker');
         expect(content.textContent).toContain('モーターのポートを選択');
         expect(content.querySelectorAll('.bw-spike-port-picker__port')).toHaveLength(2);
         expect(content.querySelector('[data-port="C"]')).toBeNull();

@@ -314,9 +314,8 @@ const openPicker = (ScratchBlocks, field, menuName) => {
         if (event.key === 'Escape') dropdown.hide();
     });
     const block = field.sourceBlock_;
-    const colourBlock = block.isShadow() ? block.parentBlock_ : block;
-    dropdown.setColour(colourBlock.getColour(), colourBlock.getColourTertiary());
-    dropdown.setCategory(colourBlock.getCategory());
+    dropdown.setColour('#f8fafc', '#94a3b8');
+    dropdown.setCategory('spikeprime-port-picker');
     dropdown.setBoundsElement(block.workspace.getParentSvg().parentNode);
     const size = field.getSize();
     const scale = block.workspace.scale;

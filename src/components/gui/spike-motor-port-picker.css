@@ -1,143 +1,151 @@
-.bw-spike-port-picker {
+:global(.bw-spike-port-picker) {
     box-sizing: border-box;
     color: #1f2937;
     display: flex;
     flex-direction: column;
     font-family: "Helvetica Neue", Helvetica, Arial, sans-serif;
-    gap: 8px;
-    min-width: 258px;
-    padding: 10px;
+    gap: 6px;
+    min-width: 248px;
+    max-width: min(80vw, 320px);
+    padding: 8px;
 }
 
-.bw-spike-port-picker__heading {
+:global(.bw-spike-port-picker__heading) {
+    color: #111827;
     font-size: 0.8rem;
     font-weight: 700;
 }
 
-.bw-spike-port-picker__diagram {
+:global(.bw-spike-port-picker__diagram) {
     align-items: center;
     display: grid;
-    gap: 7px;
-    grid-template-columns: minmax(0, 1fr) 38px minmax(0, 1fr);
+    gap: 6px;
+    grid-template-columns: minmax(0, 1fr) 34px minmax(0, 1fr);
 }
 
-.bw-spike-port-picker__column {
+:global(.bw-spike-port-picker__column) {
     display: grid;
-    gap: 5px;
+    gap: 4px;
+    min-width: 0;
 }
 
-.bw-spike-port-picker__hub {
+:global(.bw-spike-port-picker__hub) {
     align-items: center;
     background: #e5e7eb;
     border: 1px solid #cbd5e1;
     border-radius: 8px;
     color: #475569;
     display: flex;
-    height: 50px;
+    height: 46px;
     justify-content: center;
 }
 
-.bw-spike-port-picker__hub svg {
+:global(.bw-spike-port-picker__hub svg) {
     fill: none;
-    height: 40px;
+    height: 38px;
+    max-height: 38px;
+    max-width: 30px;
     stroke: currentColor;
     stroke-linecap: round;
     stroke-linejoin: round;
     stroke-width: 1.6;
-    width: 34px;
+    width: 30px;
 }
 
-.bw-spike-port-picker__port {
+:global(.bw-spike-port-picker__port) {
     align-items: center;
-    background: #f8fafc;
-    border: 1px solid #cbd5e1;
+    background: #fff;
+    border: 1px solid #94a3b8;
     border-radius: 6px;
-    color: #334155;
+    color: #1f2937;
     cursor: pointer;
     display: flex;
-    gap: 7px;
+    gap: 6px;
     justify-content: flex-start;
-    min-height: 38px;
-    padding: 4px 7px;
+    min-height: 34px;
+    min-width: 0;
+    padding: 3px 5px;
     text-align: left;
 }
 
-.bw-spike-port-picker__port:hover,
-.bw-spike-port-picker__port:focus-visible {
-    border-color: #4c97ff;
-    outline: 2px solid rgba(76, 151, 255, 0.45);
+:global(.bw-spike-port-picker__port:hover),
+:global(.bw-spike-port-picker__port:focus-visible) {
+    border-color: #2563eb;
+    outline: 2px solid rgba(37, 99, 235, 0.35);
     outline-offset: 1px;
 }
 
-.bw-spike-port-picker__port.is-connected {
-    border-color: #86c9a2;
+:global(.bw-spike-port-picker__port.is-connected) {
     background: #f0fdf4;
+    border-color: #4d9b67;
 }
 
-.bw-spike-port-picker__port.is-selected {
+:global(.bw-spike-port-picker__port.is-selected) {
     background: #dbeafe;
-    border-color: #3b82f6;
-    box-shadow: inset 0 0 0 1px #3b82f6;
+    border-color: #1d4ed8;
+    box-shadow: inset 0 0 0 1px #1d4ed8;
 }
 
-.bw-spike-port-picker__port strong {
+:global(.bw-spike-port-picker__port strong) {
     align-items: center;
     background: #0f766e;
     border-radius: 50%;
     color: #fff;
     display: inline-flex;
-    flex: 0 0 22px;
-    height: 22px;
+    flex: 0 0 21px;
+    height: 21px;
     justify-content: center;
 }
 
-.bw-spike-port-picker__status {
-    font-size: 0.65rem;
+:global(.bw-spike-port-picker__status) {
+    font-size: 0.62rem;
     line-height: 1.15;
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
 }
 
-.bw-spike-port-picker__actions {
+:global(.bw-spike-port-picker__actions) {
     align-items: center;
     display: flex;
-    gap: 6px;
+    flex-wrap: wrap;
+    gap: 5px;
     justify-content: flex-end;
 }
 
-.bw-spike-port-picker__actions button {
-    background: #f8fafc;
-    border: 1px solid #cbd5e1;
+:global(.bw-spike-port-picker__actions button) {
+    background: #fff;
+    border: 1px solid #94a3b8;
     border-radius: 5px;
     color: #1f2937;
     cursor: pointer;
     font: inherit;
-    min-height: 30px;
-    padding: 4px 9px;
+    font-size: 0.7rem;
+    min-height: 28px;
+    padding: 3px 8px;
 }
 
-.bw-spike-port-picker__actions button:disabled {
+:global(.bw-spike-port-picker__actions button:disabled) {
     cursor: not-allowed;
     opacity: 0.5;
 }
 
-.bw-spike-port-picker__multi-toggle {
+:global(.bw-spike-port-picker__multi-toggle) {
     align-items: center;
-    color: #334155;
+    color: #1f2937;
     display: inline-flex;
     flex: 1;
-    font-size: 0.7rem;
-    gap: 5px;
+    font-size: 0.68rem;
+    gap: 4px;
 }
 
-.bw-spike-port-picker__multi-toggle input {
-    accent-color: #2563eb;
+:global(.bw-spike-port-picker__multi-toggle input) {
+    accent-color: #1d4ed8;
 }
 
-.bw-spike-port-picker__hint {
-    color: #64748b;
-    flex: 1;
+:global(.bw-spike-port-picker__hint) {
+    color: #475569;
+    flex: 1 1 100%;
     font-size: 0.64rem;
     line-height: 1.25;
 }
