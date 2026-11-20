@@ -132,7 +132,12 @@ const words = {
         diagnostics: 'Communication diagnostics',
         diagnosticsLog: 'Open diagnostics log',
         controllerSettings: 'Controller setup',
-        standaloneMenu: 'Run on hub'
+        standaloneMenu: 'Run on hub',
+        frontStandalone: 'Standalone program',
+        transferAndRun: 'Transfer and run',
+        confirmTransfer: 'Clear, upload, and run slot {slot}',
+        slotReviewWarning: 'Slot {slot} will be cleared before the program is transferred.',
+        noConnectedDevices: 'No connected devices'
     },
     ja: {
         title: 'LEGO ハブ',
@@ -244,7 +249,12 @@ const words = {
         diagnostics: '通信診断',
         diagnosticsLog: '診断ログを開く',
         controllerSettings: '制御プログラムの設定',
-        standaloneMenu: 'ハブで単独実行'
+        standaloneMenu: 'ハブで単独実行',
+        frontStandalone: 'ハブで単独実行',
+        transferAndRun: '転送して実行',
+        confirmTransfer: 'スロット{slot}を消去して転送・実行',
+        slotReviewWarning: '転送前にスロット{slot}を消去します。',
+        noConnectedDevices: '接続されている機器はありません'
     }
 };
 
@@ -1018,18 +1028,14 @@ class SpikePrimeControlCenter extends React.Component {
                 (motor && motor.relativePosition)) :
             (reading.absolutePosition ?? (motor && motor.absolutePosition));
         let value = detected ? deviceLabel : w.noReading;
-        let positionName = '';
         if (detected && type === 'motor' && hasNumber(motorPosition)) {
-            positionName = essential ? w.positionLabel :
-                (hasNumber(reading.absolutePosition ?? (motor && motor.absolutePosition)) ?
-                    w.absoluteLabel : w.positionLabel);
-            value = `${positionName} ${motorPosition}°`;
+            value = `${motorPosition}°`;
         } else if (detected && type === 'motor') {
             value = w.noReading;
         } else if (detected && type === 'force') {
             value = this.state.displayMode === 'state' && typeof reading.pressed === 'boolean' ?
                 (reading.pressed ? w.pressed : w.released) :
-                hasNumber(reading.force) ? `${reading.force}%` : w.noReading;
+                hasNumber(reading.force) ? String(reading.force) : w.noReading;
         } else if (detected && type === 'distance') {
             value = hasNumber(reading.distanceMM ?? reading.distance) ?
                 `${reading.distanceMM ?? reading.distance} mm` : w.noReading;
@@ -1052,12 +1058,9 @@ class SpikePrimeControlCenter extends React.Component {
             receivedAt ? w.lastUpdate.replace('{seconds}', Math.max(0,
                 Math.floor((this.state.now - receivedAt) / 1000))) : w.noReading
         ].filter(Boolean).join(' · ');
-        const speed = reading.speed ?? (motor && motor.speed);
-        const speedLabel = type === 'motor' && detected && hasNumber(speed) ?
-            `${w.rawSpeed} ${speed}` : null;
         return (
             <button
-                aria-label={`${port}: ${deviceLabel}, ${value}${speedLabel ? `, ${speedLabel}` : ''}`}
+                aria-label={`${port}: ${deviceLabel}, ${value}`}
                 className={styles.livePort}
                 key={port}
                 onClick={this.handleTogglePanel}
@@ -1070,23 +1073,23 @@ class SpikePrimeControlCenter extends React.Component {
                     className={styles.portValue}
                     title={value}
                 >{value}</span>
-                {type === 'motor' && detected && hasNumber(speed) ? (
-                    <span className={styles.portSpeed}>{speedLabel}</span>
-                ) : null}
             </button>
+        );
+    }
+
+    isPortAttached (port, snapshot = this.state.snapshot) {
+        if (!snapshot || !snapshot.connected || !this.isPortAvailable(port, snapshot)) return false;
+        const reading = snapshot.portSensors && snapshot.portSensors[port];
+        if (reading && reading.connected === false) return false;
+        const motor = snapshot.motorPorts && snapshot.motorPorts[port];
+        return Boolean(
+            (reading && reading.connected === true) || this.getPortType(reading, motor)
         );
     }
 
     renderPortDetails (port, snapshot) {
         const w = this.getWords();
-        if (!this.isPortAvailable(port, snapshot)) {
-            return (<div
-                className={`${styles.portCard} ${styles.portUnavailable}`}
-                key={port}
-            >
-                <div className={styles.portHeading}><strong>{port}</strong><span>{w.portUnavailable}</span></div>
-            </div>);
-        }
+        if (!this.isPortAttached(port, snapshot)) return null;
         const portSensor = snapshot && snapshot.portSensors && snapshot.portSensors[port];
         const motor = snapshot && snapshot.motorPorts && snapshot.motorPorts[port];
         const detached = Boolean(portSensor && portSensor.connected === false);
@@ -1135,7 +1138,7 @@ class SpikePrimeControlCenter extends React.Component {
                         {this.state.displayMode === 'state' ?
                             (typeof reading.pressed === 'boolean' ?
                                 (reading.pressed ? w.pressed : w.released) : w.noReading) :
-                            `${w.forceValue}: ${withUnit(reading.force, '%')}`}
+                            `${w.forceValue}: ${hasNumber(reading.force) ? reading.force : '—'}`}
                     </div>
                 ) : null}
                 {type === 'distance' && detected ? (
@@ -1157,6 +1160,70 @@ class SpikePrimeControlCenter extends React.Component {
                     {w.matrix}{': '}{reading.pixels ? reading.pixels.length : '—'}
                 </div> : null}
                 {attached ? this.renderLastUpdate(receivedAt) : null}
+            </div>
+        );
+    }
+
+    renderStandaloneControls (w, slots, reservedSlot, standaloneCapable, connected, api, busy) {
+        if (!standaloneCapable) return null;
+        const selectedSlot = this.state.standaloneSlot;
+        const reserved = this.isReservedSlot(selectedSlot);
+        const confirmation = this.state.standaloneConfirmation;
+        const canReview = connected && api && Number.isInteger(selectedSlot) && !reserved;
+        return (
+            <div
+                aria-label={w.standaloneMenu}
+                className={styles.frontRunControls}
+            >
+                <span className={styles.frontRunMode}>{w.frontStandalone}</span>
+                <span className={styles.frontPcRun}>{w.pcRunLabel}</span>
+                <label className={styles.frontSlotLabel}>
+                    <span>{w.standaloneSlot}</span>
+                    <select
+                        aria-label={w.standaloneSlot}
+                        disabled={busy}
+                        onChange={this.handleStandaloneSlotChanged}
+                        value={selectedSlot}
+                    >
+                        {slots.map(slot => (
+                            <option
+                                disabled={slot === reservedSlot}
+                                key={slot}
+                                value={slot}
+                            >
+                                {slot}{slot === reservedSlot ? ` · ${w.systemSlot}` : ''}
+                            </option>
+                        ))}
+                    </select>
+                </label>
+                {confirmation ? (
+                    <div
+                        className={styles.frontRunConfirmation}
+                        role="group"
+                    >
+                        <span>{w.slotReviewWarning.replace('{slot}', confirmation.slot)}</span>
+                        <button
+                            disabled={busy || !connected || this.isReservedSlot(confirmation.slot)}
+                            onClick={this.handleConfirmStandaloneRun}
+                            type="button"
+                        >{w.confirmTransfer.replace('{slot}', confirmation.slot)}</button>
+                        <button
+                            disabled={busy}
+                            onClick={this.handleCancelStandaloneRun}
+                            type="button"
+                        >
+                            {w.cancel}
+                        </button>
+                    </div>
+                ) : (
+                    <button
+                        aria-label={`${w.transferAndRun} ${selectedSlot}`}
+                        disabled={busy || !canReview}
+                        onClick={this.handleReviewStandaloneSlot}
+                        type="button"
+                    >{w.transferAndRun}</button>
+                )}
+                {reserved ? <span className={styles.frontReserved}>{w.systemSlot}</span> : null}
             </div>
         );
     }
@@ -1192,7 +1259,6 @@ class SpikePrimeControlCenter extends React.Component {
         const slots = Array.from({length: 20}, (_, slot) => slot);
         const reservedSlot = snapshot && Number.isInteger(snapshot.controllerSlot) ?
             snapshot.controllerSlot : null;
-        const standaloneSlotReserved = this.isReservedSlot(this.state.standaloneSlot);
         const controllerInstallDisabled = busy || !connected || !api || !standaloneCapable ||
             !Number.isInteger(this.state.controllerSlot);
         return (
@@ -1218,6 +1284,9 @@ class SpikePrimeControlCenter extends React.Component {
                     >
                         {PORTS.map(port => this.renderPort(port, snapshot))}
                     </div>
+                    {this.renderStandaloneControls(
+                        w, slots, reservedSlot, standaloneCapable, connected, api, busy
+                    )}
                 </div>
                 {open ? (
                     <section
@@ -1467,47 +1536,6 @@ class SpikePrimeControlCenter extends React.Component {
                                 </div>
                             )}
                         </details> : null}
-                        {standaloneCapable ? <details className={styles.installBox}>
-                            <summary>{w.standaloneMenu}</summary>
-                            <p className={styles.help}>{w.pcRunLabel}</p>
-                            <label>{w.standaloneSlot}
-                                <select
-                                    aria-label={w.standaloneSlot}
-                                    disabled={busy}
-                                    onChange={this.handleStandaloneSlotChanged}
-                                    value={this.state.standaloneSlot}
-                                >
-                                    {slots.map(slot => (<option
-                                        disabled={slot === reservedSlot}
-                                        key={slot}
-                                        value={slot}
-                                    >
-                                        {slot}{slot === reservedSlot ? ` · ${w.systemSlot}` : ''}
-                                    </option>))}
-                                </select>
-                            </label>
-                            {this.state.standaloneConfirmation === null ? <button
-                                disabled={busy || !connected || !api ||
-                                    !Number.isInteger(this.state.standaloneSlot) || standaloneSlotReserved}
-                                onClick={this.handleReviewStandaloneSlot}
-                                type="button"
-                            >{w.runStandalone}</button> : <div className={styles.confirmBox}>
-                                <p>{w.slotWarning}</p>
-                                <button
-                                    disabled={busy || !connected ||
-                                        this.isReservedSlot(this.state.standaloneConfirmation.slot)}
-                                    onClick={this.handleConfirmStandaloneRun}
-                                    type="button"
-                                >
-                                    {`${w.confirmUpload} ${this.state.standaloneConfirmation.slot}`}
-                                </button>
-                                <button
-                                    disabled={busy}
-                                    onClick={this.handleCancelStandaloneRun}
-                                    type="button"
-                                >{w.cancel}</button>
-                            </div>}
-                        </details> : null}
                         {connected ? (
                             <>
                                 <div className={styles.metadata}>
@@ -1543,8 +1571,11 @@ class SpikePrimeControlCenter extends React.Component {
                                     </select>
                                 </label>
                                 <div className={styles.portGrid}>
-                                    {PORTS.filter(port => this.isPortAvailable(port, snapshot))
+                                    {PORTS.filter(port => this.isPortAttached(port, snapshot))
                                         .map(port => this.renderPortDetails(port, snapshot))}
+                                    {PORTS.some(port => this.isPortAttached(port, snapshot)) ? null : (
+                                        <div className={styles.noConnectedDevices}>{w.noConnectedDevices}</div>
+                                    )}
                                 </div>
                             </>
                         ) : null}

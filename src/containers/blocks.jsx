@@ -51,6 +51,12 @@ import {
     isPaletteMode
 } from '../lib/palette-mode';
 import {getSpikeBlockColors} from '../lib/spike-toolbox-categories';
+import {
+    installSpikeMotorPortPicker,
+    setSpikePortLanguageProvider,
+    setSpikePortStateProvider
+} from '../lib/spike-motor-port-picker';
+import '../components/gui/spike-motor-port-picker.css';
 
 // TW: Strings we add to scratch-blocks are localized here
 const messages = defineMessages({
@@ -263,6 +269,16 @@ class Blocks extends React.Component {
     }
     componentDidMount () {
         this.ScratchBlocks = VMScratchBlocks(this.props.vm, this.props.useCatBlocks);
+        installSpikeMotorPortPicker(this.ScratchBlocks);
+        const vm = this.props.vm;
+        setSpikePortLanguageProvider(this.ScratchBlocks, () => this.props.locale || vm.getLocale());
+        setSpikePortStateProvider(this.ScratchBlocks, () => {
+            const runtime = vm.runtime;
+            const router = runtime.peripheralExtensions && runtime.peripheralExtensions.spikeprime;
+            const api = runtime.brickwrightSpikePrimeControl ||
+                (router && typeof router.getControlCenterAPI === 'function' ? router.getControlCenterAPI() : null);
+            return api && typeof api.getState === 'function' ? api.getState() : null;
+        });
         this.ScratchBlocks.prompt = this.handlePromptStart;
         this.ScratchBlocks.statusButtonCallback = this.handleConnectionModalStart;
         this.ScratchBlocks.recordSoundCallback = this.handleOpenSoundRecorder;
