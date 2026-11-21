@@ -1881,12 +1881,13 @@
     CONTROLLER_START_NOTIFICATION_TIMEOUT_MS: 7000,
   };
 
-  // Only explicit hub work may recover a saved controller. A stop operation
-  // must never start a program merely to ask it to stop, and connection or
-  // reporter paths never enter this command allow-list.
+  // Normal Scratch output commands that need the internal controller. Keep
+  // this set in sync with _sendCommand's dispatch cases. Emergency stop uses
+  // its separate priority path and never enters this list.
   const SPIKE3_CONTROLLER_STARTABLE_COMMANDS = new Set([
     "scratch.motor_start",
     "scratch.motor_set_speed",
+    "scratch.motor_stop",
     "scratch.motor_power",
     "scratch.motor_run_for_degrees",
     "scratch.motor_run_timed",
@@ -1912,9 +1913,11 @@
     "scratch.motor_pair_move_tank",
     "scratch.motor_pair_move_tank_degrees",
     "scratch.motor_pair_move_tank_time",
+    "scratch.motor_pair_stop",
     "scratch.sound_beep",
     "scratch.sound_wave",
     "scratch.sound_volume",
+    "scratch.sound_stop",
     "scratch.file_write",
     "scratch.file_read",
     "scratch.file_delete",
@@ -4414,6 +4417,65 @@ continuous_sensor_loop()
           this._pendingProjectStop.cancelled = true;
           this._pendingProjectStop = null;
         }
+        // Also prepare the Prime controller for sensor-only projects. Do not
+        // await this event handler: Scratch starts its VM immediately, and
+        // subsequent SPIKE commands share the router's preparation promise.
+        const router = this._runtime?.peripheralExtensions?.spikeprime;
+        if (!this.isConnected() || !router || router.active !== this) return;
+        const link = this._link;
+        const sessionId = this._connectionSession;
+        let preparation;
+        try {
+          preparation = this._prepareControllerForScratchCommand(
+            "PROJECT_START"
+          );
+        } catch (error) {
+          this._recordDiagnosticEvent(
+            "scratch-project-start-controller-preparation-failed",
+            {
+              sessionId,
+              code: error?.code || null,
+              message: error?.message || String(error),
+            }
+          );
+          return;
+        }
+        if (!preparation) return;
+        this._recordDiagnosticEvent(
+          "scratch-project-start-controller-preparation-requested",
+          { sessionId }
+        );
+        Promise.resolve(preparation)
+          .then(() => {
+            if (
+              this._link === link &&
+              this._connectionSession === sessionId &&
+              router.active === this
+            ) {
+              this._recordDiagnosticEvent(
+                "scratch-project-start-controller-ready",
+                { sessionId }
+              );
+            }
+          })
+          .catch((error) => {
+            if (
+              this._link === link &&
+              this._connectionSession === sessionId &&
+              router.active === this &&
+              error?.code !== "ERR_CONTROLLER_COMMAND_CANCELLED_BY_STOP" &&
+              error?.code !== "ERR_CONTROLLER_INSTALL_CANCELLED_BY_STOP"
+            ) {
+              this._recordDiagnosticEvent(
+                "scratch-project-start-controller-preparation-failed",
+                {
+                  sessionId,
+                  code: error?.code || null,
+                  message: error?.message || String(error),
+                }
+              );
+            }
+          });
       };
       this._onProjectStopAll = () => {
         const stopLink = this._link;
@@ -4476,6 +4538,9 @@ continuous_sensor_loop()
       this._sensorEdges = new Set();
       this._lastControllerGesture = null;
       this._controllerSensorReceivedAt = null;
+      this._lastControllerSensorReceivedAt = null;
+      this._controllerSensorSnapshotCurrent = false;
+      this._controllerSnapshotImuCountAtReceive = null;
       this._reflectionPortsConfigured = null;
     }
 
@@ -4866,6 +4931,8 @@ continuous_sensor_loop()
         batteryLevel: this._sensors.battery,
         hubTemperatureCelsius: this._sensors.hubTemp,
         controllerSensorReceivedAt: this._controllerSensorReceivedAt,
+        lastControllerSensorReceivedAt: this._lastControllerSensorReceivedAt,
+        controllerSensorStatus: this._getControllerSensorStatus(),
         portSensors: Object.fromEntries(
           Object.entries(this._portValues).map(([port, values]) => [
             port,
@@ -5408,6 +5475,7 @@ continuous_sensor_loop()
       this._controllerCommandQueue = Promise.resolve();
       this._pendingProgramFlowStart = null;
       this._controllerReady = false;
+      this._clearControllerSensorSnapshot();
       this._diagnostics.controllerStatus = runtimeKnown
         ? "stopping"
         : statusBeforeStop;
@@ -5686,7 +5754,7 @@ continuous_sensor_loop()
     }
 
     stopSound() {
-      return this._sendControllerCommand("sound.stop");
+      return this.sendCommand("scratch.sound_stop", {});
     }
 
     stopAllMotors() {
@@ -5836,7 +5904,12 @@ continuous_sensor_loop()
     }
 
     _prepareControllerForScratchCommand(method) {
-      if (!SPIKE3_CONTROLLER_STARTABLE_COMMANDS.has(method)) return null;
+      const isProjectStart = method === "PROJECT_START";
+      if (
+        !isProjectStart &&
+        !SPIKE3_CONTROLLER_STARTABLE_COMMANDS.has(method)
+      )
+        return null;
       const runtime = this._runtime;
       const router = runtime?.peripheralExtensions?.spikeprime;
       const api = router?.getControlCenterAPI?.();
@@ -5903,13 +5976,15 @@ continuous_sensor_loop()
       this._diagnostics.controllerCommandPreparation = {
         timestamp: Date.now(),
         sessionId: this._connectionSession,
-        commandName: method,
+        commandName: isProjectStart ? "PROJECT_START" : method,
         outcome: "preparing-internal-controller",
         reason: "fixed-internal-slot",
         controllerSlot: 0,
         hubIdentityAvailable: Boolean(this._link?._device?.id),
       };
-      return api.prepareInternalController("scratch-command");
+      return api.prepareInternalController(
+        isProjectStart ? "scratch-project-start" : "scratch-command"
+      );
     }
 
     _sendCommand(method, params) {
@@ -6009,6 +6084,8 @@ continuous_sensor_loop()
             port,
             stop_mode: stopMode,
           });
+        case "scratch.sound_stop":
+          return this._sendTunnelJSON({ cmd: "sound.stop" });
         case "scratch.motor_power":
           return this._sendTunnelJSON({
             cmd: "motor.power",
@@ -6407,6 +6484,7 @@ continuous_sensor_loop()
             error.code = "ERR_CONTROLLER_TIMEOUT";
             if (!priority) {
               this._controllerReady = false;
+              this._clearControllerSensorSnapshot();
               this._diagnostics.controllerStatus = "timeout";
             }
             this._recordCommunicationError(error);
@@ -6599,6 +6677,10 @@ continuous_sensor_loop()
     _handleControllerSensorSnapshot(snapshot) {
       if (!snapshot || typeof snapshot !== "object") return;
       this._controllerSensorReceivedAt = Date.now();
+      this._lastControllerSensorReceivedAt = this._controllerSensorReceivedAt;
+      this._controllerSensorSnapshotCurrent = true;
+      this._controllerSnapshotImuCountAtReceive =
+        this._diagnostics.imuNotificationCount;
       const finiteArray = (value, length) =>
         Array.isArray(value) &&
         value.length === length &&
@@ -6776,6 +6858,61 @@ continuous_sensor_loop()
       }
     }
 
+    _getControllerSensorStatus() {
+      if (this._diagnostics.controllerStatus === "stopped") {
+        return "stopped";
+      }
+      if (this._diagnostics.controllerStatus === "stopping") return "stopping";
+      if (this._controllerReady) {
+        return this._controllerSensorSnapshotCurrent ? "received" : "waiting";
+      }
+      if (this._lastControllerSensorReceivedAt !== null) return "stale";
+      return "inactive";
+    }
+
+    _clearControllerSensorSnapshot() {
+      const snapshotOverwroteLatestImu =
+        this._controllerSnapshotImuCountAtReceive !== null &&
+        this._controllerSnapshotImuCountAtReceive ===
+          this._diagnostics.imuNotificationCount;
+      this._controllerSensorSnapshotCurrent = false;
+      this._controllerSensorReceivedAt = null;
+      this._sensors.accelerationFiltered = { x: null, y: null, z: null };
+      this._sensors.gyroFiltered = { x: null, y: null, z: null };
+      this._sensors.hubTemp = null;
+      this._sensors.buttons = [null, null, null, null];
+      this._sensors.gestures = {
+        tapped: false,
+        doubletapped: false,
+        shake: false,
+        freefall: false,
+      };
+      this._lastControllerGesture = null;
+      if (snapshotOverwroteLatestImu) {
+        this._sensors.angle = { pitch: null, roll: null, yaw: null };
+        this._sensors.faceUp = null;
+        this._sensors.orientation = null;
+      }
+      for (const edge of this._sensorEdges) {
+        if (edge.startsWith("gesture:") || edge.startsWith("button:")) {
+          this._sensorEdges.delete(edge);
+        }
+      }
+      for (const port of SpikePorts) {
+        const current = this._portValues[port];
+        if (
+          !current ||
+          !Object.prototype.hasOwnProperty.call(current, "reflection")
+        ) {
+          continue;
+        }
+        const next = { ...current };
+        delete next.reflection;
+        this._portValues[port] = next;
+      }
+      this._reflectionPortsConfigured = null;
+    }
+
     _syncReflectionPorts() {
       if (!this._controllerReady) return Promise.resolve();
       const ports = SpikePorts.filter(
@@ -6822,6 +6959,14 @@ continuous_sensor_loop()
         return;
       }
       if (response.e === "sensor") {
+        if (!this._controllerReady || this._controllerStopping) {
+          this._recordDiagnosticEvent("controller-sensor-snapshot-ignored", {
+            reason: this._controllerStopping
+              ? "controller-stopping"
+              : "controller-not-ready",
+          });
+          return;
+        }
         this._handleControllerSensorSnapshot(response.v);
         return;
       }
@@ -7580,6 +7725,7 @@ continuous_sensor_loop()
       this._controllerReady = false;
       this._controllerVersion = null;
       this._diagnostics.controllerStatus = "starting-user-program";
+      this._clearControllerSensorSnapshot();
       this._recordDiagnosticEvent("user-program-start-requested", { slot });
       try {
         const response = await this._requestHubResponse(
@@ -9534,6 +9680,9 @@ continuous_sensor_loop()
               this._recordMalformedNotification("truncated IMU record");
               return;
             }
+            // LEGO's DeviceImuValues payload is 21 bytes: record type,
+            // face, yaw-face, yaw/pitch/roll (s16), accel X/Y/Z (s16),
+            // then gyro X/Y/Z (s16). Offsets below are relative to type.
             const s16 = (lo) => {
               const v = data[offset + lo] | (data[offset + lo + 1] << 8);
               return v > 32767 ? v - 65536 : v;
@@ -9545,6 +9694,7 @@ continuous_sensor_loop()
             // The extension reports milli-g, matching the Scratch block's unit.
             this._sensors.acceleration.x = s16(9);
             this._sensors.acceleration.y = s16(11);
+            this._sensors.acceleration.z = s16(13);
             this._sensors.gyro.x = s16(15) / 10;
             this._sensors.gyro.y = s16(17) / 10;
             this._sensors.gyro.z = s16(19) / 10;

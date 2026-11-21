@@ -318,7 +318,17 @@ function notification(payload) {
   ]);
 }
 
-function imuRecord({ yaw = 0, pitch = 0, roll = 0 } = {}) {
+function imuRecord({
+  yaw = 0,
+  pitch = 0,
+  roll = 0,
+  accelerationX = 0,
+  accelerationY = 0,
+  accelerationZ = 0,
+  gyroX = 0,
+  gyroY = 0,
+  gyroZ = 0,
+} = {}) {
   const bytes = new Uint8Array(21);
   bytes[0] = 0x01;
   bytes[1] = 0; // Hub face up: top.
@@ -327,7 +337,25 @@ function imuRecord({ yaw = 0, pitch = 0, roll = 0 } = {}) {
   view.setInt16(3, yaw, true);
   view.setInt16(5, pitch, true);
   view.setInt16(7, roll, true);
+  view.setInt16(9, accelerationX, true);
+  view.setInt16(11, accelerationY, true);
+  view.setInt16(13, accelerationZ, true);
+  view.setInt16(15, gyroX, true);
+  view.setInt16(17, gyroY, true);
+  view.setInt16(19, gyroZ, true);
   return bytes;
+}
+
+function controllerSensorTunnelMessage(snapshot) {
+  const payload = new TextEncoder().encode(
+    JSON.stringify({ e: "sensor", v: snapshot }) + "\n"
+  );
+  return Uint8Array.from([
+    0x32,
+    payload.length & 0xff,
+    payload.length >> 8,
+    ...payload,
+  ]);
 }
 
 function motorRecord({
@@ -991,6 +1019,7 @@ function attachFakeControllerHub(
           c: "matrix.clear",
           b: "sound.beep",
           q: "sound.stop",
+          Z: "motor_pair.stop",
         };
         const fieldNames = {
           p: "port",
@@ -1286,6 +1315,36 @@ test("IMU values decode signed angles and distinguish received zero from no data
     pitch: 4.5,
     roll: -0.6,
     yaw: -12.3,
+  });
+});
+
+test("Prime IMU decodes signed acceleration and gyro values on all three axes", async () => {
+  const state = setup();
+  await connect(state);
+  state.device.tx.emit(
+    packMessage(
+      notification(
+        imuRecord({
+          accelerationX: -1001,
+          accelerationY: 202,
+          accelerationZ: -303,
+          gyroX: -404,
+          gyroY: 505,
+          gyroZ: -606,
+        })
+      )
+    )
+  );
+  const hub = state.ext._peripheral._spike3;
+  assert.deepEqual(JSON.parse(JSON.stringify(hub.acceleration)), {
+    x: -1001,
+    y: 202,
+    z: -303,
+  });
+  assert.deepEqual(JSON.parse(JSON.stringify(hub.gyro)), {
+    x: -40.4,
+    y: 50.5,
+    z: -60.6,
   });
 });
 
@@ -2382,7 +2441,7 @@ test("Prime motorRunFor rejects a force sensor port and runs the reported motor 
   assert.equal(motorAction.velocity, 495);
 });
 
-test("a Scratch hardware command after a confirmed red stop restarts the internal slot automatically", async () => {
+test("a normal motor-stop block after red stop restarts slot 0 and then stops the motor", async () => {
   const state = setup();
   await connect(state);
   const fakeHub = attachFakeControllerHub(state);
@@ -2394,31 +2453,164 @@ test("a Scratch hardware command after a confirmed red stop restarts the interna
   assert.equal(fakeHub.running, false);
 
   const startsBeforeStopBlock = fakeHub.startCount;
-  await assert.rejects(
-    state.ext.motorStop({ PORT: "A" }),
-    /cancelled|stopped|起動/i
-  );
+  const writesBeforeStopBlock = state.device.writes.length;
+  await state.ext.motorStop({ PORT: "A" });
   assert.equal(
     fakeHub.startCount,
-    startsBeforeStopBlock,
-    "a stop block does not start an idle controller"
+    startsBeforeStopBlock + 1,
+    "a normal Scratch stop block prepares the stopped internal controller"
   );
+  assert.equal(fakeHub.helloCount, 2);
+  assert.ok(fakeHub.actions.some((action) => action.cmd === "motor.stop"));
 
   const startsBeforeAction = fakeHub.startCount;
-  const writesBeforeAction = state.device.writes.length;
   await state.ext.motorStart({ PORT: "A", DIRECTION: 1 });
 
-  assert.equal(fakeHub.startCount, startsBeforeAction + 1);
+  assert.equal(fakeHub.startCount, startsBeforeAction);
   assert.equal(fakeHub.helloCount, 2);
   assert.ok(fakeHub.actions.some((action) => action.cmd === "motor.run"));
   const messages = unpackWrittenMessages(
-    state.device.writes.slice(writesBeforeAction)
+    state.device.writes.slice(writesBeforeStopBlock)
   );
   assert.equal(
     messages.some(([type]) => [0x0c, 0x10, 0x46].includes(type)),
     false,
     "restart reuses the installed slot 0 controller file"
   );
+});
+
+test("normal motor-pair and sound stop blocks prepare the controller after red stop", async () => {
+  const state = setup();
+  await connect(state);
+  const fakeHub = attachFakeControllerHub(state);
+  const api = state.runtime.brickwrightSpikePrimeControl;
+  state.ext._peripheral._spike3._rateLimiter.reserve = () => 0;
+  await api.prepareInternalController("connection");
+
+  await api.stop();
+  const beforePairStop = fakeHub.startCount;
+  await state.ext.stopMovement();
+  assert.equal(fakeHub.startCount, beforePairStop + 1);
+  assert.ok(fakeHub.actions.some((action) => action.cmd === "motor_pair.stop"));
+
+  await api.stop();
+  const beforeSoundStop = fakeHub.startCount;
+  await state.ext.stopSound();
+  assert.equal(fakeHub.startCount, beforeSoundStop + 1);
+  assert.ok(fakeHub.actions.some((action) => action.cmd === "sound.stop"));
+});
+
+test("PROJECT_START resumes sensor-only Prime programs and rejects stale controller snapshots", async () => {
+  const state = setup();
+  await connect(state);
+  const fakeHub = attachFakeControllerHub(state);
+  const api = state.runtime.brickwrightSpikePrimeControl;
+  const hub = state.ext._peripheral._spike3;
+  hub._rateLimiter.reserve = () => 0;
+  await api.prepareInternalController("connection");
+
+  const firstSnapshot = {
+    angles: [10, 20, 30],
+    gyro_filtered: [40, 50, 60],
+    acceleration_filtered: [100, 200, 300],
+    gesture: null,
+    buttons: { left: false, right: false },
+    hub_temperature: 250,
+  };
+  state.device.tx.emit(
+    packMessage(controllerSensorTunnelMessage(firstSnapshot))
+  );
+  let diagnostics = JSON.parse(state.ext.getCommunicationDiagnostics());
+  assert.equal(diagnostics.controllerSensorStatus, "received");
+  assert.deepEqual(JSON.parse(JSON.stringify(hub.accelerationFiltered)), {
+    x: 100,
+    y: 200,
+    z: 300,
+  });
+
+  await api.stop();
+  diagnostics = JSON.parse(state.ext.getCommunicationDiagnostics());
+  assert.equal(diagnostics.controllerSensorStatus, "stopped");
+  assert.equal(diagnostics.controllerSensorReceivedAt, null);
+  assert.ok(diagnostics.lastControllerSensorReceivedAt > 0);
+  assert.deepEqual(JSON.parse(JSON.stringify(hub.accelerationFiltered)), {
+    x: null,
+    y: null,
+    z: null,
+  });
+  assert.equal(hub.hubTemp, null);
+
+  state.device.tx.emit(
+    packMessage(
+      notification(
+        imuRecord({
+          yaw: 15,
+          pitch: -25,
+          roll: 35,
+          accelerationX: 101,
+          accelerationY: -202,
+          accelerationZ: 303,
+        })
+      )
+    )
+  );
+  assert.deepEqual(JSON.parse(JSON.stringify(hub.acceleration)), {
+    x: 101,
+    y: -202,
+    z: 303,
+  });
+  assert.deepEqual(JSON.parse(JSON.stringify(hub.angle)), {
+    yaw: 1.5,
+    pitch: -2.5,
+    roll: 3.5,
+  });
+
+  state.device.tx.emit(
+    packMessage(
+      controllerSensorTunnelMessage({
+        ...firstSnapshot,
+        acceleration_filtered: [900, 900, 900],
+      })
+    )
+  );
+  diagnostics = JSON.parse(state.ext.getCommunicationDiagnostics());
+  assert.equal(diagnostics.controllerSensorStatus, "stopped");
+  assert.deepEqual(JSON.parse(JSON.stringify(hub.accelerationFiltered)), {
+    x: null,
+    y: null,
+    z: null,
+  });
+
+  const startsBeforeGreenFlag = fakeHub.startCount;
+  const writesBeforeGreenFlag = state.device.writes.length;
+  state.runtime.emit("PROJECT_START");
+  state.runtime.emit("PROJECT_START");
+  await waitUntil(
+    () => fakeHub.startCount === startsBeforeGreenFlag + 1,
+    "green flag should restart the saved internal controller"
+  );
+  await waitUntil(() => hub._controllerReady, "controller hello response");
+  assert.equal(fakeHub.helloCount, 2);
+  const restartMessages = unpackWrittenMessages(
+    state.device.writes.slice(writesBeforeGreenFlag)
+  );
+  assert.equal(
+    restartMessages.some(([type]) => [0x0c, 0x10, 0x46].includes(type)),
+    false,
+    "green-flag restart reuses slot 0 without a transfer"
+  );
+
+  state.device.tx.emit(
+    packMessage(controllerSensorTunnelMessage(firstSnapshot))
+  );
+  diagnostics = JSON.parse(state.ext.getCommunicationDiagnostics());
+  assert.equal(diagnostics.controllerSensorStatus, "received");
+  assert.ok(diagnostics.controllerSensorReceivedAt > 0);
+  assert.deepEqual(JSON.parse(JSON.stringify(hub.accelerationFiltered)), {
+    x: 100,
+    y: 200,
+    z: 300,
+  });
 });
 
 test("red stop cancels a Scratch command waiting for its automatically started controller", async () => {
@@ -4299,6 +4491,28 @@ test("manual controller check can verify an already-running program without clea
     false,
     "a saved slot and a ProgramFlow start notification are not callback-ready proof"
   );
+});
+
+test("all normal SPIKE 3 dispatch commands opt into controller preparation", () => {
+  const allowlist = source.match(
+    /const SPIKE3_CONTROLLER_STARTABLE_COMMANDS = new Set\(\[([\s\S]*?)\]\);/
+  );
+  assert.ok(allowlist, "controller preparation allowlist exists");
+  const allowlisted = new Set(
+    [...allowlist[1].matchAll(/"(scratch\.[^"]+)"/g)].map((match) =>
+      match[1]
+    )
+  );
+  const dispatchStart = source.indexOf("    _sendCommand(method, params) {");
+  const dispatchEnd = source.indexOf("    _speed(value)", dispatchStart);
+  assert.ok(dispatchStart >= 0 && dispatchEnd > dispatchStart);
+  const dispatch = source.slice(dispatchStart, dispatchEnd);
+  const handled = new Set(
+    [...dispatch.matchAll(/case "(scratch\.[^"]+)"/g)].map(
+      (match) => match[1]
+    )
+  );
+  assert.deepEqual([...allowlisted].sort(), [...handled].sort());
 });
 
 test("host output blocks are interpreted by the fake controller and return execution acknowledgements", async () => {
