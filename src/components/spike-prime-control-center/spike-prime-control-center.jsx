@@ -113,9 +113,14 @@ const words = {
         liveView: 'Live hub view',
         pcRunLabel: 'PC Scratch: use the green flag',
         standaloneLabel: 'Hub standalone',
-        absoluteAngle: 'Absolute angle',
-        countedAngle: 'Counted angle',
-        rawSpeed: 'speed',
+        absoluteAngle: 'APOS (0–359°)',
+        absolutePositionRaw: 'APOS raw (signed)',
+        countedAngle: 'POS (cumulative)',
+        measuredSpeed: 'Measured speed',
+        derivedSpeed: 'Derived speed (from POS)',
+        unknownSpeed: 'Speed (source unknown)',
+        speedPercentUnit: '%',
+        speedDegreesPerSecondUnit: '°/s',
         displayMode: 'Port display',
         valueMode: 'Value',
         stateMode: 'State / reflection',
@@ -223,9 +228,14 @@ const words = {
         liveView: 'ハブのライブ表示',
         pcRunLabel: 'PC上のScratch：緑の旗で実行',
         standaloneLabel: 'ハブで単独実行',
-        absoluteAngle: '絶対角度',
-        countedAngle: 'カウント角度',
-        rawSpeed: '速度値',
+        absoluteAngle: 'APOS（0～359°）',
+        absolutePositionRaw: 'APOS生値（符号付き）',
+        countedAngle: 'POS（累積角度）',
+        measuredSpeed: '実測速度',
+        derivedSpeed: 'POS差分から算出した速度',
+        unknownSpeed: '速度（取得元不明）',
+        speedPercentUnit: '%',
+        speedDegreesPerSecondUnit: '°/秒',
         displayMode: 'ポート表示',
         valueMode: '測定値',
         stateMode: '状態・反射光',
@@ -931,6 +941,32 @@ class SpikePrimeControlCenter extends React.Component {
         return <div className={styles.muted}>{this.getWords().lastUpdate.replace('{seconds}', seconds)}</div>;
     }
 
+    getMotorPositionValues (reading, motor) {
+        const sources = [reading || {}, motor || {}];
+        const absolutePositionAvailable = sources.map(source => source.absolutePositionAvailable)
+            .find(value => typeof value === 'boolean');
+        const absolutePositionRaw = absolutePositionAvailable === false ? null :
+            sources.map(source => source.absolutePositionRaw).find(hasNumber);
+        const absolutePosition = absolutePositionAvailable === false ? null :
+            sources.map(source => source.absolutePosition).find(hasNumber);
+        const signedSource = hasNumber(absolutePositionRaw) ? absolutePositionRaw : absolutePosition;
+        const absoluteAngle = hasNumber(signedSource) ?
+            ((Number(signedSource) % 360) + 360) % 360 : null;
+        const rawPosition = absolutePositionAvailable === false ? null :
+            (hasNumber(absolutePositionRaw) ? absolutePositionRaw : absolutePosition);
+        const countedPosition = sources.map(source =>
+            source.relativePosition ?? source.degreesCounted)
+            .find(hasNumber);
+        const speed = sources.map(source => source.speed).find(hasNumber);
+        const speedDerived = sources.map(source => source.speedDerived)
+            .find(value => typeof value === 'boolean');
+        const speedSource = sources.map(source => source.speedSource)
+            .find(value => typeof value === 'string');
+        const speedUnit = sources.map(source => source.speedUnit)
+            .find(value => typeof value === 'string');
+        return {absoluteAngle, rawPosition, countedPosition, speed, speedDerived, speedSource, speedUnit};
+    }
+
     renderPort (port, snapshot) {
         const w = this.getWords();
         if (!this.isPortAvailable(port, snapshot)) return null;
@@ -945,16 +981,15 @@ class SpikePrimeControlCenter extends React.Component {
         const attached = Boolean(!detached && snapshot && snapshot.connected &&
             (reading.connected === true || (motor && motor.connected === true) || type));
         if (!attached) return null;
-        const detected = Number.isFinite(receivedAt);
+        const motorValues = type === 'motor' ? this.getMotorPositionValues(reading, motor) : null;
+        const detected = Number.isFinite(receivedAt) || Boolean(motorValues && (
+            hasNumber(motorValues.absoluteAngle) || hasNumber(motorValues.countedPosition) ||
+            hasNumber(motorValues.speed)
+        ));
         const deviceLabel = this.getDeviceLabel(type, reading, w);
-        const essential = this.isEssentialHub(snapshot);
-        const motorPosition = essential ?
-            (reading.position ?? reading.relativePosition ?? reading.degreesCounted ??
-                (motor && motor.relativePosition)) :
-            (reading.absolutePosition ?? (motor && motor.absolutePosition));
         let value = detected ? deviceLabel : w.noReading;
-        if (detected && type === 'motor' && hasNumber(motorPosition)) {
-            value = `${motorPosition}°`;
+        if (detected && type === 'motor' && hasNumber(motorValues.absoluteAngle)) {
+            value = `${motorValues.absoluteAngle}°`;
         } else if (detected && type === 'motor') {
             value = w.noReading;
         } else if (detected && type === 'force') {
@@ -1021,21 +1056,20 @@ class SpikePrimeControlCenter extends React.Component {
         const reading = detached ? portSensor : (portSensor || motor || {});
         const type = this.getPortType(reading, detached ? null : motor);
         const receivedAt = reading.receivedAt;
+        const motorValues = type === 'motor' ? this.getMotorPositionValues(reading, motor) : null;
         const detected = Boolean(type && snapshot && snapshot.connected &&
             (Number.isFinite(receivedAt) || hasNumber(reading.position) ||
                 hasNumber(reading.relativePosition) || hasNumber(reading.absolutePosition) ||
+                (motorValues && (hasNumber(motorValues.absoluteAngle) ||
+                    hasNumber(motorValues.countedPosition) || hasNumber(motorValues.speed))) ||
                 hasNumber(reading.force) || hasNumber(reading.distanceMM) ||
                 (reading.color !== null && typeof reading.color !== 'undefined')));
         const attached = Boolean(!detached && snapshot && snapshot.connected &&
             (reading.connected === true || (motor && motor.connected === true) || type));
-        const absolutePosition = reading.absolutePosition ?? (motor && motor.absolutePosition);
-        const countedPosition = this.isEssentialHub(snapshot) ?
-            (reading.position ?? reading.relativePosition ?? reading.degreesCounted ??
-                (motor && (motor.position ?? motor.relativePosition))) :
-            (reading.relativePosition ?? reading.degreesCounted ?? reading.position ??
-                (motor && (motor.relativePosition ?? motor.position)));
-        const speed = reading.speed ?? (motor && motor.speed);
         const colorDescription = this.getColorName(reading.color);
+        const speedUnit = motorValues && motorValues.speedUnit === 'percent-of-max' ?
+            w.speedPercentUnit : motorValues && motorValues.speedUnit === 'degrees-per-second' ?
+                w.speedDegreesPerSecondUnit : '';
         return (
             <div
                 className={styles.portCard}
@@ -1050,12 +1084,16 @@ class SpikePrimeControlCenter extends React.Component {
                 {snapshot && snapshot.connected && attached && !detected ? <div>{w.noReading}</div> : null}
                 {type === 'motor' && detected ? (
                     <>
-                        <div>{this.isEssentialHub(snapshot) ? w.positionLabel : w.absoluteAngle}{': '}{
-                            this.isEssentialHub(snapshot) ? withUnit(countedPosition, '°') :
-                                withUnit(absolutePosition, '°')
-                        }</div>
-                        <div>{w.countedAngle}{': '}{withUnit(countedPosition, '°')}</div>
-                        <div>{w.rawSpeed}{': '}{hasNumber(speed) ? speed : '—'}</div>
+                        <div>{w.absoluteAngle}{': '}{withUnit(motorValues.absoluteAngle, '°')}</div>
+                        {hasNumber(motorValues.rawPosition) ? (
+                            <div>{w.absolutePositionRaw}{': '}{motorValues.rawPosition}{'°'}</div>
+                        ) : null}
+                        <div>{w.countedAngle}{': '}{withUnit(motorValues.countedPosition, '°')}</div>
+                        <div>{motorValues.speedDerived === true || motorValues.speedSource === 'pos-delta' ?
+                            w.derivedSpeed : motorValues.speedDerived === false ||
+                                motorValues.speedSource === 'measured' ? w.measuredSpeed : w.unknownSpeed}{': '}{
+                            hasNumber(motorValues.speed) ? motorValues.speed : '—'
+                        }{speedUnit ? ` ${speedUnit}` : ''}</div>
                     </>
                 ) : null}
                 {type === 'force' && detected ? (

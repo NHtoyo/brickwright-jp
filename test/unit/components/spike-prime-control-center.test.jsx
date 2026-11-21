@@ -393,6 +393,83 @@ describe('SPIKE Prime control center', () => {
         component.unmount();
     });
 
+    test.each([
+        ['Prime', 'spike3', 'prime', ['A', 'B', 'C', 'D', 'E', 'F'], false, 'percent-of-max',
+            'Measured speed: 12 %'],
+        ['Essential', 'lwp3', 'essential', ['A', 'B'], true, 'degrees-per-second',
+            'Derived speed (from POS): 12 °/s']
+    ])('%s displays normalized APOS separately from cumulative POS',
+        (name, protocol, model, ports, speedDerived, speedUnit, speedDescription) => {
+        snapshot = {
+            ...snapshot,
+            connected: true,
+            protocol,
+            detectedHubModel: model,
+            effectiveHubModel: model,
+            availablePorts: ports,
+            portSensors: {
+                A: {
+                    connected: true,
+                    deviceType: model === 'essential' ? 0x41 : 0x30,
+                    type: 'motor',
+                    absolutePosition: -90,
+                    absolutePositionRaw: -90,
+                    relativePosition: 1506,
+                    speed: 12,
+                    speedDerived,
+                    speedUnit,
+                    receivedAt: Date.now()
+                }
+            }
+        };
+        api.getState.mockImplementation(() => snapshot);
+        const component = mount(<SpikePrimeControlCenter intl={{locale: 'en'}} vm={vm} />);
+        expect(component.find('[aria-label^="A:"]').prop('aria-label')).toContain('270°');
+        expect(component.find('[aria-label^="A:"]').prop('aria-label')).not.toContain('1506°');
+
+        component.find('button[aria-label^="LEGO hub:"]').simulate('click');
+        expect(component.text()).toContain('APOS (0–359°): 270 °');
+        expect(component.text()).toContain('APOS raw (signed): -90°');
+        expect(component.text()).toContain('POS (cumulative): 1506 °');
+        expect(component.text()).toContain(speedDescription);
+        component.unmount();
+    });
+
+    test('does not substitute cumulative POS for missing APOS and identifies measured speed', () => {
+        snapshot = {
+            ...snapshot,
+            connected: true,
+            protocol: 'lwp3',
+            detectedHubModel: 'essential',
+            effectiveHubModel: 'essential',
+            availablePorts: ['A', 'B'],
+            portSensors: {
+                A: {
+                    connected: true,
+                    deviceType: 0x41,
+                    type: 'motor',
+                    absolutePosition: null,
+                    absolutePositionAvailable: false,
+                    relativePosition: 1506,
+                    speed: 0,
+                    speedDerived: false,
+                    speedUnit: 'percent-of-max',
+                    receivedAt: Date.now()
+                }
+            },
+            motorPorts: {A: {absolutePosition: 8, absolutePositionRaw: -352}}
+        };
+        api.getState.mockImplementation(() => snapshot);
+        const component = mount(<SpikePrimeControlCenter intl={{locale: 'ja-JP'}} vm={vm} />);
+        expect(component.find('[aria-label^="A:"]').prop('aria-label')).toContain('まだ受信していません');
+        expect(component.find('[aria-label^="A:"]').prop('aria-label')).not.toContain('1506°');
+        component.find('button[aria-label^="LEGO ハブ:"]').simulate('click');
+        expect(component.text()).toContain('APOS（0～359°）: —');
+        expect(component.text()).toContain('POS（累積角度）: 1506 °');
+        expect(component.text()).toContain('実測速度: 0 %');
+        component.unmount();
+    });
+
     test('uses localized motor names and clears cached readings after physical detach', () => {
         snapshot = {
             ...snapshot,

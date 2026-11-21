@@ -152,10 +152,8 @@ describe('SPIKE control center with the actual extension source and Scratch VM',
             expect(component.find('[aria-label^="A:"]')).toHaveLength(1);
             expect(component.find('[aria-label^="F:"]')).toHaveLength(1);
             expect(component.find('[aria-label^="F:"]').prop('aria-label')).toContain('Large motor');
-            expect(component.text()).toContain('-42°');
-            expect(component.text()).toContain('speed 12');
+            expect(component.text()).toContain('318°');
             expect(component.find('[aria-label^="A:"]').prop('aria-label')).toContain('Force sensor');
-            expect(component.text()).toContain('20%');
             // Live port values are visible before the optional detail panel is
             // opened, so routine monitoring never depends on a popup.
             expect(component.find('section[aria-label="LEGO hub"]')).toHaveLength(0);
@@ -172,14 +170,17 @@ describe('SPIKE control center with the actual extension source and Scratch VM',
             component.update();
             expect(extension.isConnected()).toBe(true);
             expect(hub._link).toBe(linkBeforeScratchRun);
-            expect(component.text()).toContain('-42°');
+            expect(component.text()).toContain('318°');
 
             component.find('button[aria-label^="LEGO hub:"]').simulate('click');
             component.find('details').filterWhere(details => details.find('summary').text() === 'Controller')
                 .find('summary').simulate('click');
             expect(component.text()).toContain('Connected · Fake SPIKE Prime');
-            expect(component.text()).toContain('Absolute angle: -42 °');
-            expect(component.text()).toContain('Counted angle: 1380 °');
+            expect(component.text()).toContain('Measured speed: 12 %');
+            expect(component.text()).toContain('Force: 20');
+            expect(component.text()).toContain('APOS (0–359°): 318 °');
+            expect(component.text()).toContain('APOS raw (signed): -42°');
+            expect(component.text()).toContain('POS (cumulative): 1380 °');
 
             jest.spyOn(api, 'installController').mockResolvedValue({
                 cleanup: {status: 'not-requested'}
@@ -198,6 +199,70 @@ describe('SPIKE control center with the actual extension source and Scratch VM',
                 await Promise.resolve();
             });
             expect(api.installController).toHaveBeenCalledWith(7);
+            component.unmount();
+        }
+    );
+
+    testIfExtensionAvailable(
+        'renders the signed Essential APOS sample decoded by the real LWP3 parser',
+        () => {
+            const vm = new VM();
+            const extension = loadRealSpikeExtension(vm);
+            const router = vm.runtime.peripheralExtensions.spikeprime;
+            const api = router.getControlCenterAPI();
+            api.setHubModel('essential');
+            router._activeProtocol = 'essential';
+            router._resolvedMode = 'web-ble';
+            const hub = router._essential;
+            hub._link = {
+                isConnected: () => true,
+                _device: {name: 'Fake SPIKE Essential'}
+            };
+            hub._detectedHubModel = 'essential';
+            hub._firmware = '1.8.149';
+            hub._devices.A = {
+                type: 'motor',
+                deviceType: 0x41,
+                deviceName: 'Small Angular Motor',
+                attachmentId: 1
+            };
+            hub._portModes.A = 3;
+            hub._portValues.A = {
+                connected: true,
+                type: 'motor',
+                deviceType: 0x41,
+                absolutePosition: null,
+                absolutePositionRaw: null,
+                absolutePositionAvailable: false,
+                relativePosition: 1506,
+                degreesCounted: 1506,
+                receivedAt: null
+            };
+            hub._motorPositionModes.A = {
+                attachmentId: 1,
+                aposStatus: 'ready',
+                modeMetadata: {
+                    3: {
+                        format: {status: 'verified', dataSets: 1, dataType: 1, decimals: 0},
+                        symbol: 'DEG',
+                        siRange: {min: -180, max: 180}
+                    }
+                }
+            };
+
+            // LWP3 PortValue: port A, APOS mode 3, signed int16 value -90.
+            hub._handleMessage(Uint8Array.from([6, 0, 0x45, 0, 0xa6, 0xff]));
+            expect(api.getState().portSensors.A.absolutePosition).toBe(-90);
+            expect(api.getState().portSensors.A.relativePosition).toBe(1506);
+
+            const component = mount(
+                <SpikePrimeControlCenter intl={{locale: 'en'}} vm={vm} />
+            );
+            expect(component.find('[aria-label^="A:"]').prop('aria-label')).toContain('270°');
+            expect(component.find('[aria-label^="A:"]').prop('aria-label')).not.toContain('1506°');
+            component.find('button[aria-label^="LEGO hub:"]').simulate('click');
+            expect(component.text()).toContain('APOS raw (signed): -90°');
+            expect(component.text()).toContain('POS (cumulative): 1506 °');
             component.unmount();
         }
     );
@@ -237,14 +302,14 @@ describe('SPIKE control center with the actual extension source and Scratch VM',
                 await new Promise(resolve => setTimeout(resolve, 220));
             });
             component.update();
-            expect(component.text()).toContain('-42°');
+            expect(component.text()).toContain('318°');
             hub._portValues.E.receivedAt = Date.now() - 4000;
             await act(async () => {
                 await new Promise(resolve => setTimeout(resolve, 220));
             });
             component.update();
             expect(component.text()).not.toContain('Reading is stale');
-            expect(component.text()).toContain('-42°');
+            expect(component.text()).toContain('318°');
             component.find('button[aria-label^="LEGO hub:"]').simulate('click');
             expect(component.text()).toContain('Last update:');
             component.unmount();

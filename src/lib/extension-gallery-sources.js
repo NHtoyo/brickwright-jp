@@ -9,7 +9,7 @@ export const STANDARD_SPIKE_EXTENSION_ID = 'spikeprime';
 // Immutable source for packaged Brickwright builds. Update this only after
 // reviewing the corresponding NHtoyo extension commit and its provenance.
 export const PACKAGED_SPIKE_EXTENSION_COMMIT =
-    '5a229fe20bdefe4bfb425e2351cc0030db694b77';
+    '46882f7a985f274b97c3e6e499d6fec567c5afd8';
 export const PACKAGED_SPIKE_EXTENSION_URL =
     `https://cdn.jsdelivr.net/gh/NHtoyo/brickwright-jp-extensions@${PACKAGED_SPIKE_EXTENSION_COMMIT}/extensions/CrispStrobe/legospike_turbowarp_transpile.js`;
 
