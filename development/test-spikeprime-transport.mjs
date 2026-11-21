@@ -5842,20 +5842,6 @@ test("the communication diagnostics block is localized for Japanese", () => {
   assert.equal(block.text, "通信診断（JSON）");
 });
 
-let failed = 0;
-for (const { name, fn } of tests) {
-  try {
-    await fn();
-    console.log(`ok - ${name}`);
-  } catch (error) {
-    failed++;
-    console.log(`not ok - ${name}\n  ${error.stack || error}`);
-  }
-}
-console.log(`${tests.length - failed}/${tests.length} passed`);
-process.exit(failed ? 1 : 0);
-
-
 test("the angle-target block exposes the same three paths for both hub models", () => {
   const { ext } = setup();
   const definition = ext.getInfo().blocks.find((block) => block.opcode === "motorRunToPosition");
@@ -5888,7 +5874,12 @@ test("Essential angles use signed APOS, not cumulative POS, for all selected rou
     assert.equal(device.writes.length, before + 1);
     const packet = device.writes.at(-1);
     assert.equal(packet[5], 0x0b, "must use finite-degree motor command");
-    assert.deepEqual(packet.slice(6, 10), [degrees, 0, 0, 0]);
+    assert.deepEqual(packet.slice(6, 10), [
+      degrees & 0xff,
+      (degrees >> 8) & 0xff,
+      (degrees >> 16) & 0xff,
+      (degrees >> 24) & 0xff,
+    ]);
     assert.equal(packet[10] < 128, clockwise, "motor direction comes from the speed sign");
   }
   device.emitLWP3([6, 0, 0x45, 0, 0, 0]);
@@ -5925,3 +5916,16 @@ test("Prime directional angle paths reuse the current controller without replaci
     /Fresh Prime motor absolute angle is unavailable/
   );
 });
+
+let failed = 0;
+for (const { name, fn } of tests) {
+  try {
+    await fn();
+    console.log(`ok - ${name}`);
+  } catch (error) {
+    failed++;
+    console.log(`not ok - ${name}\n  ${error.stack || error}`);
+  }
+}
+console.log(`${tests.length - failed}/${tests.length} passed`);
+process.exit(failed ? 1 : 0);
