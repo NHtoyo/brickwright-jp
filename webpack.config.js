@@ -1,4 +1,6 @@
 const defaultsDeep = require('lodash.defaultsdeep');
+const crypto = require('crypto');
+const fs = require('fs');
 const path = require('path');
 const webpack = require('webpack');
 
@@ -13,6 +15,14 @@ const postcssImport = require('postcss-import');
 
 const STATIC_PATH = process.env.STATIC_PATH || '/static';
 const {APP_NAME} = require('./src/lib/brand');
+const SPIKE_EXTENSION_SOURCE = path.resolve(
+    __dirname,
+    'static/extensions/CrispStrobe/legospike_turbowarp_transpile.js'
+);
+const SPIKE_EXTENSION_BUILD_ID = crypto.createHash('sha256')
+    .update(fs.readFileSync(SPIKE_EXTENSION_SOURCE))
+    .digest('hex')
+    .slice(0, 16);
 
 const root = process.env.ROOT || '';
 if (root.length > 0 && !root.endsWith('/')) {
@@ -202,7 +212,8 @@ module.exports = [
                 'process.env.ENABLE_SERVICE_WORKER': JSON.stringify(process.env.ENABLE_SERVICE_WORKER || ''),
                 'process.env.ROOT': JSON.stringify(root),
                 'process.env.ROUTING_STYLE': JSON.stringify(process.env.ROUTING_STYLE || 'filehash'),
-                'process.env.ENABLE_WINDCHIMES': JSON.stringify(process.env.ENABLE_WINDCHIMES || '')
+                'process.env.ENABLE_WINDCHIMES': JSON.stringify(process.env.ENABLE_WINDCHIMES || ''),
+                'process.env.BRICKWRIGHT_SPIKE_BUILD_ID': JSON.stringify(SPIKE_EXTENSION_BUILD_ID)
             }),
             new HtmlWebpackPlugin({
                 chunks: ['editor'],

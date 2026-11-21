@@ -16,7 +16,7 @@ const extensionId = 'spikeprime';
 const projectFixture = path.resolve(__dirname, '../fixtures/project1.sb3');
 
 const {getDriver, loadUri} = new SeleniumHelper();
-const {By, until} = webdriver;
+const {By} = webdriver;
 
 const FILE_MENU_XPATH =
     '//div[contains(@class, "menu-bar_menu-bar-item")]' +
@@ -71,13 +71,6 @@ describeIfEnabled('Extension gallery browser integration', () => {
             )
         );
         await card.click();
-    };
-
-    const acceptCompatibilityWarning = async () => {
-        const alert = await driver.wait(until.alertIsPresent(), 10000);
-        const message = await alert.getText();
-        expect(message).toContain('Scratch');
-        await alert.accept();
     };
 
     const waitForExtensionLoaded = () =>
@@ -152,7 +145,7 @@ describeIfEnabled('Extension gallery browser integration', () => {
     });
 
     test(
-        'loads the NHtoyo SPIKE extension, evaluates localized diagnostics, survives reload, and saves projects',
+        'loads the bundled SPIKE extension once, keeps the gallery available, and saves projects',
         async () => {
             await loadUri(`${editorUri}?locale=ja`);
             await waitFor(() =>
@@ -160,67 +153,32 @@ describeIfEnabled('Extension gallery browser integration', () => {
                     'return Boolean(window.vm) && window.vm.getLocale() === "ja";'
                 )
             );
-            await driver.executeScript(
-                'localStorage.removeItem("brickwright.extension-gallery-source");'
-            );
             expect(
                 await driver.executeScript('return window.vm.initialized;')
             ).toBe(true);
-
-            await openGallery();
-            await waitFor(() =>
-                driver.executeScript(
-                    'return document.querySelectorAll("#extension-gallery-source option").length === 2;'
-                )
-            );
-            await waitForExtensionCard('LEGO SPIKE Prime');
-            const officialCard = await driver.findElement(
-                By.xpath(
-                    '//span[contains(@class, "library-item-name") and contains(., "LEGO SPIKE Prime")]'
-                )
-            );
-            expect(await officialCard.getText()).not.toContain('NHtoyo');
-
-            await chooseSource(
-                'NHtoyo開発版 (localhost:8000)',
-                'nhtoyo-development'
-            );
-            await waitForExtensionCard(
-                'LEGO SPIKE Prime / Robot Inventor · NHtoyo開発版'
-            );
-            const firstBuildId = await driver.executeScript(
-                'return document.querySelector("[class*=extension-gallery-build-id]").innerText.trim();'
-            );
-            expect(firstBuildId).toContain('開発ビルド');
-            const galleryBounds = await driver.executeScript(
-                'const modal = document.querySelector(".ReactModal__Content");' +
-                'const rect = modal.getBoundingClientRect();' +
-                'return {width: window.innerWidth, left: rect.left, right: rect.right};'
-            );
-            expect(galleryBounds.left).toBeGreaterThanOrEqual(0);
-            expect(galleryBounds.right).toBeLessThanOrEqual(
-                galleryBounds.width + 1
-            );
-
-            await clickExtensionCard(
-                'LEGO SPIKE Prime / Robot Inventor · NHtoyo開発版'
-            );
-            await acceptCompatibilityWarning();
             await waitForExtensionLoaded();
-
-            await openGallery();
-            let loadedState = await driver.executeScript(
+            const initialSpikeState = await driver.executeScript(
                 'const url = window.vm.extensionManager.getExtensionURLs().spikeprime;' +
-                'const loaded = document.querySelector("[class*=extension-gallery-loaded]");' +
-                'return {url, implementation: loaded?.title, text: document.body.innerText};'
+                'const router = window.vm.runtime.peripheralExtensions.spikeprime;' +
+                'const api = window.vm.runtime.brickwrightSpikePrimeControl;' +
+                'const parsed = new URL(url);' +
+                'return {url, origin: parsed.origin, pathname: parsed.pathname,' +
+                    'build: parsed.searchParams.get("bwSpikeBuild"),' +
+                    'routerRegistered: Boolean(router), sharedRouter: Boolean(router && api &&' +
+                    'api.getState().hubRouterId === router.instanceId && api.getState().runtimeRegistered),' +
+                    'resources: performance.getEntriesByType("resource").map(entry => entry.name)};'
             );
-            expect(loadedState.url).toContain(
-                'http://localhost:8000/CrispStrobe/legospike_turbowarp_transpile.js'
+            expect(initialSpikeState.origin).toBe(
+                await driver.executeScript('return window.location.origin;')
             );
-            expect(loadedState.url).toContain('bwDevBuild=');
-            expect(loadedState.implementation).toContain('NHtoyo開発版');
-            expect(loadedState.text).toContain('通信診断（表示用）');
-            expect(loadedState.text).toContain('通信診断（JSON）');
+            expect(initialSpikeState.pathname).toBe(
+                '/extensions/CrispStrobe/legospike_turbowarp_transpile.js'
+            );
+            expect(initialSpikeState.build).toBeTruthy();
+            expect(initialSpikeState.sharedRouter).toBe(true);
+            expect(initialSpikeState.resources).toContain(initialSpikeState.url);
+            expect(initialSpikeState.url).not.toContain('cdn.jsdelivr.net');
+            expect(initialSpikeState.url).not.toContain('localhost:8000');
 
             const japaneseReporters = await driver.executeScript(
                 'const primitives = window.vm.runtime._primitives;' +
@@ -233,103 +191,56 @@ describeIfEnabled('Extension gallery browser integration', () => {
             expect(japaneseReporters.summary).toContain('角度: 未受信');
             expect(japaneseReporters.summary).not.toContain('0°');
 
-            await chooseSource('CrispStrobe公式', 'crispstrobe');
-            await waitForExtensionCard('LEGO SPIKE Prime');
-            await clickExtensionCard('LEGO SPIKE Prime');
-            await acceptCompatibilityWarning();
-            const conflictAlert = await driver.wait(until.alertIsPresent(), 10000);
-            const conflictMessage = await conflictAlert.getText();
-            expect(conflictMessage).toContain('spikeprime');
-            expect(conflictMessage).toContain('NHtoyo');
-            expect(conflictMessage).toContain('再読み込み');
-            await conflictAlert.accept();
-            expect(
-                await driver.executeScript(
-                    'return window.vm.extensionManager.getExtensionURLs().spikeprime;'
-                )
-            ).toContain('localhost:8000');
-
-            await driver.navigate().refresh();
+            await openGallery();
             await waitFor(() =>
                 driver.executeScript(
-                    'return Boolean(window.vm) && !window.vm.extensionManager.isExtensionLoaded("spikeprime");'
+                    'return document.querySelectorAll("#extension-gallery-source option").length === 2;'
                 )
             );
-            await openGallery();
-            await chooseSource(
-                'NHtoyo開発版 (localhost:8000)',
-                'nhtoyo-development'
+            await chooseSource('CrispStrobe公式', 'crispstrobe');
+            await waitForExtensionCard('Pen');
+            const gallerySources = await driver.executeScript(
+                'return [...document.querySelectorAll("#extension-gallery-source option")].map(option => option.value);'
             );
-            await waitForExtensionCard(
-                'LEGO SPIKE Prime / Robot Inventor · NHtoyo開発版'
-            );
-            const reloadedBuildId = await driver.executeScript(
-                'return document.querySelector("[class*=extension-gallery-build-id]").innerText.trim();'
-            );
-            expect(reloadedBuildId).not.toEqual(firstBuildId);
-            const freshBuildId = reloadedBuildId.replace(/^.*?:\s*/, '').trim();
-            await clickExtensionCard(
-                'LEGO SPIKE Prime / Robot Inventor · NHtoyo開発版'
-            );
-            await acceptCompatibilityWarning();
-            await waitForExtensionLoaded();
-            loadedState = await driver.executeScript(
-                'const url = window.vm.extensionManager.getExtensionURLs().spikeprime;' +
-                'return {url, resources: performance.getEntriesByType("resource").map(entry => entry.name)};'
-            );
-            expect(loadedState.url).toContain(`bwDevBuild=${freshBuildId}`);
-            expect(loadedState.url).not.toContain(
-                firstBuildId.replace(/^.*?:\s*/, '').trim()
-            );
-            expect(loadedState.resources).toContain(loadedState.url);
-
-            await openEnglishEditor();
-            await openGallery();
-            await chooseSource(
-                'NHtoyo development (localhost:8000)',
-                'nhtoyo-development'
-            );
-            await waitForExtensionCard(
-                'LEGO SPIKE Prime / Robot Inventor · NHtoyo development'
-            );
-            const englishMarker = await driver.findElement(
-                By.xpath(
-                    '//span[contains(@class, "library-item-name") and ' +
-                    'contains(., "LEGO SPIKE Prime / Robot Inventor")]'
+            expect(gallerySources).toEqual(['crispstrobe', 'nhtoyo-development']);
+            expect(
+                await driver.executeScript(
+                    'return [...document.querySelectorAll("[class*=library-item-name]")]' +
+                    '.some(element => element.innerText.includes("LEGO SPIKE Prime"));'
                 )
-            );
-            expect(await englishMarker.getText()).toContain('LEGO SPIKE Prime');
-            expect(await englishMarker.getText()).toContain('NHtoyo development');
-            const englishBuildId = await driver
-                .findElement(By.css('[class*=extension-gallery-build-id]'))
-                .getText();
-            expect(englishBuildId).toContain('Development build');
-            const englishGalleryBounds = await driver.executeScript(
-                'const rect = document.querySelector(".ReactModal__Content").getBoundingClientRect();' +
+            ).toBe(false);
+            const galleryBounds = await driver.executeScript(
+                'const modal = document.querySelector(".ReactModal__Content");' +
+                'const rect = modal.getBoundingClientRect();' +
                 'return {width: window.innerWidth, left: rect.left, right: rect.right};'
             );
-            expect(englishGalleryBounds.left).toBeGreaterThanOrEqual(0);
-            expect(englishGalleryBounds.right).toBeLessThanOrEqual(
-                englishGalleryBounds.width + 1
+            expect(galleryBounds.left).toBeGreaterThanOrEqual(0);
+            expect(galleryBounds.right).toBeLessThanOrEqual(galleryBounds.width + 1);
+
+            await driver.navigate().refresh();
+            await waitForExtensionLoaded();
+            const reloadedSpikeState = await driver.executeScript(
+                'const url = window.vm.extensionManager.getExtensionURLs().spikeprime;' +
+                'const parsed = new URL(url);' +
+                'return {origin: parsed.origin, pathname: parsed.pathname,' +
+                    'build: parsed.searchParams.get("bwSpikeBuild")};'
             );
-            await clickExtensionCard(
-                'LEGO SPIKE Prime / Robot Inventor · NHtoyo development'
-            );
-            await acceptCompatibilityWarning();
+            expect(reloadedSpikeState.origin).toBe(initialSpikeState.origin);
+            expect(reloadedSpikeState.pathname).toBe(initialSpikeState.pathname);
+            expect(reloadedSpikeState.build).toBe(initialSpikeState.build);
+
+            await openEnglishEditor();
             await waitForExtensionLoaded();
             const englishReporters = await driver.executeScript(
                 'const p = window.vm.runtime._primitives;' +
-                'return {blocks: document.body.innerText, summary: p.spikeprime_getCommunicationDiagnosticsSummary()};'
+                'return {summary: p.spikeprime_getCommunicationDiagnosticsSummary(),' +
+                    'diagnostics: JSON.parse(p.spikeprime_getCommunicationDiagnostics())};'
             );
-            const englishBlockText = englishReporters.blocks
-                .replace(/\u00a0/g, ' ')
-                .replace(/\s+/g, ' ');
-            expect(englishBlockText).toContain('communication diagnostics (text)');
-            expect(englishBlockText).toContain('communication diagnostics (JSON)');
             expect(englishReporters.summary).toContain(
                 'Bluetooth connection: not connected'
             );
             expect(englishReporters.summary).toContain('Angles: not received');
+            expect(englishReporters.diagnostics.protocol).toBe('spike3');
 
             await openGallery();
             await waitForExtensionCard('Pen');

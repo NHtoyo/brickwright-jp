@@ -8,12 +8,10 @@ import nodeVM from 'vm';
 import {TextDecoder, TextEncoder} from 'util';
 import SpikePrimeControlCenter from '../../../src/components/spike-prime-control-center/spike-prime-control-center.jsx';
 
-const extensionPath = process.env.BRICKWRIGHT_SPIKE_EXTENSION_PATH || path.resolve(
+const extensionPath = path.resolve(
     __dirname,
-    '../../../../brickwright-jp-extensions-spikeprime/extensions/CrispStrobe/legospike_turbowarp_transpile.js'
+    '../../../static/extensions/CrispStrobe/legospike_turbowarp_transpile.js'
 );
-const hasExtensionSource = fs.existsSync(extensionPath);
-const testIfExtensionAvailable = hasExtensionSource ? test : test.skip;
 
 const enumProxy = new Proxy({}, {get: (_target, key) => String(key)});
 
@@ -97,8 +95,8 @@ const motorNotification = (port = 5, absolutePosition = -42) => {
 const forceNotification = () => Uint8Array.from([0x0b, 0, 20, 1]);
 
 describe('SPIKE control center with the actual extension source and Scratch VM', () => {
-    testIfExtensionAvailable(
-        'shares the Scratch peripheral router, decoder state, and slot action',
+    test(
+        'shares the Scratch peripheral router and decoder state',
         async () => {
             const vm = new VM();
             const extension = loadRealSpikeExtension(vm);
@@ -173,8 +171,6 @@ describe('SPIKE control center with the actual extension source and Scratch VM',
             expect(component.text()).toContain('318°');
 
             component.find('button[aria-label^="LEGO hub:"]').simulate('click');
-            component.find('details').filterWhere(details => details.find('summary').text() === 'Controller')
-                .find('summary').simulate('click');
             expect(component.text()).toContain('Connected · Fake SPIKE Prime');
             expect(component.text()).toContain('Measured speed: 12 %');
             expect(component.text()).toContain('Force: 20');
@@ -182,28 +178,11 @@ describe('SPIKE control center with the actual extension source and Scratch VM',
             expect(component.text()).toContain('APOS raw (signed): -42°');
             expect(component.text()).toContain('POS (cumulative): 1380 °');
 
-            jest.spyOn(api, 'installController').mockResolvedValue({
-                cleanup: {status: 'not-requested'}
-            });
-            component.find('select[aria-label="Controller slot"]').simulate('change', {
-                target: {value: '7'}
-            });
-            component.find('button')
-                .filterWhere(button => button.text() === 'Install controller')
-                .simulate('click');
-            component.update();
-            component.find('button')
-                .filterWhere(button => button.text().includes('Install to slot 7'))
-                .simulate('click');
-            await act(async () => {
-                await Promise.resolve();
-            });
-            expect(api.installController).toHaveBeenCalledWith(7);
             component.unmount();
         }
     );
 
-    testIfExtensionAvailable(
+    test(
         'renders the signed Essential APOS sample decoded by the real LWP3 parser',
         () => {
             const vm = new VM();
@@ -267,7 +246,7 @@ describe('SPIKE control center with the actual extension source and Scratch VM',
         }
     );
 
-    testIfExtensionAvailable(
+    test(
         'keeps zero and negative measurements visible without treating stationary values as a failure',
         async () => {
             const vm = new VM();

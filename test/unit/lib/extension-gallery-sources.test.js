@@ -1,18 +1,18 @@
 import {
+    BUNDLED_SPIKE_BUILD_QUERY,
+    BUNDLED_SPIKE_EXTENSION_PATH,
     getExtensionAssetURL,
     getExtensionGallerySource,
     getExtensionGallerySources,
     getExtensionResourceURL,
     identifyExtensionSource,
-    isTrustedLocalSpikeDevelopmentURL,
+    isTrustedBundledSpikeExtensionURL,
     LOCAL_EXTENSION_BUILD_QUERY,
     NH_TOYO_DEV_EXTENSION_SOURCE_ID,
     ORIGINAL_EXTENSION_SOURCE_ID,
-    PACKAGED_SPIKE_EXTENSION_URL,
     filterStandardSpikeGalleryDuplicates,
     getStandardSpikeExtensionURL,
-    isStandardSpikeExtensionId,
-    isTrustedPackagedSpikeExtensionURL
+    isStandardSpikeExtensionId
 } from '../../../src/lib/extension-gallery-sources';
 
 describe('extension gallery sources', () => {
@@ -32,15 +32,10 @@ describe('extension gallery sources', () => {
         );
     });
 
-    test('adds the local development source and a per-session cache key', () => {
+    test('keeps the separate local development gallery for non-SPIKE extensions', () => {
         const sources = getExtensionGallerySources(true, 'session-123');
-        const local = getExtensionGallerySource(
-            sources,
-            NH_TOYO_DEV_EXTENSION_SOURCE_ID
-        );
-        const assetURL = new URL(
-            getExtensionAssetURL(local, 'CrispStrobe/spike.js')
-        );
+        const local = getExtensionGallerySource(sources, NH_TOYO_DEV_EXTENSION_SOURCE_ID);
+        const assetURL = new URL(getExtensionAssetURL(local, 'CrispStrobe/spike.js'));
 
         expect(sources.map(source => source.id)).toEqual([
             ORIGINAL_EXTENSION_SOURCE_ID,
@@ -50,68 +45,43 @@ describe('extension gallery sources', () => {
             'http://localhost:8000/generated-metadata/extensions-v0.json'
         );
         expect(assetURL.origin).toBe('http://localhost:8000');
-        expect(assetURL.searchParams.get(LOCAL_EXTENSION_BUILD_QUERY)).toBe(
-            'session-123'
-        );
-        expect(identifyExtensionSource(assetURL.href)).toEqual({
-            id: NH_TOYO_DEV_EXTENSION_SOURCE_ID,
-            label: 'NHtoyo development server',
-            assetPath: '/CrispStrobe/spike.js',
-            buildId: 'session-123'
+        expect(assetURL.searchParams.get(LOCAL_EXTENSION_BUILD_QUERY)).toBe('session-123');
+    });
+
+    test('uses the same-origin bundled SPIKE source in development and production', () => {
+        const developmentURL = new URL(getStandardSpikeExtensionURL('dev-build'));
+        const productionURL = new URL(getStandardSpikeExtensionURL('prod-build'));
+
+        expect(developmentURL.origin).toBe(window.location.origin);
+        expect(productionURL.origin).toBe(window.location.origin);
+        expect(developmentURL.pathname).toBe(BUNDLED_SPIKE_EXTENSION_PATH);
+        expect(productionURL.pathname).toBe(BUNDLED_SPIKE_EXTENSION_PATH);
+        expect(developmentURL.searchParams.get(BUNDLED_SPIKE_BUILD_QUERY)).toBe('dev-build');
+        expect(productionURL.searchParams.get(BUNDLED_SPIKE_BUILD_QUERY)).toBe('prod-build');
+        expect(developmentURL.href).not.toContain('cdn.jsdelivr.net');
+        expect(developmentURL.href).not.toContain('localhost:8000');
+
+        expect(identifyExtensionSource(developmentURL.href)).toEqual({
+            id: 'brickwright-bundled',
+            label: 'Brickwright bundled SPIKE extension',
+            assetPath: BUNDLED_SPIKE_EXTENSION_PATH,
+            buildId: 'dev-build'
         });
     });
 
-    test('trusts only the local SPIKE development asset in development mode', () => {
-        const spikeURL =
-            'http://localhost:8000/CrispStrobe/legospike_turbowarp_transpile.js?bwDevBuild=abc';
-
-        expect(isTrustedLocalSpikeDevelopmentURL(spikeURL, 'development')).toBe(
-            true
-        );
-        expect(isTrustedLocalSpikeDevelopmentURL(spikeURL, 'production')).toBe(
-            false
-        );
-        expect(
-            isTrustedLocalSpikeDevelopmentURL(
-                'http://localhost:8000/CrispStrobe/another-extension.js',
-                'development'
-            )
-        ).toBe(false);
-        expect(
-            isTrustedLocalSpikeDevelopmentURL(
-                'http://127.0.0.1:8000/CrispStrobe/legospike_turbowarp_transpile.js',
-                'development'
-            )
-        ).toBe(false);
-        expect(
-            isTrustedLocalSpikeDevelopmentURL(
-                'https://localhost:8000/CrispStrobe/legospike_turbowarp_transpile.js',
-                'development'
-            )
-        ).toBe(false);
-        expect(
-            isTrustedLocalSpikeDevelopmentURL(
-                'http://localhost:8000/CrispStrobe/legospike_turbowarp_transpile.js',
-                'development'
-            )
-        ).toBe(false);
-        expect(
-            isTrustedLocalSpikeDevelopmentURL(
-                `${spikeURL}&other=1`,
-                'development'
-            )
-        ).toBe(false);
+    test('trusts only the exact bundled source for the current application build', () => {
+        const bundledURL = getStandardSpikeExtensionURL();
+        expect(isTrustedBundledSpikeExtensionURL(bundledURL)).toBe(true);
+        expect(isTrustedBundledSpikeExtensionURL(`${bundledURL}&other=1`)).toBe(false);
+        expect(isTrustedBundledSpikeExtensionURL(
+            bundledURL.replace(BUNDLED_SPIKE_EXTENSION_PATH, '/extensions/other.js')
+        )).toBe(false);
+        expect(isTrustedBundledSpikeExtensionURL(
+            bundledURL.replace(window.location.origin, 'https://other.invalid')
+        )).toBe(false);
     });
 
-    test('uses a local cache-keyed build in development and an immutable source in packaged builds', () => {
-        const devURL = new URL(getStandardSpikeExtensionURL('development', 'build-42'));
-        expect(devURL.origin).toBe('http://localhost:8000');
-        expect(devURL.pathname).toBe('/CrispStrobe/legospike_turbowarp_transpile.js');
-        expect(devURL.searchParams.get(LOCAL_EXTENSION_BUILD_QUERY)).toBe('build-42');
-        expect(getStandardSpikeExtensionURL('production')).toBe(PACKAGED_SPIKE_EXTENSION_URL);
-        expect(PACKAGED_SPIKE_EXTENSION_URL).toContain(
-            '/NHtoyo/brickwright-jp-extensions@ad3a31ee8c83cb5d18ea0aa0e5023cb1d6f1822d/'
-        );
+    test('filters gallery duplicates while keeping the Scratch extension ID', () => {
         expect(isStandardSpikeExtensionId('spikeprime')).toBe(true);
         expect(isStandardSpikeExtensionId('legospike_turbowarp_transpile')).toBe(false);
         expect(filterStandardSpikeGalleryDuplicates([
@@ -119,16 +89,5 @@ describe('extension gallery sources', () => {
             {extensionId: 'microbit'},
             '---'
         ])).toEqual([{extensionId: 'microbit'}, '---']);
-    });
-
-    test('trusts only the exact pinned packaged SPIKE URL', () => {
-        expect(isTrustedPackagedSpikeExtensionURL(PACKAGED_SPIKE_EXTENSION_URL)).toBe(true);
-        expect(isTrustedPackagedSpikeExtensionURL(`${PACKAGED_SPIKE_EXTENSION_URL}?version=latest`)).toBe(false);
-        expect(isTrustedPackagedSpikeExtensionURL(
-            PACKAGED_SPIKE_EXTENSION_URL.replace('ad3a31ee8c83cb5d18ea0aa0e5023cb1d6f1822d', 'main')
-        )).toBe(false);
-        expect(isTrustedPackagedSpikeExtensionURL(
-            PACKAGED_SPIKE_EXTENSION_URL.replace('extensions/CrispStrobe/', 'extensions/Other/')
-        )).toBe(false);
     });
 });

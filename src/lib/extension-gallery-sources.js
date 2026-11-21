@@ -2,29 +2,30 @@ export const EXTENSION_GALLERY_SOURCE_STORAGE_KEY =
     'brickwright.extension-gallery-source';
 export const ORIGINAL_EXTENSION_SOURCE_ID = 'crispstrobe';
 export const NH_TOYO_DEV_EXTENSION_SOURCE_ID = 'nhtoyo-development';
-export const LOCAL_SPIKE_EXTENSION_PATH =
-    '/CrispStrobe/legospike_turbowarp_transpile.js';
 export const LOCAL_EXTENSION_BUILD_QUERY = 'bwDevBuild';
+export const BUNDLED_SPIKE_EXTENSION_PATH =
+    '/extensions/CrispStrobe/legospike_turbowarp_transpile.js';
+export const BUNDLED_SPIKE_BUILD_QUERY = 'bwSpikeBuild';
 export const STANDARD_SPIKE_EXTENSION_ID = 'spikeprime';
-// Immutable source for packaged Brickwright builds. Update this only after
-// reviewing the corresponding NHtoyo extension commit and its provenance.
-export const PACKAGED_SPIKE_EXTENSION_COMMIT =
-    'ad3a31ee8c83cb5d18ea0aa0e5023cb1d6f1822d';
-export const PACKAGED_SPIKE_EXTENSION_URL =
-    `https://cdn.jsdelivr.net/gh/NHtoyo/brickwright-jp-extensions@${PACKAGED_SPIKE_EXTENSION_COMMIT}/extensions/CrispStrobe/legospike_turbowarp_transpile.js`;
 
 const ORIGINAL_EXTENSION_BASE_URL = 'https://crispstrobe.github.io/extensions/';
 const LOCAL_EXTENSION_BASE_URL = 'http://localhost:8000/';
-const DEVELOPMENT_BUILD_ID = `${Date.now().toString(36)}-${Math.random().toString(36)
-    .slice(2, 8)}`;
+
+const getBrickwrightBaseURL = () => {
+    const root = typeof process.env.ROOT === 'string' ? process.env.ROOT : '';
+    const origin = typeof window !== 'undefined' && window.location ?
+        window.location.origin : 'http://localhost';
+    return new URL(root || '/', origin);
+};
 
 export const getStandardSpikeExtensionURL = (
-    nodeEnvironment = process.env.NODE_ENV,
-    buildId = DEVELOPMENT_BUILD_ID
+    buildId = process.env.BRICKWRIGHT_SPIKE_BUILD_ID || 'source'
 ) => {
-    if (nodeEnvironment !== 'development') return PACKAGED_SPIKE_EXTENSION_URL;
-    const url = new URL(LOCAL_SPIKE_EXTENSION_PATH.replace(/^\//, ''), LOCAL_EXTENSION_BASE_URL);
-    url.searchParams.set(LOCAL_EXTENSION_BUILD_QUERY, String(buildId));
+    // The extension is copied from this repository's static tree into every
+    // Brickwright build. Resolving it against the editor origin keeps both
+    // development and production on the same source and avoids external hosts.
+    const url = new URL(BUNDLED_SPIKE_EXTENSION_PATH.slice(1), getBrickwrightBaseURL());
+    url.searchParams.set(BUNDLED_SPIKE_BUILD_QUERY, String(buildId));
     return url.href;
 };
 
@@ -87,6 +88,19 @@ export const identifyExtensionSource = url => {
         };
     }
 
+    const bundledURL = new URL(getStandardSpikeExtensionURL());
+    if (
+        parsed.origin === bundledURL.origin &&
+        parsed.pathname === bundledURL.pathname &&
+        parsed.searchParams.has(BUNDLED_SPIKE_BUILD_QUERY)
+    ) {
+        return {
+            id: 'brickwright-bundled',
+            label: 'Brickwright bundled SPIKE extension',
+            assetPath: parsed.pathname,
+            buildId: parsed.searchParams.get(BUNDLED_SPIKE_BUILD_QUERY)
+        };
+    }
     if (parsed.origin === 'http://localhost:8000') {
         return {
             id: NH_TOYO_DEV_EXTENSION_SOURCE_ID,
@@ -106,14 +120,6 @@ export const identifyExtensionSource = url => {
             buildId: null
         };
     }
-    if (parsed.href === PACKAGED_SPIKE_EXTENSION_URL) {
-        return {
-            id: 'nhtoyo-packaged',
-            label: 'NHtoyo Brickwright extensions (pinned commit)',
-            assetPath: parsed.pathname,
-            buildId: PACKAGED_SPIKE_EXTENSION_COMMIT
-        };
-    }
     return {
         id: 'unknown',
         label: `${parsed.origin}${parsed.pathname}`,
@@ -122,38 +128,14 @@ export const identifyExtensionSource = url => {
     };
 };
 
-export const isTrustedPackagedSpikeExtensionURL = url => {
+export const isTrustedBundledSpikeExtensionURL = url => {
     try {
-        const parsed = new URL(url);
-        return parsed.href === PACKAGED_SPIKE_EXTENSION_URL &&
-            parsed.protocol === 'https:' &&
-            parsed.username === '' &&
-            parsed.password === '' &&
-            parsed.hash === '' &&
-            [...parsed.searchParams.keys()].length === 0;
-    } catch (error) {
-        return false;
-    }
-};
-
-export const isTrustedLocalSpikeDevelopmentURL = (
-    url,
-    nodeEnvironment = process.env.NODE_ENV
-) => {
-    if (nodeEnvironment !== 'development') return false;
-    try {
-        const parsed = new URL(url);
-        return (
-            parsed.protocol === 'http:' &&
-            parsed.hostname === 'localhost' &&
-            parsed.port === '8000' &&
-            parsed.pathname === LOCAL_SPIKE_EXTENSION_PATH &&
-            parsed.username === '' &&
-            parsed.password === '' &&
-            parsed.hash === '' &&
-            parsed.searchParams.get(LOCAL_EXTENSION_BUILD_QUERY) !== null &&
-            [...parsed.searchParams.keys()].every(key => key === LOCAL_EXTENSION_BUILD_QUERY)
-        );
+        const expected = new URL(getStandardSpikeExtensionURL());
+        const parsed = new URL(url, expected.origin);
+        return parsed.href === expected.href &&
+            parsed.origin === expected.origin &&
+            parsed.pathname === expected.pathname &&
+            parsed.protocol === expected.protocol;
     } catch (error) {
         return false;
     }
