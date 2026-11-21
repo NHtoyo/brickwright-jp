@@ -147,7 +147,6 @@ const StageHeaderComponent = function (props) {
                 >
                     <div className={styles.hardwareControls}>
                         <Controls
-                            showSpikeDestination={false}
                             vm={vm}
                         />
                     </div>
@@ -207,7 +206,6 @@ const StageHeaderComponent = function (props) {
                         <Controls
                             vm={vm}
                             isSmall={stageSizeMode === STAGE_SIZE_MODES.small}
-                            showSpikeDestination={!isPlayerOnly}
                         />
                     </div>
                     <div

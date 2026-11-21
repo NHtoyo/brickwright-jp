@@ -1220,12 +1220,6 @@ class SpikePrimeControlCenter extends React.Component {
         );
         const extensionId = (snapshot && snapshot.extensionId) || 'spikeprime';
         const routerId = (snapshot && snapshot.hubRouterId) || (router && router.instanceId) || '—';
-        const slots = Array.from({length: 20}, (_, slot) => slot);
-        const reservedSlot = snapshot && Number.isInteger(snapshot.controllerSlot) ?
-            snapshot.controllerSlot : null;
-        const controllerInstallDisabled = busy || !connected || !api || !standaloneCapable ||
-            !Number.isInteger(this.state.controllerSlot);
-        const canRecoverControllerSlot = this.canRecoverControllerSlot(snapshot, api);
         return (
             <div className={styles.root}>
                 <div
@@ -1249,11 +1243,6 @@ class SpikePrimeControlCenter extends React.Component {
                     >
                         {PORTS.map(port => this.renderPort(port, snapshot))}
                     </div>
-                    {canRecoverControllerSlot ? <button
-                        className={styles.recoveryChip}
-                        onClick={this.handleOpenControllerRecovery}
-                        type="button"
-                    >{w.recoverControllerSlotPrompt}</button> : null}
                 </div>
                 {open ? (
                     <section
@@ -1416,111 +1405,6 @@ class SpikePrimeControlCenter extends React.Component {
                                 </>
                             ) : null}
                         </details>
-                        {standaloneCapable ? <details
-                            className={styles.installBox}
-                            ref={element => {
-                                this.controllerDetailsRef = element;
-                            }}
-                        >
-                            <summary>{w.controller}</summary>
-                            {connected && effectiveModel === 'prime' && !controllerReady && api &&
-                                Number.isInteger(snapshot.controllerSlot) &&
-                                typeof api.startSavedController === 'function' ? (
-                                    this.state.savedControllerConfirmation === null ? (
-                                        <button
-                                            disabled={busy}
-                                            onClick={this.handleReviewSavedController}
-                                            type="button"
-                                        >{w.runSavedController.replace('{slot}', snapshot.controllerSlot)}</button>
-                                    ) : (
-                                        <div className={styles.confirmBox}>
-                                            <p>{w.runSavedControllerWarning.replace(
-                                                '{slot}', this.state.savedControllerConfirmation.slot
-                                            )}</p>
-                                            <button
-                                                disabled={busy}
-                                                onClick={this.handleConfirmSavedController}
-                                                type="button"
-                                            >{busy ? w.startingController : w.runSavedControllerConfirm.replace(
-                                                    '{slot}', this.state.savedControllerConfirmation.slot
-                                                )}</button>
-                                            <button
-                                                disabled={busy}
-                                                onClick={this.handleCancelSavedController}
-                                                type="button"
-                                            >{w.cancel}</button>
-                                        </div>
-                                    )
-                                ) : null}
-                            <label>{w.controllerSlot}
-                                <select
-                                    aria-label={w.controllerSlot}
-                                    disabled={busy}
-                                    onChange={this.handleControllerSlotChanged}
-                                    value={this.state.controllerSlot}
-                                >
-                                    {slots.map(slot => (<option
-                                        key={slot}
-                                        value={slot}
-                                    >
-                                        {slot}{slot === reservedSlot ? ` · ${w.systemSlot}` : ''}
-                                    </option>))}
-                                </select>
-                            </label>
-                            {canRecoverControllerSlot ? <div
-                                className={styles.controllerRecovery}
-                                role="status"
-                            >
-                                <p>{w.recoverControllerSlotReason}</p>
-                                <button
-                                    disabled={busy || !Number.isInteger(this.state.controllerSlot)}
-                                    onClick={this.handleRecoverControllerSlot}
-                                    type="button"
-                                >{busy ? w.startingController : w.recoverControllerSlotAction.replace(
-                                        '{slot}', this.state.controllerSlot
-                                    )}</button>
-                            </div> : null}
-                            {controllerReady ? <p>
-                                {w.controller}{': '}{w.ready}{' · '}
-                                {w.controllerSlot}{' '}{snapshot.controllerSlot}
-                            </p> : null}
-                            {connected && api && typeof api.verifyController === 'function' ? <button
-                                disabled={busy}
-                                onClick={this.handleVerifyController}
-                                type="button"
-                            >{busy ? w.verifyingController : w.verifyController}</button> : null}
-                            {this.state.controllerConfirmation === null ? (
-                                <button
-                                    disabled={controllerInstallDisabled}
-                                    onClick={this.handleReviewControllerSlot}
-                                    type="button"
-                                >{w.install}</button>
-                            ) : (
-                                <div className={styles.confirmBox}>
-                                    <p>{w.controllerWarning}</p>
-                                    {Number.isInteger(this.state.controllerConfirmation.previousSlot) ? (
-                                        <p>{w.oldControllerRemoval.replace(
-                                            '{slot}', this.state.controllerConfirmation.previousSlot
-                                        )}</p>
-                                    ) : null}
-                                    <button
-                                        disabled={busy || !connected}
-                                        onClick={this.handleConfirmControllerInstall}
-                                        type="button"
-                                    >
-                                        {busy ? w.installing :
-                                            `${w.installTo} ${this.state.controllerConfirmation.slot}`}
-                                    </button>
-                                    <button
-                                        disabled={busy}
-                                        onClick={this.handleCancelControllerInstall}
-                                        type="button"
-                                    >
-                                        {w.cancel}
-                                    </button>
-                                </div>
-                            )}
-                        </details> : null}
                         {connected ? (
                             <>
                                 <div className={styles.metadata}>

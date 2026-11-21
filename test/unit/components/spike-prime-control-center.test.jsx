@@ -75,288 +75,31 @@ describe('SPIKE Prime control center', () => {
         component.unmount();
     });
 
-    test('does not probe on connection and verifies the controller only from its explicit Prime action', async () => {
+    test('does not expose manual controller slot registration, restart or installation UI', () => {
         snapshot = {
             ...snapshot,
             connected: true,
+            deviceName: 'SPIKE Prime',
             protocol: 'spike3',
             detectedHubModel: 'prime',
             effectiveHubModel: 'prime',
-            standaloneCapable: true
+            standaloneCapable: true,
+            controllerReady: false,
+            controllerSlot: null
         };
-        api.verifyController = jest.fn(() => Promise.resolve({version: 'controller/1'}));
+        api.getState.mockImplementation(() => snapshot);
         const component = mount(
             <SpikePrimeControlCenter intl={{locale: 'en'}} vm={vm} />
         );
-
-        expect(api.verifyController).not.toHaveBeenCalled();
-        expect(api.installController).not.toHaveBeenCalled();
         component.find('button[aria-label^="LEGO hub:"]').simulate('click');
-        component.find('details').filterWhere(details => details.find('summary').text() === 'Controller')
-            .find('summary').simulate('click');
-        expect(component.find('button').filterWhere(button => button.text() === 'Verify controller'))
-            .toHaveLength(1);
-        await act(async () => {
-            component.find('button').filterWhere(button => button.text() === 'Verify controller')
-                .simulate('click');
-            await Promise.resolve();
-        });
-        expect(api.verifyController).toHaveBeenCalledTimes(1);
-        expect(api.installController).not.toHaveBeenCalled();
+        expect(component.find('select[aria-label="Controller slot"]')).toHaveLength(0);
+        expect(component.find('button').filterWhere(button =>
+            /install controller|run saved controller|register controller slot|verify controller/i.test(button.text())
+        )).toHaveLength(0);
+        expect(component.text()).not.toContain('Install to slot');
+        expect(component.text()).not.toContain('Controller slot');
         component.unmount();
     });
-
-    test('offers explicit no-upload slot recovery only after an unregistered Prime controller failure', async () => {
-        snapshot = {
-            ...snapshot,
-            connected: true,
-            protocol: 'spike3',
-            detectedHubModel: 'prime',
-            effectiveHubModel: 'prime',
-            standaloneCapable: true,
-            controllerSlot: null,
-            diagnostics: {
-                controllerCommandPreparation: {
-                    reason: 'no-controller-slot-registered-for-this-hub',
-                    outcome: 'rejected',
-                    sessionId: 8,
-                    timestamp: Date.now()
-                },
-                notificationTelemetry: {sessionId: 8}
-            },
-            deviceId: 'hub-session-a',
-            deviceName: 'SPIKE Prime'
-        };
-        api.recoverControllerSlot = jest.fn(slot => {
-            snapshot = {...snapshot, controllerSlot: slot, controllerReady: true};
-            return Promise.resolve({ready: true, slot});
-        });
-        api.getState.mockImplementation(() => snapshot);
-        const component = mount(<SpikePrimeControlCenter intl={{locale: 'en'}} vm={vm} />);
-        expect(api.recoverControllerSlot).not.toHaveBeenCalled();
-        expect(component.find('button').filterWhere(button => button.text() === 'Register controller slot'))
-            .toHaveLength(1);
-        component.find('button').filterWhere(button => button.text() === 'Register controller slot').simulate('click');
-        component.update();
-        expect(component.find('section[aria-label="LEGO hub"]')).toHaveLength(1);
-        expect(component.find('details').filterWhere(details => details.find('summary').text() === 'Controller')
-            .getDOMNode().open).toBe(true);
-        expect(component.text()).toContain('Select the existing Brickwright controller slot to start it without uploading or erasing.');
-        expect(component.find('button').filterWhere(button => button.text() === 'Register existing controller in slot 0'))
-            .toHaveLength(1);
-
-        component.find('select[aria-label="Controller slot"]').simulate('change', {
-            target: {value: '6'}
-        });
-        component.update();
-        expect(component.find('button').filterWhere(button => button.text() === 'Register existing controller in slot 6'))
-            .toHaveLength(1);
-        await act(async () => {
-            component.find('button').filterWhere(button => button.text() === 'Register existing controller in slot 6')
-                .simulate('click');
-            await Promise.resolve();
-        });
-        expect(api.recoverControllerSlot).toHaveBeenCalledTimes(1);
-        expect(api.recoverControllerSlot).toHaveBeenCalledWith(6);
-        expect(api.installController).not.toHaveBeenCalled();
-        expect(api.uploadAndRun).not.toHaveBeenCalled();
-        component.update();
-        expect(component.find('button').filterWhere(button => button.text() === 'Register controller slot'))
-            .toHaveLength(0);
-        component.unmount();
-    });
-
-    test('does not offer recovery for known slots, non-Prime hubs or unrelated preparation errors', () => {
-        const cases = [
-            {controllerSlot: 0},
-            {effectiveHubModel: 'essential', detectedHubModel: 'essential'},
-            {diagnostics: {
-                controllerCommandPreparation: {
-                    reason: 'controller-is-already-ready',
-                    outcome: 'rejected',
-                    sessionId: 4,
-                    timestamp: Date.now()
-                },
-                notificationTelemetry: {sessionId: 4}
-            }},
-            {diagnostics: {
-                controllerCommandPreparation: {
-                    reason: 'no-controller-slot-registered-for-this-hub',
-                    outcome: 'rejected',
-                    sessionId: 4,
-                    timestamp: Date.now()
-                },
-                notificationTelemetry: {sessionId: 5}
-            }}
-        ];
-        for (const overrides of cases) {
-            snapshot = {
-                ...snapshot,
-                connected: true,
-                protocol: 'spike3',
-                detectedHubModel: 'prime',
-                effectiveHubModel: 'prime',
-                controllerSlot: null,
-                diagnostics: {
-                    controllerCommandPreparation: {
-                        reason: 'no-controller-slot-registered-for-this-hub',
-                        outcome: 'rejected',
-                        sessionId: 4,
-                        timestamp: Date.now()
-                    },
-                    notificationTelemetry: {sessionId: 4}
-                },
-                ...overrides
-            };
-            api.recoverControllerSlot = jest.fn();
-            api.getState.mockImplementation(() => snapshot);
-            const component = mount(<SpikePrimeControlCenter intl={{locale: 'en'}} vm={vm} />);
-            component.find('button[aria-label^="LEGO hub:"]').simulate('click');
-            component.find('details').filterWhere(details => details.find('summary').text() === 'Controller')
-                .find('summary').simulate('click');
-            expect(component.find('button').filterWhere(button => button.text().startsWith('Register existing controller')))
-                .toHaveLength(0);
-            component.unmount();
-        }
-    });
-
-    test('rechecks the selected hub before invoking slot recovery', async () => {
-        snapshot = {
-            ...snapshot,
-            connected: true,
-            protocol: 'spike3',
-            detectedHubModel: 'prime',
-            effectiveHubModel: 'prime',
-            controllerSlot: null,
-            diagnostics: {
-                controllerCommandPreparation: {
-                    reason: 'no-controller-slot-registered-for-this-hub',
-                    outcome: 'rejected',
-                    sessionId: 9,
-                    timestamp: Date.now()
-                },
-                notificationTelemetry: {sessionId: 9}
-            },
-            deviceId: 'hub-session-a',
-            deviceName: 'SPIKE Prime A'
-        };
-        api.recoverControllerSlot = jest.fn(() => Promise.resolve({ready: true}));
-        api.getState.mockImplementation(() => snapshot);
-        const component = mount(<SpikePrimeControlCenter intl={{locale: 'en'}} vm={vm} />);
-        component.find('button').filterWhere(button => button.text() === 'Register controller slot').simulate('click');
-        component.update();
-        snapshot = {
-            ...snapshot,
-            deviceId: 'hub-session-b',
-            deviceName: 'SPIKE Prime B',
-            diagnostics: {
-                ...snapshot.diagnostics,
-                notificationTelemetry: {sessionId: 10}
-            }
-        };
-        await act(async () => {
-            component.find('button').filterWhere(button => button.text() === 'Register existing controller in slot 0')
-                .simulate('click');
-            await Promise.resolve();
-        });
-        expect(api.recoverControllerSlot).not.toHaveBeenCalled();
-        expect(component.text()).toContain('The connected hub changed.');
-        component.unmount();
-    });
-
-    test('starts the explicitly confirmed saved controller without transferring or clearing the slot', async () => {
-        snapshot = {
-            ...snapshot,
-            connected: true,
-            protocol: 'spike3',
-            detectedHubModel: 'prime',
-            effectiveHubModel: 'prime',
-            standaloneCapable: true,
-            controllerSlot: 7,
-            deviceId: 'hub-session-a'
-        };
-        api.startSavedController = jest.fn(() => Promise.resolve({ready: true}));
-        api.getState.mockImplementation(() => snapshot);
-        const component = mount(<SpikePrimeControlCenter intl={{locale: 'ja-JP'}} vm={vm} />);
-        expect(api.startSavedController).not.toHaveBeenCalled();
-        component.find('button[aria-label^="LEGO ハブ:"]').simulate('click');
-        component.find('details').filterWhere(details => details.find('summary').text() === '制御プログラム')
-            .find('summary').simulate('click');
-
-        component.find('button').filterWhere(button => button.text() === '保存済みスロット7のプログラムを起動')
-            .simulate('click');
-        component.update();
-        expect(component.text()).toContain('スロット7に現在保存されているプログラムを起動します。転送・消去は行いません。');
-        expect(api.startSavedController).not.toHaveBeenCalled();
-        expect(api.installController).not.toHaveBeenCalled();
-
-        await act(async () => {
-            component.find('button').filterWhere(button => button.text() === 'スロット7を起動').simulate('click');
-            await Promise.resolve();
-        });
-        expect(api.startSavedController).toHaveBeenCalledTimes(1);
-        expect(api.startSavedController).toHaveBeenCalledWith(7);
-        expect(api.installController).not.toHaveBeenCalled();
-        expect(api.uploadAndRun).not.toHaveBeenCalled();
-        component.unmount();
-    });
-
-    test('cancels a saved-controller confirmation if the connected hub session changes', async () => {
-        snapshot = {
-            ...snapshot,
-            connected: true,
-            protocol: 'spike3',
-            detectedHubModel: 'prime',
-            effectiveHubModel: 'prime',
-            standaloneCapable: true,
-            controllerSlot: 7,
-            deviceId: 'hub-session-a'
-        };
-        api.startSavedController = jest.fn(() => Promise.resolve({ready: true}));
-        api.getState.mockImplementation(() => snapshot);
-        const component = mount(<SpikePrimeControlCenter intl={{locale: 'en'}} vm={vm} />);
-        component.find('button[aria-label^="LEGO hub:"]').simulate('click');
-        component.find('details').filterWhere(details => details.find('summary').text() === 'Controller')
-            .find('summary').simulate('click');
-        component.find('button').filterWhere(button => button.text() === 'Run saved controller in slot 7')
-            .simulate('click');
-        expect(component.text()).toContain('This starts the program currently stored in slot 7.');
-
-        snapshot = {...snapshot, deviceId: 'hub-session-b'};
-        await act(async () => {
-            component.instance().refresh();
-            await Promise.resolve();
-        });
-        component.update();
-        expect(component.text()).not.toContain('Start slot 7');
-        expect(api.startSavedController).not.toHaveBeenCalled();
-        component.unmount();
-    });
-
-    test('does not offer a saved-controller restart while that controller is already ready', () => {
-        snapshot = {
-            ...snapshot,
-            connected: true,
-            protocol: 'spike3',
-            detectedHubModel: 'prime',
-            effectiveHubModel: 'prime',
-            standaloneCapable: true,
-            controllerReady: true,
-            controllerSlot: 7,
-            deviceId: 'hub-session-a'
-        };
-        api.startSavedController = jest.fn(() => Promise.resolve({ready: true}));
-        api.getState.mockImplementation(() => snapshot);
-        const component = mount(<SpikePrimeControlCenter intl={{locale: 'en'}} vm={vm} />);
-        component.find('button[aria-label^="LEGO hub:"]').simulate('click');
-        component.find('details').filterWhere(details => details.find('summary').text() === 'Controller')
-            .find('summary').simulate('click');
-        expect(component.find('button').filterWhere(button => button.text() === 'Run saved controller in slot 7'))
-            .toHaveLength(0);
-        expect(api.startSavedController).not.toHaveBeenCalled();
-        component.unmount();
-    });
-
     test('selects SPIKE Essential, shows A/B only, and hides Prime slot controls', async () => {
         snapshot = {
             ...snapshot,
@@ -454,7 +197,7 @@ describe('SPIKE Prime control center', () => {
         // green flag, not in the hub details panel.
         expect(component.find('select[aria-label="Standalone slot"]')).toHaveLength(0);
         component.find('button[aria-label^="LEGO hub:"]').simulate('click');
-        expect(component.find('select[aria-label="Controller slot"]')).toHaveLength(1);
+        expect(component.find('select[aria-label="Controller slot"]')).toHaveLength(0);
         expect(component.find('[aria-label^="C:"]')).toHaveLength(0);
         component.unmount();
     });
@@ -707,134 +450,29 @@ describe('SPIKE Prime control center', () => {
         component.unmount();
     });
 
-    test('controller setup remains available in the hub panel without a second run control', () => {
+    test('the control panel keeps diagnostics and sensor detail but never exposes internal slot management', () => {
+        snapshot = {
+            ...snapshot,
+            connected: true,
+            deviceName: 'SPIKE Prime',
+            protocol: 'spike3',
+            detectedHubModel: 'prime',
+            effectiveHubModel: 'prime',
+            standaloneCapable: true,
+            controllerReady: true,
+            controllerSlot: 0
+        };
         api.getState.mockImplementation(() => snapshot);
         const component = mount(
-            <SpikePrimeControlCenter
-                intl={{locale: 'ja-JP'}}
-                vm={vm}
-            />
+            <SpikePrimeControlCenter intl={{locale: 'ja-JP'}} vm={vm} />
         );
         expect(component.find('select[aria-label="単独実行の保存先"]')).toHaveLength(0);
         component.find('button[aria-label^="LEGO ハブ:"]').simulate('click');
         expect(component.find('select[aria-label="接続方式"]')).toHaveLength(1);
-        expect(component.find('select[aria-label="単独実行の保存先"]')).toHaveLength(0);
-        expect(component.text()).not.toContain('ハブで単独実行');
-        component.find('details').filterWhere(details => details.find('summary').text() === '制御プログラム').
-            find('summary').simulate('click');
-        expect(component.find('select[aria-label="制御プログラム用スロット"] option')).toHaveLength(20);
-        expect(component.find('button')
-            .filterWhere(button => button.text() === '制御プログラムを導入')
-            .prop('disabled')).toBe(true);
+        expect(component.find('select[aria-label="制御プログラム用スロット"]')).toHaveLength(0);
+        expect(component.text()).not.toContain('制御プログラムを導入');
+        expect(component.text()).not.toContain('保存済みスロット0のプログラムを起動');
+        expect(component.text()).toContain('通信診断');
         component.unmount();
     });
-
-    test('confirms the slot 0 controller install and only then schedules known old-slot cleanup', async () => {
-        snapshot = {
-            ...snapshot,
-            connected: true,
-            deviceName: 'SPIKE Prime',
-            controllerReady: true,
-            controllerSlot: 19,
-            controllerMigrationSlot: 19
-        };
-        api.getState.mockImplementation(() => snapshot);
-        api.installController.mockResolvedValue({cleanup: {status: 'deleted', previousSlot: 19}});
-        const component = mount(
-            <SpikePrimeControlCenter intl={{locale: 'en'}} vm={vm} />
-        );
-        component.find('button[aria-label^="LEGO hub:"]').simulate('click');
-        component.find('details').filterWhere(details => details.find('summary').text() === 'Controller').
-            find('summary').simulate('click');
-        expect(component.find('select[aria-label="Controller slot"]').prop('value')).toBe(0);
-        expect(component.text()).toContain('Ready · Controller slot 19');
-        component.find('button').filterWhere(button => button.text() === 'Install controller').simulate('click');
-        component.update();
-        expect(component.text()).toContain('Install to slot 0');
-        expect(component.text()).toContain('slot 19 is cleared before the new program starts');
-        expect(api.installController).not.toHaveBeenCalled();
-        await act(async () => {
-            component.find('button').filterWhere(button => button.text() === 'Install to slot 0').simulate('click');
-            await Promise.resolve();
-        });
-        expect(api.installController).toHaveBeenCalledWith(0, {previousSlot: 19});
-        component.unmount();
-    });
-
-    test('reports failed old-slot cleanup in Japanese after the new controller is ready', async () => {
-        snapshot = {
-            ...snapshot,
-            connected: true,
-            deviceName: 'SPIKE Prime',
-            controllerReady: true,
-            controllerSlot: 19,
-            controllerMigrationSlot: 19
-        };
-        api.getState.mockImplementation(() => snapshot);
-        api.installController.mockResolvedValue({
-            cleanup: {
-                status: 'failed',
-                previousSlot: 19,
-                newControllerReady: true,
-                error: {name: 'Error', message: 'clear response timed out'}
-            }
-        });
-        const component = mount(<SpikePrimeControlCenter intl={{locale: 'ja-JP'}} vm={vm} />);
-        component.find('button[aria-label^="LEGO ハブ:"]').simulate('click');
-        component.find('details').filterWhere(details => details.find('summary').text() === '制御プログラム')
-            .find('summary').simulate('click');
-        component.find('button').filterWhere(button => button.text() === '制御プログラムを導入').simulate('click');
-        component.update();
-        await act(async () => {
-            component.find('button').filterWhere(button => button.text().includes('次のスロットに導入 0'))
-                .simulate('click');
-            await Promise.resolve();
-        });
-        component.update();
-        expect(api.installController).toHaveBeenCalledWith(0, {previousSlot: 19});
-        expect(component.text()).toContain('新しい制御プログラムは起動しましたが');
-        expect(component.text()).toContain('clear response timed out');
-        expect(component.text()).not.toContain('[object Object]');
-        expect(component.text()).not.toContain('次のスロットに導入 0');
-        component.unmount();
-    });
-
-    test('does not describe the controller as ready when install explicitly reports not ready', async () => {
-        snapshot = {
-            ...snapshot,
-            connected: true,
-            deviceName: 'SPIKE Prime',
-            controllerReady: true,
-            controllerSlot: 19,
-            controllerMigrationSlot: 19
-        };
-        api.getState.mockImplementation(() => snapshot);
-        api.installController.mockResolvedValue({
-            cleanup: {
-                status: 'failed',
-                previousSlot: 19,
-                newControllerReady: false,
-                previousSlotRemains: false,
-                error: {name: 'Error', message: 'hello timed out'}
-            }
-        });
-        const component = mount(<SpikePrimeControlCenter intl={{locale: 'en'}} vm={vm} />);
-        component.find('button[aria-label^="LEGO hub:"]').simulate('click');
-        component.find('details').filterWhere(details => details.find('summary').text() === 'Controller')
-            .find('summary').simulate('click');
-        component.find('button').filterWhere(button => button.text() === 'Install controller').simulate('click');
-        component.update();
-        await act(async () => {
-            component.find('button').filterWhere(button => button.text().includes('Install to slot 0'))
-                .simulate('click');
-            await Promise.resolve();
-        });
-        component.update();
-        expect(component.text()).toContain('The new controller did not reach ready state.');
-        expect(component.text()).not.toContain('The new controller is ready');
-        expect(component.text()).toContain('Previous slot 19: the previous controller was cleared after the new transfer.');
-        expect(component.text()).not.toContain('Install to slot 0');
-        component.unmount();
-    });
-
 });
