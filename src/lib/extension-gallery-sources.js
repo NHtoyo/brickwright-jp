@@ -2,12 +2,41 @@ export const EXTENSION_GALLERY_SOURCE_STORAGE_KEY =
     'brickwright.extension-gallery-source';
 export const ORIGINAL_EXTENSION_SOURCE_ID = 'crispstrobe';
 export const NH_TOYO_DEV_EXTENSION_SOURCE_ID = 'nhtoyo-development';
-export const LOCAL_SPIKE_EXTENSION_PATH =
-    '/CrispStrobe/legospike_turbowarp_transpile.js';
 export const LOCAL_EXTENSION_BUILD_QUERY = 'bwDevBuild';
+export const BUNDLED_SPIKE_EXTENSION_PATH =
+    '/extensions/CrispStrobe/legospike_turbowarp_transpile.js';
+export const BUNDLED_SPIKE_BUILD_QUERY = 'bwSpikeBuild';
+export const STANDARD_SPIKE_EXTENSION_ID = 'spikeprime';
 
 const ORIGINAL_EXTENSION_BASE_URL = 'https://crispstrobe.github.io/extensions/';
 const LOCAL_EXTENSION_BASE_URL = 'http://localhost:8000/';
+
+const getBrickwrightBaseURL = () => {
+    const root = typeof process.env.ROOT === 'string' ? process.env.ROOT : '';
+    const origin = typeof window !== 'undefined' && window.location ?
+        window.location.origin : 'http://localhost';
+    return new URL(root || '/', origin);
+};
+
+export const getStandardSpikeExtensionURL = (
+    buildId = process.env.BRICKWRIGHT_SPIKE_BUILD_ID || 'source'
+) => {
+    // The extension is copied from this repository's static tree into every
+    // Brickwright build. Resolving it against the editor origin keeps both
+    // development and production on the same source and avoids external hosts.
+    const url = new URL(BUNDLED_SPIKE_EXTENSION_PATH.slice(1), getBrickwrightBaseURL());
+    url.searchParams.set(BUNDLED_SPIKE_BUILD_QUERY, String(buildId));
+    return url.href;
+};
+
+export const isStandardSpikeExtensionId = extensionId =>
+    extensionId === STANDARD_SPIKE_EXTENSION_ID;
+
+export const filterStandardSpikeGalleryDuplicates = items =>
+    items.filter(item => !(
+        item && typeof item === 'object' &&
+        isStandardSpikeExtensionId(item.extensionId)
+    ));
 
 export const getExtensionGallerySources = (isDevelopment, buildId) => {
     const original = {
@@ -59,6 +88,19 @@ export const identifyExtensionSource = url => {
         };
     }
 
+    const bundledURL = new URL(getStandardSpikeExtensionURL());
+    if (
+        parsed.origin === bundledURL.origin &&
+        parsed.pathname === bundledURL.pathname &&
+        parsed.searchParams.has(BUNDLED_SPIKE_BUILD_QUERY)
+    ) {
+        return {
+            id: 'brickwright-bundled',
+            label: 'Brickwright bundled SPIKE extension',
+            assetPath: parsed.pathname,
+            buildId: parsed.searchParams.get(BUNDLED_SPIKE_BUILD_QUERY)
+        };
+    }
     if (parsed.origin === 'http://localhost:8000') {
         return {
             id: NH_TOYO_DEV_EXTENSION_SOURCE_ID,
@@ -86,24 +128,14 @@ export const identifyExtensionSource = url => {
     };
 };
 
-export const isTrustedLocalSpikeDevelopmentURL = (
-    url,
-    nodeEnvironment = process.env.NODE_ENV
-) => {
-    if (nodeEnvironment !== 'development') return false;
+export const isTrustedBundledSpikeExtensionURL = url => {
     try {
-        const parsed = new URL(url);
-        return (
-            parsed.protocol === 'http:' &&
-            parsed.hostname === 'localhost' &&
-            parsed.port === '8000' &&
-            parsed.pathname === LOCAL_SPIKE_EXTENSION_PATH &&
-            parsed.username === '' &&
-            parsed.password === '' &&
-            parsed.hash === '' &&
-            parsed.searchParams.get(LOCAL_EXTENSION_BUILD_QUERY) !== null &&
-            [...parsed.searchParams.keys()].every(key => key === LOCAL_EXTENSION_BUILD_QUERY)
-        );
+        const expected = new URL(getStandardSpikeExtensionURL());
+        const parsed = new URL(url, expected.origin);
+        return parsed.href === expected.href &&
+            parsed.origin === expected.origin &&
+            parsed.pathname === expected.pathname &&
+            parsed.protocol === expected.protocol;
     } catch (error) {
         return false;
     }

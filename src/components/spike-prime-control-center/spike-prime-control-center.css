@@ -1,0 +1,591 @@
+@import "../../css/units.css";
+@import "../../css/colors.css";
+
+.root {
+    left: 258px;
+    max-width: calc(100% - 270px);
+    pointer-events: none;
+    position: absolute;
+    z-index: 50;
+    top: 4px;
+    width: max-content;
+}
+
+.compact-line {
+    align-items: center;
+    box-sizing: border-box;
+    color: #334155;
+    display: flex;
+    gap: 5px;
+    max-width: 100%;
+    min-height: 30px;
+    overflow-x: auto;
+    scrollbar-width: thin;
+}
+
+.no-connected-devices {
+    color: #64748b;
+    font-size: 0.76rem;
+    padding: 4px 0;
+}
+
+.connected-ports {
+    align-items: center;
+    display: flex;
+    flex: 0 1 auto;
+    gap: 4px;
+    max-width: 100%;
+    min-width: 0;
+    overflow: visible;
+    pointer-events: none;
+}
+
+.recovery-chip {
+    background: #fffbeb;
+    border: 1px solid #f59e0b;
+    border-radius: 999px;
+    color: #92400e;
+    cursor: pointer;
+    flex: 0 0 auto;
+    font: inherit;
+    font-size: 0.68rem;
+    font-weight: 700;
+    padding: 4px 8px;
+    pointer-events: auto;
+    white-space: nowrap;
+}
+
+.recovery-chip:hover,
+.recovery-chip:focus-visible {
+    background: #fef3c7;
+    outline: 2px solid #f59e0b;
+    outline-offset: 1px;
+}
+
+.live-port {
+    align-items: center;
+    background: rgba(255, 255, 255, 0.88);
+    border: 1px solid rgba(100, 116, 139, 0.25);
+    border-radius: 999px;
+    color: #334155;
+    cursor: pointer;
+    display: flex;
+    font: inherit;
+    font-size: 0.7rem;
+    gap: 4px;
+    line-height: 1;
+    min-width: 0;
+    padding: 3px 7px 3px 4px;
+    pointer-events: auto;
+    white-space: nowrap;
+}
+
+.live-port:hover,
+.live-port:focus-visible {
+    background: #fff;
+    border-color: #94a3b8;
+    outline: 2px solid rgba(76, 151, 255, 0.65);
+    outline-offset: 1px;
+}
+
+.port-icon {
+    color: #475569;
+    display: inline-flex;
+    flex: 0 0 19px;
+    height: 19px;
+    width: 19px;
+}
+
+.port-icon svg {
+    height: 100%;
+    width: 100%;
+}
+
+.port-identity {
+    align-items: center;
+    display: inline-flex;
+    line-height: 1;
+}
+
+.port-identity strong {
+    color: #334155;
+    font-size: 0.64rem;
+}
+
+.port-value {
+    font-variant-numeric: tabular-nums;
+    font-weight: 700;
+    max-width: 105px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.port-speed {
+    color: #64748b;
+    font-size: 0.58rem;
+}
+
+.display-mode {
+    align-items: center;
+    display: flex;
+    gap: 8px;
+    margin: 8px 0;
+}
+
+.hub-button {
+    align-items: center;
+    background: transparent;
+    border: 0;
+    border-radius: 50%;
+    color: #475569;
+    cursor: pointer;
+    display: flex;
+    height: 28px;
+    justify-content: center;
+    flex: 0 0 auto;
+    margin: 0 2px 0 0;
+    padding: 4px;
+    pointer-events: auto;
+    position: relative;
+    user-select: none;
+    width: 28px;
+}
+
+.hub-button svg {
+    height: 20px;
+    width: 20px;
+}
+
+.hub-button:hover,
+.hub-button:focus-visible {
+    background: rgba(76, 151, 255, 0.12);
+    outline: 2px solid #4c97ff;
+    outline-offset: 1px;
+}
+
+.hub-connected {
+    color: #15803d;
+}
+
+.connection-dot {
+    background: #9ca3af;
+    border: 1px solid #fff;
+    border-radius: 50%;
+    bottom: 2px;
+    height: 7px;
+    position: absolute;
+    right: 2px;
+    width: 7px;
+}
+
+.hub-connected .connection-dot {
+    background: #22c55e;
+}
+
+.hub-error .connection-dot {
+    background: #dc2626;
+}
+
+.panel {
+    background: #fff;
+    border: 1px solid #cbd5e1;
+    border-radius: 10px;
+    box-shadow: 0 8px 30px rgba(15, 23, 42, 0.25);
+    box-sizing: border-box;
+    color: #111827;
+    max-height: min(78vh, 760px);
+    overflow-y: auto;
+    padding: 14px;
+    position: absolute;
+    left: 0;
+    pointer-events: auto;
+    top: calc(100% + 6px);
+    width: min(440px, calc(100vw - 24px));
+    z-index: 100000;
+    color-scheme: light;
+}
+
+.panel-header {
+    align-items: flex-start;
+    display: flex;
+    justify-content: space-between;
+    margin-bottom: 12px;
+}
+
+.panel-header strong {
+    font-size: 1rem;
+}
+
+.status-connected,
+.status-disconnected {
+    color: #475569;
+    font-size: 0.8rem;
+    margin-top: 3px;
+    overflow-wrap: anywhere;
+}
+
+.status-connected {
+    color: #15803d;
+}
+
+.close-button {
+    background: transparent;
+    border: 0;
+    color: #475569;
+    cursor: pointer;
+    font-size: 1.4rem;
+    line-height: 1;
+}
+
+.actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    margin-bottom: 10px;
+}
+
+.connection-settings {
+    border-bottom: 1px solid #e2e8f0;
+    border-top: 1px solid #e2e8f0;
+    margin: 8px 0;
+    padding: 8px 0;
+}
+
+.model-settings {
+    background: #f8fafc;
+    border: 1px solid #e2e8f0;
+    border-radius: 6px;
+    margin: 8px 0;
+    padding: 8px;
+}
+
+.model-settings label {
+    align-items: center;
+    display: flex;
+    gap: 8px;
+    justify-content: space-between;
+}
+
+.model-settings select {
+    background: #fff;
+    border: 1px solid #cbd5e1;
+    border-radius: 5px;
+    color: #111827;
+    font: inherit;
+    min-height: 32px;
+    padding: 5px 9px;
+}
+
+.model-status {
+    color: #475569;
+    display: flex;
+    flex-wrap: wrap;
+    font-size: 0.72rem;
+    gap: 4px 12px;
+    margin-top: 5px;
+}
+
+.model-warning {
+    background: #fff7ed;
+    border: 1px solid #fed7aa;
+    border-radius: 5px;
+    color: #9a3412;
+    font-size: 0.76rem;
+    line-height: 1.35;
+    margin-top: 7px;
+    padding: 6px;
+}
+
+.connection-settings label {
+    align-items: center;
+    display: flex;
+    gap: 8px;
+    justify-content: space-between;
+}
+
+.mode-status {
+    color: #475569;
+    display: flex;
+    flex-wrap: wrap;
+    font-size: 0.72rem;
+    gap: 4px 12px;
+    margin-top: 5px;
+}
+
+.device-list,
+.source-details {
+    background: #f8fafc;
+    border: 1px solid #e2e8f0;
+    border-radius: 6px;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    margin: 8px 0;
+    padding: 8px;
+}
+
+.device-list button {
+    text-align: left;
+}
+
+.source-details {
+    color: #475569;
+    font-size: 0.72rem;
+    overflow-wrap: anywhere;
+}
+
+.source-details summary {
+    color: #334155;
+    cursor: pointer;
+    font-weight: 600;
+}
+
+.source-url {
+    color: #64748b;
+    font-family: monospace;
+}
+
+.panel button,
+.panel select {
+    background-color: #f8fafc;
+    border: 1px solid #cbd5e1;
+    border-radius: 5px;
+    color: #111827;
+    font: inherit;
+    min-height: 32px;
+    padding: 5px 9px;
+}
+
+.panel button {
+    cursor: pointer;
+}
+
+.panel button:disabled {
+    cursor: wait;
+    opacity: 0.6;
+}
+
+.panel button:hover:not(:disabled) {
+    background: #eaf2ff;
+}
+
+.metadata {
+    color: #334155;
+    display: flex;
+    flex-wrap: wrap;
+    font-size: 0.82rem;
+    gap: 6px 14px;
+}
+
+.install-box,
+.confirm-box {
+    background: #fff7ed;
+    border: 1px solid #fed7aa;
+    border-radius: 7px;
+    margin-top: 10px;
+    padding: 10px;
+}
+
+.install-box summary {
+    cursor: pointer;
+    font-weight: 600;
+}
+
+.install-box > label {
+    margin-top: 8px;
+}
+
+.install-box label {
+    align-items: center;
+    display: flex;
+    gap: 8px;
+    justify-content: space-between;
+}
+
+.confirm-box p,
+.help {
+    color: #475569;
+    font-size: 0.82rem;
+    line-height: 1.4;
+    margin: 6px 0 10px;
+}
+
+.confirm-box button {
+    margin: 3px 5px 3px 0;
+}
+
+.controller-recovery {
+    background: #fffbeb;
+    border-left: 3px solid #f59e0b;
+    border-radius: 4px;
+    margin: 8px 0;
+    padding: 4px 8px;
+}
+
+.controller-recovery p {
+    color: #475569;
+    font-size: 0.78rem;
+    line-height: 1.4;
+    margin: 4px 0 8px;
+}
+
+.controller-recovery button {
+    margin: 3px 5px 3px 0;
+}
+
+.section-title {
+    font-size: 0.9rem;
+    margin: 14px 0 7px;
+}
+
+.imu-grid {
+    display: grid;
+    gap: 6px;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.imu-grid > div {
+    background: #f1f5f9;
+    border-radius: 5px;
+    display: flex;
+    flex-direction: column;
+    font-size: 0.82rem;
+    gap: 2px;
+    min-width: 0;
+    padding: 7px;
+}
+
+.imu-grid > div > span:first-child {
+    color: #475569;
+}
+
+.port-grid {
+    display: grid;
+    gap: 6px;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.port-card {
+    background: #f8fafc;
+    border: 1px solid #e2e8f0;
+    border-radius: 6px;
+    font-size: 0.74rem;
+    line-height: 1.35;
+    min-height: 70px;
+    min-width: 0;
+    overflow-wrap: anywhere;
+    padding: 6px;
+}
+
+.port-heading {
+    align-items: center;
+    display: flex;
+    gap: 6px;
+    margin-bottom: 4px;
+}
+
+.port-heading strong {
+    align-items: center;
+    background: #0f766e;
+    border-radius: 50%;
+    color: #fff;
+    display: inline-flex;
+    flex: 0 0 20px;
+    height: 20px;
+    justify-content: center;
+}
+
+.port-heading span {
+    color: #334155;
+}
+
+.port-unavailable {
+    color: #64748b;
+    background: #f1f5f9;
+}
+
+.diagnostics-button {
+    background: transparent;
+    border: 1px solid #cbd5e1;
+    border-radius: 5px;
+    color: #334155;
+    cursor: pointer;
+    margin-top: 8px;
+    min-height: 30px;
+    padding: 4px 8px;
+}
+
+.diagnostics-details {
+    border-top: 1px solid #e2e8f0;
+    margin-top: 10px;
+    padding-top: 8px;
+}
+
+.diagnostics-details summary {
+    cursor: pointer;
+    font-size: 0.8rem;
+    font-weight: 600;
+}
+
+.diagnostic-json {
+    background: #f8fafc;
+    border: 1px solid #e2e8f0;
+    border-radius: 5px;
+    color: #111827;
+    font: 0.68rem/1.4 ui-monospace, SFMono-Regular, Consolas, monospace;
+    margin: 8px 0 0;
+    max-height: 260px;
+    overflow: auto;
+    padding: 8px;
+    white-space: pre-wrap;
+    word-break: break-word;
+}
+
+.muted {
+    color: #64748b;
+    font-size: 0.76rem;
+}
+
+.error {
+    background: #fef2f2;
+    border: 1px solid #fecaca;
+    border-radius: 5px;
+    color: #991b1b;
+    font-size: 0.8rem;
+    margin-top: 10px;
+    overflow-wrap: anywhere;
+    padding: 8px;
+}
+
+@media (max-width: 520px) {
+    .root {
+        left: 250px;
+        max-width: calc(100% - 258px);
+    }
+
+    .panel {
+        max-height: 70vh;
+        left: 0;
+        width: min(380px, calc(100vw - 24px));
+    }
+
+    .port-grid {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+}
+
+@media (max-width: 760px) {
+    .root {
+        left: 250px;
+        max-width: calc(100% - 258px);
+    }
+
+    .compact-line {
+        max-width: 100%;
+    }
+
+    .live-port .port-value {
+        max-width: 78px;
+    }
+}

@@ -38,6 +38,11 @@ jobs:
       - name: Install
         run: npm ci --ignore-scripts --include=dev --no-audit --no-fund
 
+      # Palette visibility is stored in SB3 through the reviewed scratch-vm
+      # patch. npm ci skips postinstall, so apply the pinned patch explicitly.
+      - name: Apply Brickwright scratch-vm patch
+        run: npx patch-package --error-on-fail
+
       # Check out the source repo so the drift check compares against a real
       # git tree (deterministic — no raw.githubusercontent CDN lag).
       - name: Checkout sb3-creator (source of vendored files)
@@ -82,6 +87,7 @@ jobs:
           test -s build/index.html
           test -s build/editor.html
           test -s build/player.html
+          test -s build/extensions/CrispStrobe/legospike_turbowarp_transpile.js
           # index.html should load the editor chunk (post-splash-relocation)
           grep -q 'js/pentapod/editor\.[a-z0-9]\+\.js' build/index.html || (
             echo "index.html does not load the editor chunk"; exit 1
