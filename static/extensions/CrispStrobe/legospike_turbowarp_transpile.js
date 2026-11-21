@@ -367,7 +367,10 @@
       stopMovement: "stop movement",
       // Motors
       motorRunFor: "[PORT] run [DIRECTION] for [VALUE] [UNIT]",
-      motorRunToPosition: "[PORT] run to position [POSITION] degrees",
+      motorRunToPosition: "[PORT] run to position [POSITION] degrees via [PATH]",
+      "motorPath.shortest": "shortest path",
+      "motorPath.clockwise": "clockwise",
+      "motorPath.counterclockwise": "counterclockwise",
       motorStart: "[PORT] start motor [DIRECTION]",
       motorStop: "[PORT] stop motor",
       motorSetSpeed: "[PORT] set speed to [SPEED] %",
@@ -764,7 +767,10 @@
       setMovementSpeed: "移動速度を [SPEED]% に設定する",
       stopMovement: "移動を停止する",
       motorRunFor: "[PORT] のモーターを [DIRECTION] に [VALUE] [UNIT] 動かす",
-      motorRunToPosition: "[PORT] のモーターを位置 [POSITION] 度まで動かす",
+      motorRunToPosition: "[PORT] のモーターを [PATH] で位置 [POSITION] 度まで動かす",
+      "motorPath.shortest": "最短経路",
+      "motorPath.clockwise": "時計回り",
+      "motorPath.counterclockwise": "反時計回り",
       motorStart: "[PORT] のモーターを [DIRECTION] に回転させる",
       motorStop: "[PORT] のモーターを停止する",
       motorSetSpeed: "[PORT] のスピードを [SPEED] % にする",
@@ -926,7 +932,10 @@
       stopMovement: "stoppe Bewegung",
       // Motors
       motorRunFor: "[PORT] läuft [DIRECTION] für [VALUE] [UNIT]",
-      motorRunToPosition: "[PORT] läuft zu Position [POSITION] Grad",
+      motorRunToPosition: "[PORT] läuft auf [PATH] zu Position [POSITION] Grad",
+      "motorPath.shortest": "kürzestem Weg",
+      "motorPath.clockwise": "Uhrzeigersinn",
+      "motorPath.counterclockwise": "Gegenuhrzeigersinn",
       motorStart: "[PORT] starte Motor [DIRECTION]",
       motorStop: "[PORT] stoppe Motor",
       motorSetSpeed: "[PORT] setze Geschwindigkeit auf [SPEED] %",
@@ -2026,6 +2035,23 @@
   });
 
   const lwp3DeviceType = (deviceType) => LWP3_DEVICE_TYPES[deviceType] || null;
+
+  // Shared by both hub models. The motor's absolute angle is one revolution,
+  // unlike its unbounded cumulative (relative) encoder position.
+  const MOTOR_ANGLE_PATHS = new Set(["shortest", "clockwise", "counterclockwise"]);
+  const motorAngleDelta = (measuredAngle, requestedAngle, path = "shortest") => {
+    if (!MOTOR_ANGLE_PATHS.has(path))
+      throw new Error(`Unsupported motor angle path: ${path}`);
+    if (!Number.isFinite(measuredAngle) || !Number.isFinite(requestedAngle))
+      throw new Error("A measured absolute motor angle and numeric target are required");
+    const modulo = (value) => ((value % 360) + 360) % 360;
+    const clockwise = (modulo(requestedAngle) - modulo(measuredAngle) + 360) % 360;
+    // An already reached target is not a command for an extra revolution.
+    if (clockwise < 0.5 || clockwise > 359.5) return 0;
+    if (path === "clockwise") return clockwise;
+    if (path === "counterclockwise") return clockwise - 360;
+    return clockwise <= 180 ? clockwise : clockwise - 360;
+  };
 
   const LWP3Output = {
     START_SPEED: 0x07,
@@ -11729,6 +11755,62 @@ continuous_sensor_loop()
       ]);
     }
 
+    // LWP3 GotoAbsolutePosition targets a cumulative encoder position and
+    // has NO direction parameter. Using it for magnetic APOS (0-359 degrees)
+    // causes wrong/long moves. A fresh APOS reading plus StartSpeedForDegrees
+    // reproduces the three SPIKE app path choices without a position reset.
+    async _runMotorToAbsoluteAngle(port, params, speed, stopMode) {
+      this._requireMotor(port);
+      const attachmentId = this._devices[port]?.attachmentId;
+      const readFresh = () => {
+        const reading = this._portValues[port];
+        return reading &&
+          reading.absolutePositionAvailable !== false &&
+          Number.isFinite(reading.absolutePosition) &&
+          Number.isFinite(reading.absolutePositionReceivedAt) &&
+          Date.now() - reading.absolutePositionReceivedAt <= 1000
+          ? reading.absolutePosition : null;
+      };
+      let measured = readFresh();
+      if (measured === null) {
+        // Ask for a fresh value instead of guessing from stale telemetry.
+        const requestedAt = Date.now();
+        await this._send([
+          5, 0, LWP3.PORT_INFORMATION_REQUEST, port === "A" ? 0 : 1, 0
+        ]);
+        for (let attempt = 0; attempt < 20; attempt++) {
+          const reading = this._portValues[port];
+          if (reading &&
+              reading.absolutePositionAvailable !== false &&
+              Number.isFinite(reading.absolutePosition) &&
+              Number.isFinite(reading.absolutePositionReceivedAt) &&
+              reading.absolutePositionReceivedAt >= requestedAt) {
+            measured = reading.absolutePosition;
+            break;
+          }
+          await new Promise((resolve) => setTimeout(resolve, 50));
+        }
+      }
+      this._requireModel();
+      this._requireMotor(port);
+      if (this._devices[port]?.attachmentId !== attachmentId)
+        throw new Error("Motor changed while reading its absolute angle");
+      if (measured === null)
+        throw new Error("Fresh Essential APOS reading is unavailable; motor was not moved");
+      const delta = motorAngleDelta(measured, Number(params.position), params.path || "shortest");
+      const degrees = Math.round(Math.abs(delta));
+      if (degrees === 0) return;
+      const directedSpeed =
+        Math.max(1, Math.min(100, Math.abs(speed))) * (delta > 0 ? 1 : -1);
+      return this._output(port, LWP3Output.START_SPEED_FOR_DEGREES, [
+        ...this._int32(degrees),
+        directedSpeed & 0xff,
+        100,
+        stopMode === "coast" ? 0 : stopMode === "hold" ? 126 : 127,
+        0,
+      ]);
+    }
+
     sendCommand(method, params = {}) {
       try {
         this._requireModel();
@@ -11793,20 +11875,8 @@ continuous_sensor_loop()
               0,
             ]);
           }
-          case "scratch.motor_run_to_position": {
-            this._requireMotor(port);
-            const position = Math.max(
-              -36000,
-              Math.min(36000, Math.trunc(Number(p.position) || 0))
-            );
-            return this._output(port, LWP3Output.GO_TO_ABSOLUTE_POSITION, [
-              ...this._int32(position),
-              2,
-              Math.max(1, Math.abs(speed)),
-              stopMode === "coast" ? 0 : stopMode === "hold" ? 126 : 127,
-              0,
-            ]);
-          }
+          case "scratch.motor_run_to_position":
+            return this._runMotorToAbsoluteAngle(port, p, speed, stopMode);
           case "scratch.motor_reset_position":
             this._requireMotor(port);
             {
@@ -12794,6 +12864,40 @@ continuous_sensor_loop()
     }
 
     sendCommand(method, params, needsResponse = false) {
+      if (method === "scratch.motor_run_to_position" &&
+          this._activeProtocol === "spike3" &&
+          params?.path && params.path !== "shortest") {
+        const path = params.path;
+        if (!MOTOR_ANGLE_PATHS.has(path))
+          return Promise.reject(new Error(`Unsupported motor angle path: ${path}`));
+        const port = String(params.port || "").trim().toUpperCase();
+        const sample = this._spike3.portValues?.[port];
+        if (!Number.isFinite(sample?.absolutePosition) ||
+            !Number.isFinite(sample?.receivedAt) ||
+            Date.now() - sample.receivedAt > 1500) {
+          return Promise.reject(new Error(
+            `Fresh Prime motor absolute angle is unavailable on port ${port}; motor was not moved`
+          ));
+        }
+        let delta;
+        try {
+          delta = motorAngleDelta(sample.absolutePosition, Number(params.position), path);
+        } catch (error) {
+          return Promise.reject(error);
+        }
+        const degrees = Math.round(Math.abs(delta));
+        if (degrees === 0) return Promise.resolve();
+        const configuredSpeed = Number(params.speed);
+        const directedSpeed = (delta > 0 ? 1 : -1) *
+          Math.max(1, Math.abs(Number.isFinite(configuredSpeed) ? configuredSpeed : 30));
+        // Reuse the acknowledged controller's existing run_degrees command;
+        // no automatic controller replacement or slot overwrite is needed.
+        return this._spike3.sendCommand(
+          "scratch.motor_run_for_degrees",
+          {...params, degrees, speed: directedSpeed},
+          needsResponse
+        );
+      }
       return this.active.sendCommand(method, params, needsResponse);
     }
     sendPythonCommand(code) {
@@ -13336,11 +13440,13 @@ continuous_sensor_loop()
         "return await motor.run_for_time(self.port, int(duration), motor_velocity(self.port, percent), stop=motor_stop_modes.get(self.name, motor.BRAKE))"
       );
       this.indentLevel--;
-      this.addLine("async def run_to_position(self, position, percent=None):");
+      this.addLine("async def run_to_position(self, position, percent=None, path='shortest'):");
       this.indentLevel++;
       this.addLine("if percent is None: percent = motor_speeds[self.name]");
+      this.addLine("directions = {'shortest': motor.SHORTEST_PATH, 'clockwise': motor.CLOCKWISE, 'counterclockwise': motor.COUNTERCLOCKWISE}");
+      this.addLine("if path not in directions: raise ValueError('unsupported motor angle path')");
       this.addLine(
-        "return await motor.run_to_absolute_position(self.port, int(position), abs(motor_velocity(self.port, percent)), stop=motor_stop_modes.get(self.name, motor.BRAKE))"
+        "return await motor.run_to_absolute_position(self.port, int(position), abs(motor_velocity(self.port, percent)), direction=directions[path], stop=motor_stop_modes.get(self.name, motor.BRAKE))"
       );
       this.indentLevel--;
       this.addLine("def pwm(self, percent):");
@@ -14023,13 +14129,18 @@ continuous_sensor_loop()
           ""
         );
         const position = this.getInputValue(block, "POSITION", blocks);
+        const pathField = block.fields && block.fields.PATH;
+        const path = pathField ?
+          (typeof pathField === "object" ? pathField.value ?? pathField[0] : pathField) : "shortest";
+        if (!MOTOR_ANGLE_PATHS.has(path))
+          throw new Error(`Cannot translate motor path ${path}`);
 
         this.usedMotors.add(port);
         this.addLine(`motor = get_motor("${port}")`);
         this.addLine(`if motor:`);
         this.indentLevel++;
         this.addLine(
-          `await motor.run_to_position(${position}, motor_speeds["${port}"])`
+          `await motor.run_to_position(${position}, motor_speeds["${port}"], ${pyStringLiteral(path)})`
         );
         this.indentLevel--;
       } else if (opcode === "spikeprime_motorStart") {
@@ -16630,6 +16741,11 @@ continuous_sensor_loop()
                 defaultValue: "C",
               },
               POSITION: { type: ArgumentType.ANGLE, defaultValue: 0 },
+              PATH: {
+                type: ArgumentType.STRING,
+                menu: "MOTOR_PATH",
+                defaultValue: "shortest",
+              },
             },
           },
           {
@@ -17571,6 +17687,14 @@ continuous_sensor_loop()
               "A+B+C+D+E+F",
             ],
           },
+          MOTOR_PATH: {
+            acceptReporters: false,
+            items: [
+              menuItem("motorPath.shortest", "shortest"),
+              menuItem("motorPath.clockwise", "clockwise"),
+              menuItem("motorPath.counterclockwise", "counterclockwise"),
+            ],
+          },
           MOTOR_UNIT: {
             acceptReporters: false,
             items: [
@@ -18344,17 +18468,23 @@ continuous_sensor_loop()
       const port = this._validatePort(args.PORT);
       if (!port) return;
       const position = Cast.toNumber(args.POSITION);
+      const path = Cast.toString(args.PATH ?? "shortest").trim().toLowerCase();
+      if (!MOTOR_ANGLE_PATHS.has(path))
+        return Promise.reject(new Error(`Unsupported motor angle path: ${path}`));
       const speed = this._peripheral.motorSettings[port].speed;
       if (this._peripheral.protocol === "spike3") {
         return this._peripheral.sendCommand("scratch.motor_run_to_position", {
           port,
           position,
+          path,
           speed,
           stop_mode: this._peripheral.motorSettings[port].stopMode,
         });
       }
+      // Legacy SPIKE 2.x Python accepts a string 'direction' parameter.
+      const legacyDirection = path === "shortest" ? "shortest path" : path;
       return this._peripheral.sendPythonCommand(
-        `hub.port.${port}.motor.run_to_position(${position}, speed=${speed})`
+        `hub.port.${port}.motor.run_to_position(${position}, direction=${pyStringLiteral(legacyDirection)}, speed=${speed})`
       );
     }
 

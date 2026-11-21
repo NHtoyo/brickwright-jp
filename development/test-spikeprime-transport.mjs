@@ -5640,3 +5640,74 @@ for (const { name, fn } of tests) {
 }
 console.log(`${tests.length - failed}/${tests.length} passed`);
 process.exit(failed ? 1 : 0);
+
+
+test("the angle-target block exposes the same three paths for both hub models", () => {
+  const { ext } = setup();
+  const definition = ext.getInfo().blocks.find((block) => block.opcode === "motorRunToPosition");
+  assert.match(definition.text, /\[PATH\]/);
+  assert.equal(definition.arguments.PATH.defaultValue, "shortest");
+  assert.deepEqual(
+    Array.from(ext.getInfo().menus.MOTOR_PATH.items, (item) => item.value),
+    ["shortest", "clockwise", "counterclockwise"]
+  );
+});
+
+test("Essential angles use signed APOS, not cumulative POS, for all selected routes to zero", async () => {
+  const state = setup({ hubKind: "essential" });
+  await connectEssential(state);
+  const { device, ext } = state;
+  device.emitLWP3([7, 0, 0x04, 0, 0x01, 0x30, 0x00]);
+  await tick();
+  await advertiseEssentialApos(state, 0);
+  await acknowledgeEssentialApos(state, 0);
+  device.emitLWP3([6, 0, 0x45, 0, 90, 0]);
+  await tick();
+
+  for (const [path, degrees, clockwise] of [
+    ["shortest", 90, false],
+    ["clockwise", 270, true],
+    ["counterclockwise", 90, false],
+  ]) {
+    const before = device.writes.length;
+    await ext.motorRunToPosition({ PORT: "A", POSITION: 0, PATH: path });
+    assert.equal(device.writes.length, before + 1);
+    const packet = device.writes.at(-1);
+    assert.equal(packet[5], 0x0b, "must use finite-degree motor command");
+    assert.deepEqual(packet.slice(6, 10), [degrees, 0, 0, 0]);
+    assert.equal(packet[10] < 128, clockwise, "motor direction comes from the speed sign");
+  }
+  device.emitLWP3([6, 0, 0x45, 0, 0, 0]);
+  await tick();
+  const beforeZero = device.writes.length;
+  await ext.motorRunToPosition({ PORT: "A", POSITION: 0, PATH: "shortest" });
+  assert.equal(device.writes.length, beforeZero, "target zero when already at zero never circles");
+});
+
+test("Prime directional angle paths reuse the current controller without replacing it", async () => {
+  const state = setup();
+  const { ext } = state;
+  const hub = ext._peripheral._spike3;
+  ext._peripheral._activeProtocol = "spike3";
+  hub._portValues.C = { absolutePosition: 90, receivedAt: Date.now() };
+  const commands = [];
+  hub.sendCommand = (method, params) => {
+    commands.push({ method, params });
+    return Promise.resolve();
+  };
+  await ext.motorRunToPosition({ PORT: "C", POSITION: 0, PATH: "clockwise" });
+  assert.equal(commands.at(-1).method, "scratch.motor_run_for_degrees");
+  assert.equal(commands.at(-1).params.degrees, 270);
+  assert.ok(commands.at(-1).params.speed > 0);
+  await ext.motorRunToPosition({ PORT: "C", POSITION: 0, PATH: "counterclockwise" });
+  assert.equal(commands.at(-1).params.degrees, 90);
+  assert.ok(commands.at(-1).params.speed < 0);
+
+  delete hub._portValues.C;
+  await ext.motorRunToPosition({ PORT: "C", POSITION: 0 });
+  assert.equal(commands.at(-1).method, "scratch.motor_run_to_position", "old blocks retain default shortest path");
+  await assert.rejects(
+    ext.motorRunToPosition({ PORT: "C", POSITION: 0, PATH: "clockwise" }),
+    /Fresh Prime motor absolute angle is unavailable/
+  );
+});
