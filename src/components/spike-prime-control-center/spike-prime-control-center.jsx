@@ -7,6 +7,7 @@ import {
     loadStandardSpikeExtension
 } from '../../lib/spike-prime-extension-loader';
 import {STANDARD_SPIKE_EXTENSION_ID} from '../../lib/extension-gallery-sources';
+import {getSpikeSensorFreshness, isSpikeSensorSampleUsable} from '../../lib/spike-sensor-freshness';
 
 import styles from './spike-prime-control-center.css';
 
@@ -92,6 +93,11 @@ const words = {
         yaw: 'Yaw',
         ports: 'Ports',
         noReading: 'No reading yet',
+        freshnessDelayed: 'Delayed',
+        freshnessStopped: 'Updates stopped',
+        freshnessStale: 'Stale',
+        freshnessWaiting: 'Waiting for sample',
+        outOfRange: 'Out of range',
         noDevice: 'No device',
         noConnection: 'Disconnected',
         motor: 'Motor',
@@ -212,6 +218,11 @@ const words = {
         yaw: 'Yaw',
         ports: 'ポート',
         noReading: 'まだ受信していません',
+        freshnessDelayed: '更新遅延',
+        freshnessStopped: '更新停止',
+        freshnessStale: '古い値',
+        freshnessWaiting: '測定待ち',
+        outOfRange: '範囲外',
         noDevice: '機器未接続',
         noConnection: '切断中',
         motor: 'モーター',
@@ -419,7 +430,7 @@ class SpikePrimeControlCenter extends React.Component {
         this.props.vm.on('PERIPHERAL_REQUEST_ERROR', this.handlePeripheralRequestError);
         this.loadStandardExtension();
         this.refresh();
-        this.poll = setInterval(this.refresh, 200);
+        this.poll = setInterval(this.refresh, 33);
     }
 
     componentWillUnmount () {
@@ -963,6 +974,20 @@ class SpikePrimeControlCenter extends React.Component {
     renderSensor (snapshot, value, receivedAt) {
         const w = this.getWords();
         if (!snapshot || !snapshot.connected) return <span className={styles.muted}>{w.noConnection}</span>;
+        const active = Boolean(snapshot.diagnostics && snapshot.diagnostics.sensorDemand &&
+            snapshot.diagnostics.sensorDemand.ports && snapshot.diagnostics.sensorDemand.ports.HUB &&
+            snapshot.diagnostics.sensorDemand.ports.HUB.active);
+        const freshness = getSpikeSensorFreshness(receivedAt, this.state.now, active);
+        if (!isSpikeSensorSampleUsable(freshness)) {
+            return (
+                <span
+                    className={`${styles.freshnessLabel} ${this.getFreshnessClass(freshness)}`}
+                    role="status"
+                >
+                    {this.getFreshnessLabel(freshness) || w.noReading}
+                </span>
+            );
+        }
         if (!hasNumber(value)) return <span className={styles.muted}>{w.noReading}</span>;
         const seconds = Number.isFinite(receivedAt) ?
             Math.max(0, Math.floor((this.state.now - receivedAt) / 1000)) : null;
@@ -1006,6 +1031,32 @@ class SpikePrimeControlCenter extends React.Component {
         return <div className={styles.muted}>{this.getWords().lastUpdate.replace('{seconds}', seconds)}</div>;
     }
 
+    getPortFreshness (port, reading, snapshot) {
+        const schedulerPort = snapshot && snapshot.diagnostics && snapshot.diagnostics.sensorScheduler &&
+            snapshot.diagnostics.sensorScheduler.ports && snapshot.diagnostics.sensorScheduler.ports[port];
+        const demandPort = snapshot && snapshot.diagnostics && snapshot.diagnostics.sensorDemand &&
+            snapshot.diagnostics.sensorDemand.ports && snapshot.diagnostics.sensorDemand.ports[port];
+        const active = Boolean(reading && reading.sensorTelemetry && reading.sensorTelemetry.active) ||
+            Boolean(schedulerPort && schedulerPort.active) || Boolean(demandPort && demandPort.active);
+        return getSpikeSensorFreshness(reading && reading.receivedAt, this.state.now, active);
+    }
+
+    getFreshnessLabel (freshness) {
+        const w = this.getWords();
+        if (freshness === 'delayed') return w.freshnessDelayed;
+        if (freshness === 'stopped') return w.freshnessStopped;
+        if (freshness === 'stale') return w.freshnessStale;
+        if (freshness === 'waiting') return w.freshnessWaiting;
+        return '';
+    }
+
+    getFreshnessClass (freshness) {
+        return freshness === 'delayed' ? styles.freshnessDelayed :
+            freshness === 'stopped' ? styles.freshnessStopped :
+                freshness === 'stale' ? styles.freshnessStale :
+                    freshness === 'waiting' ? styles.freshnessWaiting : styles.freshnessHealthy;
+    }
+
     getMotorPositionValues (reading, motor) {
         const sources = [reading || {}, motor || {}];
         const absolutePositionAvailable = sources.map(source => source.absolutePositionAvailable)
@@ -1040,20 +1091,26 @@ class SpikePrimeControlCenter extends React.Component {
         const detached = Boolean(portSensor && portSensor.connected === false);
         // A detach notification is authoritative; do not resurrect an old
         // motor value from the separate motor telemetry snapshot.
-        const reading = detached ? portSensor : (portSensor || motor || {});
+        const reading = detached ? {...portSensor} : {...(motor || {}), ...(portSensor || {})};
         const type = this.getPortType(reading, detached ? null : motor);
-        const receivedAt = reading.receivedAt;
+        const receivedAt = Number.isFinite(portSensor && portSensor.receivedAt) ?
+            portSensor.receivedAt : motor && motor.receivedAt;
+        reading.receivedAt = receivedAt;
+        const freshness = this.getPortFreshness(port, reading, snapshot);
+        const usableSample = isSpikeSensorSampleUsable(freshness);
         const attached = Boolean(!detached && snapshot && snapshot.connected &&
             (reading.connected === true || (motor && motor.connected === true) || type));
         if (!attached) return null;
         const motorValues = type === 'motor' ? this.getMotorPositionValues(reading, motor) : null;
-        const detected = Number.isFinite(receivedAt) || Boolean(motorValues && (
+        const detected = usableSample && (Number.isFinite(receivedAt) || Boolean(motorValues && (
             hasNumber(motorValues.absoluteAngle) || hasNumber(motorValues.countedPosition) ||
             hasNumber(motorValues.speed)
-        ));
+        )));
         const deviceLabel = this.getDeviceLabel(type, reading, w);
-        let value = detected ? deviceLabel : w.noReading;
-        if (detected && type === 'motor' && hasNumber(motorValues.absoluteAngle)) {
+        let value = usableSample ? deviceLabel : this.getFreshnessLabel(freshness);
+        if (detected && type === 'distance' && reading.quality === 'out-of-range') {
+            value = w.outOfRange;
+        } else if (detected && type === 'motor' && hasNumber(motorValues.absoluteAngle)) {
             value = `${motorValues.absoluteAngle}°`;
         } else if (detected && type === 'motor') {
             value = w.noReading;
@@ -1075,13 +1132,16 @@ class SpikePrimeControlCenter extends React.Component {
         }
         const iconType = type === 'motor' || type === 'force' || type === 'distance' ||
             type === 'color' || type === 'matrix3' || type === 'matrix5' ? type : 'device';
+        const freshnessLabel = this.getFreshnessLabel(freshness);
         const detailsTitle = [
             `${port}: ${deviceLabel}`,
             reading.deviceName && reading.deviceName !== deviceLabel ? reading.deviceName : null,
             reading.deviceId !== null && typeof reading.deviceId !== 'undefined' ?
                 `ID ${reading.deviceId}` : null,
-            receivedAt ? w.lastUpdate.replace('{seconds}', Math.max(0,
-                Math.floor((this.state.now - receivedAt) / 1000))) : w.noReading
+            freshnessLabel,
+            receivedAt ? w.lastUpdate.replace(
+                '{seconds}', Math.max(0, Math.floor((this.state.now - receivedAt) / 1000))
+            ) : w.noReading
         ].filter(Boolean).join(' · ');
         return (
             <button
@@ -1098,6 +1158,11 @@ class SpikePrimeControlCenter extends React.Component {
                     className={styles.portValue}
                     title={value}
                 >{value}</span>
+                {freshnessLabel ? (
+                    <span className={`${styles.freshnessLabel} ${this.getFreshnessClass(freshness)}`}>
+                        {freshnessLabel}
+                    </span>
+                ) : null}
             </button>
         );
     }
@@ -1118,11 +1183,15 @@ class SpikePrimeControlCenter extends React.Component {
         const portSensor = snapshot && snapshot.portSensors && snapshot.portSensors[port];
         const motor = snapshot && snapshot.motorPorts && snapshot.motorPorts[port];
         const detached = Boolean(portSensor && portSensor.connected === false);
-        const reading = detached ? portSensor : (portSensor || motor || {});
+        const reading = detached ? {...portSensor} : {...(motor || {}), ...(portSensor || {})};
         const type = this.getPortType(reading, detached ? null : motor);
-        const receivedAt = reading.receivedAt;
+        const receivedAt = Number.isFinite(portSensor && portSensor.receivedAt) ?
+            portSensor.receivedAt : motor && motor.receivedAt;
+        reading.receivedAt = receivedAt;
+        const freshness = this.getPortFreshness(port, reading, snapshot);
+        const usableSample = isSpikeSensorSampleUsable(freshness);
         const motorValues = type === 'motor' ? this.getMotorPositionValues(reading, motor) : null;
-        const detected = Boolean(type && snapshot && snapshot.connected &&
+        const detected = Boolean(usableSample && type && snapshot && snapshot.connected &&
             (Number.isFinite(receivedAt) || hasNumber(reading.position) ||
                 hasNumber(reading.relativePosition) || hasNumber(reading.absolutePosition) ||
                 (motorValues && (hasNumber(motorValues.absoluteAngle) ||
@@ -1146,7 +1215,17 @@ class SpikePrimeControlCenter extends React.Component {
                 </div>
                 {!snapshot || !snapshot.connected ? <div>{w.noConnection}</div> : null}
                 {snapshot && snapshot.connected && detached ? <div>{w.noDevice}</div> : null}
-                {snapshot && snapshot.connected && attached && !detected ? <div>{w.noReading}</div> : null}
+                {snapshot && snapshot.connected && attached && !usableSample ? (
+                    <div
+                        className={`${styles.freshnessLabel} ${this.getFreshnessClass(freshness)}`}
+                        role="status"
+                    >
+                        {this.getFreshnessLabel(freshness)}
+                    </div>
+                ) : null}
+                {snapshot && snapshot.connected && attached && usableSample && !detected ? (
+                    <div>{w.noReading}</div>
+                ) : null}
                 {type === 'motor' && detected ? (
                     <>
                         <div>{w.absoluteAngle}{': '}{withUnit(motorValues.absoluteAngle, '°')}</div>
@@ -1170,7 +1249,10 @@ class SpikePrimeControlCenter extends React.Component {
                     </div>
                 ) : null}
                 {type === 'distance' && detected ? (
-                    <div>{w.distanceValue}{': '}{withUnit(reading.distanceMM, 'mm')}</div>
+                    <div>
+                        {w.distanceValue}{': '}{reading.quality === 'out-of-range' ?
+                            w.outOfRange : withUnit(reading.distanceMM, 'mm')}
+                    </div>
                 ) : null}
                 {type === 'color' && detected ? (
                     this.state.displayMode === 'state' ? (
@@ -1241,7 +1323,8 @@ class SpikePrimeControlCenter extends React.Component {
                         aria-label={w.ports}
                         className={styles.connectedPorts}
                     >
-                        {PORTS.map(port => this.renderPort(port, snapshot))}
+                        {PORTS.filter(port => this.isPortAttached(port, snapshot)).slice(0, 2)
+                            .map(port => this.renderPort(port, snapshot))}
                     </div>
                 </div>
                 {open ? (

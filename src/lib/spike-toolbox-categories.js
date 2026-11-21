@@ -33,7 +33,7 @@ export const SPIKE_EXTENSION_OPCODE_CATALOG = [
     'playNote', 'playWaveBeep', 'setVolume', 'stopSound', 'getBatteryLevel',
     'getBatteryTemperature', 'getHubTemperature', 'getHubCurrent', 'getHubVoltage', 'getTimer',
     'resetTimer', 'getDistance', 'getDistanceIn', 'setDistanceLights', 'getColor', 'getReflection',
-    'getAmbientLight', 'getColorRGB', 'getForce', 'isForceSensorPressed', 'whenColor', 'isColor',
+    'getAmbientLight', 'getColorRGB', 'getRawColor255', 'getForce', 'isForceSensorPressed', 'whenColor', 'isColor',
     'whenForceSensor', 'isButtonPressed', 'whenButtonPressed', 'writeLogFile', 'readLogFile',
     'deleteLogFile', 'listFiles', 'runReplCommand', 'getReplOutput', 'clearReplOutput',
     'getReplHistory', 'runPythonCommand', 'runHubCommand', 'exitScript'
@@ -117,6 +117,10 @@ export const SPIKE_CATEGORY_COLORS = Object.freeze({
     myBlocks: {primary: '#FF6680', secondary: '#FF4D6A'},
     other: {primary: '#7B8794', secondary: '#59636F'}
 });
+
+// The older raw reporter remains registered for saved-project compatibility,
+// while getRawColor255 is the single user-facing raw colour block.
+export const SPIKE_HIDDEN_PALETTE_OPCODES = Object.freeze(['getColorRGB']);
 
 export const getSpikeBlockColors = opcode => {
     const category = getSpikeOpcodeCategories(opcode)[0];

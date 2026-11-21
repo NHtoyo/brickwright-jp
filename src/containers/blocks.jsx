@@ -54,6 +54,11 @@ import {
 } from '../lib/palette-mode';
 import {getSpikeBlockColors} from '../lib/spike-toolbox-categories';
 import {
+    clampSpikePaletteWidth,
+    getStoredSpikePaletteWidth,
+    storeSpikePaletteWidth
+} from '../lib/spike-palette-width';
+import {
     installSpikeMotorPortPicker,
     setSpikePortLanguageProvider,
     setSpikePortStateProvider
@@ -130,6 +135,11 @@ const messages = defineMessages({
         defaultMessage: 'All blocks',
         description: 'Show all SPIKE blocks regardless of hub model',
         id: 'gui.blocks.spikePaletteAll'
+    },
+    PALETTE_RESIZE_LABEL: {
+        defaultMessage: 'Resize block palette',
+        description: 'Accessible label for the draggable block palette divider',
+        id: 'gui.blocks.paletteResize'
     }
 });
 
@@ -231,6 +241,14 @@ class Blocks extends React.Component {
             'handleCustomProceduresClose',
             'handlePaletteModeChange',
             'handleSpikePaletteModelChange',
+            'handlePaletteResizePointerDown',
+            'handlePaletteResizePointerMove',
+            'handlePaletteResizePointerUp',
+            'handlePaletteResizePointerCancel',
+            'handlePaletteResizeKeyDown',
+            'handlePaletteViewportResize',
+            'applyPaletteWidth',
+            'restorePaletteResizeStyles',
             'onScriptGlowOn',
             'onScriptGlowOff',
             'onBlockGlowOn',
@@ -255,11 +273,15 @@ class Blocks extends React.Component {
             prompt: null,
             paletteMode: getPaletteMode(props.vm.editingTarget),
             spikePaletteModel: getSpikePaletteModel(),
-            detectedHubModel: null
+            detectedHubModel: null,
+            paletteWidth: getStoredSpikePaletteWidth()
         };
+        this.paletteResizeDrag = null;
+        this.paletteResizeBodyStyles = null;
         this.onTargetsUpdate = debounce(this.onTargetsUpdate, 100);
         this.toolboxUpdateQueue = [];
     }
+
     componentDidMount () {
         this.ScratchBlocks = VMScratchBlocks(this.props.vm, this.props.useCatBlocks);
         installSpikeMotorPortPicker(this.ScratchBlocks);
@@ -301,6 +323,8 @@ class Blocks extends React.Component {
             Blocks.defaultOptions
         );
         this.workspace = this.ScratchBlocks.inject(this.blocks, workspaceConfig);
+        this.applyPaletteWidth(this.state.paletteWidth);
+        window.addEventListener('resize', this.handlePaletteViewportResize);
         AddonHooks.blocklyWorkspace = this.workspace;
 
         // Register buttons under new callback keys for creating variables,
@@ -444,6 +468,8 @@ class Blocks extends React.Component {
         }
     }
     componentWillUnmount () {
+        window.removeEventListener('resize', this.handlePaletteViewportResize);
+        this.handlePaletteResizePointerUp();
         if (this.breakpointMenu) {
             this.breakpointMenu.uninstall();
             this.breakpointMenu = null;
@@ -457,6 +483,91 @@ class Blocks extends React.Component {
         this.props.vm.clearFlyoutBlocks();
 
         AddonHooks.blocklyWorkspace = null;
+    }
+    applyPaletteWidth (requestedWidth) {
+        const workspace = this.workspace;
+        const toolbox = workspace && workspace.toolbox_;
+        if (!toolbox) return;
+        const width = clampSpikePaletteWidth(requestedWidth, window.innerWidth);
+        toolbox.width = width;
+        if (toolbox.flyout_) {
+            toolbox.flyout_.DEFAULT_WIDTH = Math.max(100, width - 60);
+            toolbox.flyout_.position();
+            toolbox.flyout_.reflow();
+        }
+        toolbox.position();
+        workspace.resize();
+    }
+    handlePaletteResizePointerDown (event) {
+        if (event.button !== 0) return;
+        event.preventDefault();
+        const width = this.state.paletteWidth;
+        this.paletteResizeDrag = {
+            pointerId: event.pointerId,
+            startX: event.clientX,
+            startWidth: width,
+            width
+        };
+        this.paletteResizeBodyStyles = {
+            cursor: document.body.style.cursor,
+            userSelect: document.body.style.userSelect
+        };
+        document.body.style.cursor = 'col-resize';
+        document.body.style.userSelect = 'none';
+        if (event.currentTarget.setPointerCapture) event.currentTarget.setPointerCapture(event.pointerId);
+    }
+
+    handlePaletteResizePointerMove (event) {
+        const drag = this.paletteResizeDrag;
+        if (!drag || drag.pointerId !== event.pointerId) return;
+        const direction = this.props.isRtl ? -1 : 1;
+        const width = clampSpikePaletteWidth(
+            drag.startWidth + ((event.clientX - drag.startX) * direction),
+            window.innerWidth
+        );
+        if (width === drag.width) return;
+        drag.width = width;
+        this.setState({paletteWidth: width}, () => this.applyPaletteWidth(width));
+    }
+
+    restorePaletteResizeStyles () {
+        if (this.paletteResizeBodyStyles) {
+            document.body.style.cursor = this.paletteResizeBodyStyles.cursor;
+            document.body.style.userSelect = this.paletteResizeBodyStyles.userSelect;
+            this.paletteResizeBodyStyles = null;
+        }
+    }
+
+    handlePaletteResizePointerUp (event) {
+        const drag = this.paletteResizeDrag;
+        if (!drag || (event && typeof event.pointerId !== 'undefined' && drag.pointerId !== event.pointerId)) return;
+        const width = drag.width;
+        this.paletteResizeDrag = null;
+        this.restorePaletteResizeStyles();
+        storeSpikePaletteWidth(width);
+        if (event && event.currentTarget && event.currentTarget.hasPointerCapture &&
+            event.currentTarget.hasPointerCapture(event.pointerId)) {
+            event.currentTarget.releasePointerCapture(event.pointerId);
+        }
+    }
+
+    handlePaletteResizePointerCancel () {
+        this.handlePaletteResizePointerUp();
+    }
+
+    handlePaletteResizeKeyDown (event) {
+        if (!['ArrowLeft', 'ArrowRight'].includes(event.key)) return;
+        event.preventDefault();
+        const direction = (event.key === 'ArrowRight' ? 1 : -1) * (this.props.isRtl ? -1 : 1);
+        const width = clampSpikePaletteWidth(this.state.paletteWidth + (direction * 10), window.innerWidth);
+        this.setState({paletteWidth: width}, () => this.applyPaletteWidth(width));
+        storeSpikePaletteWidth(width);
+    }
+
+    handlePaletteViewportResize () {
+        const width = clampSpikePaletteWidth(this.state.paletteWidth, window.innerWidth);
+        if (width === this.state.paletteWidth) return;
+        this.setState({paletteWidth: width}, () => this.applyPaletteWidth(width));
     }
     requestToolboxUpdate () {
         clearTimeout(this.toolboxUpdateTimeout);
@@ -1001,6 +1112,24 @@ class Blocks extends React.Component {
                         componentRef={this.setBlocks}
                         onDrop={this.handleDrop}
                         {...props}
+                    />
+                    <div
+                        aria-label={intl.formatMessage(messages.PALETTE_RESIZE_LABEL)}
+                        aria-orientation="vertical"
+                        aria-valuemax={Math.min(480, Math.max(210, window.innerWidth - 360))}
+                        aria-valuemin={210}
+                        aria-valuenow={this.state.paletteWidth}
+                        className={paletteStyles.paletteResizeHandle}
+                        onKeyDown={this.handlePaletteResizeKeyDown}
+                        onLostPointerCapture={this.handlePaletteResizePointerCancel}
+                        onPointerCancel={this.handlePaletteResizePointerCancel}
+                        onPointerDown={this.handlePaletteResizePointerDown}
+                        onPointerMove={this.handlePaletteResizePointerMove}
+                        onPointerUp={this.handlePaletteResizePointerUp}
+                        role="separator"
+                        style={{insetInlineStart: `${this.state.paletteWidth - 4}px`}}
+                        tabIndex={0}
+                        title={intl.formatMessage(messages.PALETTE_RESIZE_LABEL)}
                     />
                 </div>
                 {this.state.prompt ? (

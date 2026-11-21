@@ -278,17 +278,17 @@ describe('SPIKE control center with the actual extension source and Scratch VM',
 
             feedMotor(motorNotification(4, -42));
             await act(async () => {
-                await new Promise(resolve => setTimeout(resolve, 220));
+                await new Promise(resolve => setTimeout(resolve, 60));
             });
             component.update();
             expect(component.text()).toContain('318°');
             hub._portValues.E.receivedAt = Date.now() - 4000;
             await act(async () => {
-                await new Promise(resolve => setTimeout(resolve, 220));
+                await new Promise(resolve => setTimeout(resolve, 60));
             });
             component.update();
-            expect(component.text()).not.toContain('Reading is stale');
-            expect(component.text()).toContain('318°');
+            expect(component.text()).toContain('Stale');
+            expect(component.text()).not.toContain('318°');
             component.find('button[aria-label^="LEGO hub:"]').simulate('click');
             expect(component.text()).toContain('Last update:');
             component.unmount();

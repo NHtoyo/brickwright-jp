@@ -202,12 +202,13 @@ describe('SPIKE Prime control center', () => {
         component.unmount();
     });
 
-    test('shows zero and missing readings without a false stale warning', () => {
+    test('keeps fresh zero readings but hides stale sensor values', () => {
         snapshot = {
             ...snapshot,
             connected: true,
             deviceName: 'SPIKE Prime',
             firmwareVersion: '1.8.149',
+            availablePorts: ['A', 'B', 'C', 'D', 'E', 'F'],
             angles: {pitch: 0, roll: null, yaw: 10},
             imuReceivedAt: Date.now() - 4000,
             portSensors: {
@@ -243,16 +244,17 @@ describe('SPIKE Prime control center', () => {
                 vm={vm}
             />
         );
-        expect(component.text()).toContain('0°');
         expect(component.text()).not.toContain('0%');
         expect(component.text()).not.toContain('機器未接続');
-        expect(component.text()).not.toContain('値の更新が止まっています');
-        expect(component.text()).not.toContain('Reading is stale');
+        expect(component.text()).not.toContain('古い値');
         expect(component.find('section[aria-label="LEGO ハブ"]')).toHaveLength(0);
         expect(component.find('[aria-label^="A:"]').prop('aria-label')).toContain('0');
-        expect(component.find('[aria-label^="F:"]').prop('aria-label')).toContain('0 mm');
+        expect(component.find('[aria-label^="F:"]')).toHaveLength(0);
         expect(component.find('[aria-label^="B:"]').prop('aria-label')).toContain('赤');
         component.find('button[aria-label^="LEGO ハブ:"]').simulate('click');
+        expect(component.text()).toContain('古い値');
+        expect(component.text()).not.toContain('10°');
+        expect(component.text()).not.toContain('0 mm');
         expect(component.text()).toContain('力: 0');
         component.find('select[aria-label="ポート表示"]').simulate('change', {target: {value: 'state'}});
         component.update();
@@ -261,7 +263,7 @@ describe('SPIKE Prime control center', () => {
         component.unmount();
     });
 
-    test('shows an Essential motor model before its first value and retains stationary values', () => {
+    test('identifies an Essential motor before its first value and marks stale samples', () => {
         snapshot = {
             ...snapshot,
             connected: true,
@@ -287,10 +289,11 @@ describe('SPIKE Prime control center', () => {
             <SpikePrimeControlCenter intl={{locale: 'en'}} vm={vm} />
         );
         expect(component.find('[aria-label^="A:"]').prop('aria-label')).toContain('Small motor');
-        expect(component.find('[aria-label^="A:"]').text()).toContain('No reading yet');
+        expect(component.find('[aria-label^="A:"]').text()).toContain('Waiting for sample');
         expect(component.find('[aria-label^="B:"]').prop('aria-label')).toContain('Force sensor');
-        expect(component.find('[aria-label^="B:"]').prop('aria-label')).toContain('0');
-        expect(component.text()).not.toContain('stale');
+        expect(component.find('[aria-label^="B:"]').prop('aria-label')).toContain('Stale');
+        expect(component.find('[aria-label^="B:"]').prop('aria-label')).not.toContain('0');
+        expect(component.text()).toContain('Stale');
         component.unmount();
     });
 
@@ -394,13 +397,14 @@ describe('SPIKE Prime control center', () => {
             <SpikePrimeControlCenter intl={{locale: 'ja-JP'}} vm={vm} />
         );
         expect(component.find('[aria-label^="A:"]').prop('aria-label')).toContain('小型モーター');
-        expect(component.find('[aria-label^="A:"]').prop('aria-label')).toContain('0°');
+        expect(component.find('[aria-label^="A:"]').prop('aria-label')).toContain('古い値');
+        expect(component.find('[aria-label^="A:"]').prop('aria-label')).not.toContain('0°');
         expect(component.find('[aria-label^="B:"]')).toHaveLength(0);
         expect(component.text()).not.toContain('92');
         component.find('button[aria-label^="LEGO ハブ:"]').simulate('click');
         expect(component.text()).toContain('小型モーター');
         expect(component.text()).toContain('最終受信：約');
-        expect(component.text()).not.toContain('値の更新が止まっています');
+        expect(component.text()).toContain('古い値');
         component.unmount();
     });
 

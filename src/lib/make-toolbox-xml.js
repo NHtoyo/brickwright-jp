@@ -3,7 +3,8 @@ import {defaultBlockColors} from './themes';
 import {
     getSpikeOpcodeCategories,
     SPIKE_CATEGORY_COLORS,
-    SPIKE_CATEGORY_ORDER
+    SPIKE_CATEGORY_ORDER,
+    SPIKE_HIDDEN_PALETTE_OPCODES
 } from './spike-toolbox-categories';
 import {spikeToolboxIconURI} from './spike-toolbox-icons';
 
@@ -12,12 +13,17 @@ const categorySeparator = '<sep gap="36"/>';
 const blockSeparator = '<sep gap="36"/>'; // At default scale, about 28px
 
 export const filterSpikeCategoryXML = (categoryXML, supportedOpcodes) => {
-    if (!Array.isArray(supportedOpcodes)) return categoryXML;
+    const hasHiddenBlock = SPIKE_HIDDEN_PALETTE_OPCODES.some(opcode =>
+        categoryXML.includes(`type="spikeprime_${opcode}"`)
+    );
+    if (!Array.isArray(supportedOpcodes) && !hasHiddenBlock) return categoryXML;
     if (typeof DOMParser === 'undefined' || typeof XMLSerializer === 'undefined') {
         return categoryXML;
     }
+    const supportedOpcodesSet = Array.isArray(supportedOpcodes) ? new Set(supportedOpcodes) : null;
+    const hiddenOpcodes = new Set(SPIKE_HIDDEN_PALETTE_OPCODES);
     const supportedTypes = new Set();
-    supportedOpcodes.forEach(opcode => {
+    supportedOpcodesSet?.forEach(opcode => {
         if (typeof opcode !== 'string') return;
         supportedTypes.add(opcode.startsWith('spikeprime_') ? opcode : `spikeprime_${opcode}`);
     });
@@ -27,7 +33,9 @@ export const filterSpikeCategoryXML = (categoryXML, supportedOpcodes) => {
     Array.from(category.children).forEach(child => {
         if (child.tagName.toLowerCase() !== 'block') return;
         const type = child.getAttribute('type');
-        if (type && type.startsWith('spikeprime_') && !supportedTypes.has(type)) {
+        if (!type || !type.startsWith('spikeprime_')) return;
+        const opcode = type.slice('spikeprime_'.length);
+        if (hiddenOpcodes.has(opcode) || (supportedOpcodesSet && !supportedTypes.has(type))) {
             category.removeChild(child);
         }
     });

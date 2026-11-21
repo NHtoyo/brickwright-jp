@@ -25,7 +25,8 @@ const categories = [
         '<block type="spikeprime_connectHub"/><block type="spikeprime_moveForward"/>' +
         '<block type="spikeprime_motorRunFor"/><block type="spikeprime_playBeep"/>' +
         '<block type="spikeprime_whenColor"/><block type="spikeprime_displayText"/>' +
-        '<block type="spikeprime_getAngle"/>' +
+        '<block type="spikeprime_getAngle"/><block type="spikeprime_getRawColor255"/>' +
+        '<block type="spikeprime_getColorRGB"/>' +
         '<block type="spikeprime_getCommunicationDiagnostics"/></category>'},
     {id: 'otherExtension', xml: otherExtensionXML}
 ];
@@ -64,6 +65,8 @@ describe('makeToolboxXML palette mode', () => {
         expect(xml).toContain('spikeprime_connectHub');
         expect(xml).toContain('spikeprime_motorRunFor');
         expect(xml).toContain('spikeprime_displayText');
+        expect(xml).toContain('spikeprime_getRawColor255');
+        expect(xml).not.toContain('spikeprime_getColorRGB');
         expect(xml).toContain('SPIKE · Movement');
         expect(xml).toContain(scratchMotionXML);
         expect(xml).toContain('colour="#4c97ff" secondaryColour="#4c97ff"');
@@ -121,6 +124,16 @@ describe('makeToolboxXML palette mode', () => {
         expect(filterSpikeCategoryXML(spikeCategory, ['connect'])).toContain('spikeprime_connect');
         expect(filterSpikeCategoryXML(spikeCategory, ['connect'])).not.toContain('spikeprime_primeMotorRun');
         expect(filterSpikeCategoryXML(spikeCategory, null)).toBe(spikeCategory);
+    });
+
+    test('keeps the 0–255 RAW reporter visible once and hides the legacy raw reporter', () => {
+        const categoryXML = '<category id="spikeprime">' +
+            '<block type="spikeprime_getRawColor255"/>' +
+            '<block type="spikeprime_getColorRGB"/>' +
+            '</category>';
+        const filtered = filterSpikeCategoryXML(categoryXML, ['getRawColor255', 'getColorRGB']);
+        expect(filtered.match(/spikeprime_getRawColor255/g)).toHaveLength(1);
+        expect(filtered).not.toContain('spikeprime_getColorRGB');
     });
 
     test('applies the supported block list to both visible palettes and preserves Scratch blocks', () => {

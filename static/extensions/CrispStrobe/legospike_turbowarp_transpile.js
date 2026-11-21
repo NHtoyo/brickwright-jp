@@ -378,7 +378,7 @@
       motorStartPower: "[PORT] start motor at [POWER] % power",
       motorSetStopAction: "[PORT] set stop action to [ACTION]",
       getMotorPower: "[PORT] measured motor power",
-      getRawColor255: "[PORT] RAW [CHANNEL]",
+      getRawColor255: "[PORT] RAW [CHANNEL] (0–255)",
       setMotorAcceleration: "set [PORT] motor acceleration to [ACCELERATION]",
       setMovementStopAction: "set movement motors stop action to [ACTION]",
       setMovementAcceleration: "set movement acceleration to [ACCELERATION]",
@@ -790,7 +790,7 @@
       motorStartPower: "[PORT] モーターを [POWER] のパワーで動かす",
       motorSetStopAction: "[PORT] モーターを停止時 [ACTION] に設定",
       getMotorPower: "[PORT] のパワー",
-      getRawColor255: "[PORT] RAW [CHANNEL]",
+      getRawColor255: "[PORT] RAW [CHANNEL] (0〜255)",
       setMotorAcceleration: "[PORT] 加速度を [ACCELERATION] に設定",
       setMovementStopAction: "移動モーターを停止時 [ACTION] に設定",
       setMovementAcceleration: "移動加速度を [ACCELERATION] に設定",
@@ -967,7 +967,7 @@
       motorStartPower: "[PORT] starte Motor mit [POWER] % Leistung",
       motorSetStopAction: "[PORT] setze Stopp-Aktion auf [ACTION]",
       getMotorPower: "[PORT] gemessene Motorleistung",
-      getRawColor255: "[PORT] RAW [CHANNEL]",
+      getRawColor255: "[PORT] RAW [CHANNEL] (0–255)",
       setMotorAcceleration: "Beschleunigung von Motor [PORT] auf [ACCELERATION] setzen",
       setMovementStopAction: "Stopp-Aktion der Bewegungsmotoren auf [ACTION] setzen",
       setMovementAcceleration: "Bewegungsbeschleunigung auf [ACCELERATION] setzen",
@@ -2056,6 +2056,8 @@
     // modes together so a known motor cannot be decoded differently by the
     // attach, read, and output paths.
     PORT_VALUE_DELTA: 1,
+    APOS_DELTA: 15,
+    DISTANCE_DELTA: 10,
   };
 
   const LWP3_DIAGNOSTIC_MESSAGE_NAMES = new Map([
@@ -2073,6 +2075,9 @@
     [0x81, "PortOutputCommand"],
   ]);
   const LWP3_DIAGNOSTIC_FRAME_LIMIT = 64;
+  const LWP3_POSITION_CACHE_MAX_AGE_MS = 120;
+  const LWP3_SENSOR_ACTIVE_FRESH_MS = 150;
+  const LWP3_SENSOR_IDLE_STALE_MS = 500;
 
   const LWP3_DEVICE_TYPES = Object.freeze({
     [LWP3.DEVICE_SPIKE_MEDIUM_MOTOR]: Object.freeze({
@@ -2080,7 +2085,7 @@
       type: "motor",
       name: "Medium Angular Motor",
       modelName: "SPIKE Prime Medium Angular Motor",
-      inputMode: 2,
+      inputMode: 3,
       hasPosition: true,
     }),
     [LWP3.DEVICE_SPIKE_LARGE_MOTOR]: Object.freeze({
@@ -2088,7 +2093,7 @@
       type: "motor",
       name: "Large Angular Motor",
       modelName: "SPIKE Prime Large Angular Motor",
-      inputMode: 2,
+      inputMode: 3,
       hasPosition: true,
     }),
     [LWP3.DEVICE_SPIKE_COLOR_SENSOR]: Object.freeze({
@@ -2103,7 +2108,7 @@
       type: "distance",
       name: "Distance Sensor",
       modelName: "SPIKE Distance Sensor",
-      inputMode: 1,
+      inputMode: 0,
     }),
     [LWP3.DEVICE_SPIKE_FORCE_SENSOR]: Object.freeze({
       id: LWP3.DEVICE_SPIKE_FORCE_SENSOR,
@@ -2123,7 +2128,7 @@
       type: "motor",
       name: "Small Angular Motor",
       modelName: "SPIKE Essential Small Angular Motor",
-      inputMode: 2,
+      inputMode: 3,
       hasPosition: true,
     }),
   });
@@ -2135,7 +2140,6 @@
   const MOTOR_ANGLE_PATHS = new Set(["shortest", "clockwise", "counterclockwise"]);
   const PRIME_ACCELERATION = Object.freeze({low: 300, medium: 1000, high: 3000});
   const ESSENTIAL_PROFILE_MS = Object.freeze({low: 900, medium: 450, high: 150});
-  const SPIKE_SENSOR_STALE_AFTER_MS = 2000;
   const STOP_MODE_VALUES = Object.freeze({coast: 0, brake: 1, hold: 2});
   const compareNumber = (actual, operator, threshold) => {
     if (!Number.isFinite(actual) || !Number.isFinite(threshold)) return false;
@@ -3252,6 +3256,9 @@ runloop.run(main())
       this._connected = false;
       this._characteristicDidChangeCallback = null;
       this._discoverTimeoutID = null;
+      this._writeQueue = [];
+      this._writeTaskSequence = 0;
+      this._writeTaskActive = false;
       this._socket.open();
     }
 
@@ -3309,14 +3316,78 @@ runloop.run(main())
       characteristicId,
       message,
       encoding = null,
-      withResponse = null
+      withResponse = null,
+      queueOptions = {}
     ) {
       const params = { serviceId, characteristicId, message };
       if (encoding) params.encoding = encoding;
       if (withResponse !== null) params.withResponse = withResponse;
-      return this.sendRemoteRequest("write", params).catch((e) =>
-        this.handleDisconnectError(e)
+      return this._enqueueWriteTask(
+        () => this.sendRemoteRequest("write", params).catch((e) =>
+          this.handleDisconnectError(e)
+        ),
+        queueOptions
       );
+    }
+
+    _enqueueWriteTask(run, options = {}) {
+      const priority = Number.isFinite(options.priority) ? options.priority : 0;
+      const coalesceKey = options.coalesceKey || null;
+      let resolveTask;
+      let rejectTask;
+      const promise = new Promise((resolve, reject) => {
+        resolveTask = resolve;
+        rejectTask = reject;
+      });
+      if (coalesceKey) {
+        const queuedIndex = this._writeQueue.findIndex(
+          (entry) => entry.coalesceKey === coalesceKey
+        );
+        if (queuedIndex >= 0) {
+          const [superseded] = this._writeQueue.splice(queuedIndex, 1);
+          const error = new Error("Queued sensor read was superseded by a newer read");
+          error.code = "ERR_BLE_WRITE_SUPERSEDED";
+          superseded.reject(error);
+        }
+      }
+      this._writeQueue.push({
+        run,
+        priority,
+        coalesceKey,
+        expiresAt: Number.isFinite(options.expiresAt) ? options.expiresAt : null,
+        sequence: this._writeTaskSequence++,
+        resolve: resolveTask,
+        reject: rejectTask,
+      });
+      this._writeQueue.sort(
+        (a, b) => b.priority - a.priority || a.sequence - b.sequence
+      );
+      this._drainWriteQueue();
+      return promise;
+    }
+
+    async _drainWriteQueue() {
+      if (this._writeTaskActive) return;
+      this._writeTaskActive = true;
+      try {
+        while (this._writeQueue.length) {
+          const entry = this._writeQueue.shift();
+          if (entry.expiresAt !== null && Date.now() > entry.expiresAt) {
+            const error = new Error("Queued BLE sensor read expired before transmission");
+            error.code = "ERR_BLE_WRITE_EXPIRED";
+            entry.reject(error);
+            continue;
+          }
+          try {
+            entry.resolve(await entry.run());
+          } catch (error) {
+            entry.reject(error);
+          }
+        }
+      } finally {
+        this._writeTaskActive = false;
+        if (this._writeQueue.length) this._drainWriteQueue();
+      }
     }
 
     didReceiveCall(method, params) {
@@ -3418,6 +3489,12 @@ runloop.run(main())
       this._characteristicDidChangeCallback = null;
       this._deviceDisconnectListener = null;
       this._characteristicChangedListener = null;
+      // Keep one serialized queue for each GATT connection. LWP3 motor
+      // commands can overtake queued sensor reads, while each protocol frame
+      // remains atomic and its BLE fragments cannot interleave.
+      this._writeQueue = [];
+      this._writeTaskSequence = 0;
+      this._writeTaskActive = false;
       this._writeChain = Promise.resolve();
       this._maxPacketSize = 20;
       this._activeWriteContext = null;
@@ -3611,7 +3688,8 @@ runloop.run(main())
       characteristicId,
       message,
       encoding = null,
-      messageContext = null
+      messageContext = null,
+      queueOptions = {}
     ) {
       const bytes =
         encoding === "base64"
@@ -3620,22 +3698,24 @@ runloop.run(main())
       if (this._protocol === "lwp3") {
         // LWP3 messages are sent directly, as one UART protocol message. In
         // contrast, SPIKE 3 uses COBS frames fragmented by its negotiated MTU.
-        this._writeChain = this._writeChain
-          .catch(() => {})
-          .then(() => {
+        const write = this._enqueueWriteTask(
+          () => {
             if (!this._rx || !this._connected) {
               throw new Error("LWP3 characteristic is unavailable");
             }
             return this._rx.writeValueWithoutResponse
               ? this._rx.writeValueWithoutResponse(bytes)
               : this._rx.writeValue(bytes);
-          });
-        return this._writeChain;
+          },
+          queueOptions
+        );
+        this._writeChain = write.catch(() => {});
+        return write;
       }
-      let writeAttempted = false;
-      this._writeChain = this._writeChain
-        .catch(() => {})
-        .then(async () => {
+      const write = this._enqueueWriteTask(
+        async () => {
+          let writeAttempted = false;
+          try {
           if (!this._rx || !this._connected) {
             const error = new Error(
               "SPIKE BLE RX characteristic is unavailable"
@@ -3669,8 +3749,7 @@ runloop.run(main())
             };
             this._activeWriteContext = null;
           }
-        })
-        .catch((error) => {
+          } catch (error) {
           // A failed chunk can leave the hub with a partial COBS frame. Stop
           // using this connection so later commands cannot be appended to it.
           const context = this._activeWriteContext || {
@@ -3686,8 +3765,72 @@ runloop.run(main())
           if (this._errorCallback) this._errorCallback(error, context);
           this.disconnect({ origin, error, messageContext: context });
           throw error;
-        });
-      return this._writeChain;
+          }
+        },
+        queueOptions
+      );
+      this._writeChain = write.catch(() => {});
+      return write;
+    }
+
+    _enqueueWriteTask(run, options = {}) {
+      const priority = Number.isFinite(options.priority) ? options.priority : 0;
+      const coalesceKey = options.coalesceKey || null;
+      let resolveTask;
+      let rejectTask;
+      const promise = new Promise((resolve, reject) => {
+        resolveTask = resolve;
+        rejectTask = reject;
+      });
+      if (coalesceKey) {
+        const queuedIndex = this._writeQueue.findIndex(
+          (entry) => entry.coalesceKey === coalesceKey
+        );
+        if (queuedIndex >= 0) {
+          const [superseded] = this._writeQueue.splice(queuedIndex, 1);
+          const error = new Error("Queued sensor read was superseded by a newer read");
+          error.code = "ERR_BLE_WRITE_SUPERSEDED";
+          superseded.reject(error);
+        }
+      }
+      this._writeQueue.push({
+        run,
+        priority,
+        coalesceKey,
+        expiresAt: Number.isFinite(options.expiresAt) ? options.expiresAt : null,
+        sequence: this._writeTaskSequence++,
+        resolve: resolveTask,
+        reject: rejectTask,
+      });
+      this._writeQueue.sort(
+        (a, b) => b.priority - a.priority || a.sequence - b.sequence
+      );
+      this._drainWriteQueue();
+      return promise;
+    }
+
+    async _drainWriteQueue() {
+      if (this._writeTaskActive) return;
+      this._writeTaskActive = true;
+      try {
+        while (this._writeQueue.length) {
+          const entry = this._writeQueue.shift();
+          if (entry.expiresAt !== null && Date.now() > entry.expiresAt) {
+            const error = new Error("Queued BLE sensor read expired before transmission");
+            error.code = "ERR_BLE_WRITE_EXPIRED";
+            entry.reject(error);
+            continue;
+          }
+          try {
+            entry.resolve(await entry.run());
+          } catch (error) {
+            entry.reject(error);
+          }
+        }
+      } finally {
+        this._writeTaskActive = false;
+        if (this._writeQueue.length) this._drainWriteQueue();
+      }
     }
 
     setMaxPacketSize(size) {
@@ -10253,10 +10396,20 @@ continuous_sensor_loop()
       this._modeInfoRequests = {};
       this._modeValueFormats = {};
       this._inputFormats = {};
+      this._inputFormatWaiters = {};
       this._motorPositionModes = {};
       this._portInfoRequests = {};
       this._nextPortAttachmentId = 1;
       this._portValues = {};
+      this._sensorPollStates = {};
+      this._sensorPollTimer = null;
+      this._sensorGlobalLastSentAt = 0;
+      this._sensorLastPortSentAt = {};
+      this._sensorPollRoundRobin = 0;
+      this._sensorCommunicationState = "NORMAL";
+      this._motorCommandTelemetry = {};
+      this._motorPositionModeQueues = {};
+      this._motorOutputActive = {};
       this._absolutePositionSequences = {};
       this._absolutePositionWaiters = {};
       this._relativePositionSequences = {};
@@ -10445,6 +10598,39 @@ continuous_sensor_loop()
     }
 
     getDiagnostics(connectionMode = "") {
+      const monotonicNow = this._monotonicNow();
+      const portSensors = Object.fromEntries(
+        Object.entries(this._portValues).map(([port, value]) => {
+          const poll = this._sensorPollStates[port];
+          const intervals = poll?.intervals || [];
+          const meanInterval = intervals.length
+            ? intervals.reduce((sum, interval) => sum + interval, 0) / intervals.length
+            : null;
+          const telemetry = poll ? {
+            samplesReceived: poll.samplesReceived,
+            effectiveHz: meanInterval > 0 ? 1000 / meanInterval : null,
+            medianIntervalMs: this._sensorSamplePercentile(intervals, 0.5),
+            p95IntervalMs: this._sensorSamplePercentile(intervals, 0.95),
+            maxIntervalMs: intervals.length ? Math.max(...intervals) : null,
+            latestSampleAgeMs: Number.isFinite(poll.lastSampleMonotonicAt)
+              ? Math.max(0, monotonicNow - poll.lastSampleMonotonicAt)
+              : null,
+            pollsSent: poll.pollsSent,
+            pollTimeouts: poll.pollTimeouts,
+            notificationCount: poll.notificationCount,
+            unattributedSampleCount: poll.unattributedSampleCount,
+            currentPollIntervalMs: poll.currentPollIntervalMs,
+            active: monotonicNow < poll.activeUntil,
+            communicationState: poll.communicationState,
+            lastError: poll.lastError,
+            lastPollObservation: poll.lastPollObservation || null
+          } : value.sensorTelemetry;
+          return [port, {
+            ...value,
+            ...(telemetry ? {sensorTelemetry: telemetry} : {})
+          }];
+        })
+      );
       return {
         protocol: "lwp3-essential",
         connected: this.isConnected(),
@@ -10459,18 +10645,40 @@ continuous_sensor_loop()
             { ...device },
           ])
         ),
-        portSensors: Object.fromEntries(
-          Object.entries(this._portValues).map(([port, value]) => [
-            port,
-            { ...value },
-          ])
-        ),
+        portSensors,
         motorPorts: Object.fromEntries(
-          Object.entries(this._portValues)
+          Object.entries(portSensors)
             .filter(([, value]) => value.type === "motor")
             .map(([port, value]) => [port, { ...value }])
         ),
+        motorCommandTelemetry: Object.fromEntries(
+          Object.entries(this._motorCommandTelemetry).map(([port, state]) => [port, {
+            samplesReceived: state.samples.length,
+            lastLatencyMs: state.lastLatencyMs,
+            medianLatencyMs: this._sensorSamplePercentile(state.samples, 0.5),
+            p95LatencyMs: this._sensorSamplePercentile(state.samples, 0.95),
+            maxLatencyMs: state.samples.length ? Math.max(...state.samples) : null,
+            timing: "feedback received from waiter registration; includes BLE write queue and hub processing"
+          }])
+        ),
         motorPositionModes: this._getMotorPositionModeDiagnostics(),
+        sensorScheduler: {
+          activePollLimitPerSecond: 40,
+          perPortPollLimitPerSecond: 30,
+          activeTargetIntervalMs: 25,
+          idleTargetIntervalMs: 200,
+          readTimeoutMs: 250,
+          ports: Object.fromEntries(Object.entries(this._sensorPollStates).map(([port, poll]) => [port, {
+            attachmentId: poll.attachmentId,
+            mode: poll.mode,
+            active: monotonicNow < poll.activeUntil,
+            pollsSent: poll.pollsSent,
+            pollTimeouts: poll.pollTimeouts,
+            currentPollIntervalMs: poll.currentPollIntervalMs,
+            communicationState: poll.communicationState,
+            lastError: poll.lastError
+          }]))
+        },
         recentProtocolFrames: this._recentProtocolFrames.map((frame) => ({
           ...frame,
           error: frame.error ? { ...frame.error } : undefined,
@@ -10486,6 +10694,21 @@ continuous_sensor_loop()
         standaloneCapable: false,
         lastCommunicationError: this._lastCommunicationError,
       };
+    }
+
+    _sensorSamplePercentile(samples, percentile) {
+      if (!Array.isArray(samples) || !samples.length) return null;
+      const sorted = [...samples].sort((a, b) => a - b);
+      return sorted[Math.min(sorted.length - 1, Math.ceil(sorted.length * percentile) - 1)];
+    }
+
+    _recordMotorCommandLatency(port, latencyMs) {
+      if (!Number.isFinite(latencyMs) || latencyMs < 0) return;
+      const state = this._motorCommandTelemetry[port] || {samples: [], lastLatencyMs: null};
+      state.samples.push(latencyMs);
+      if (state.samples.length > 100) state.samples.shift();
+      state.lastLatencyMs = latencyMs;
+      this._motorCommandTelemetry[port] = state;
     }
 
     _getMotorPositionModeDiagnostics() {
@@ -10518,6 +10741,8 @@ continuous_sensor_loop()
                 positionStreamMode: state.positionStreamMode,
                 combinedStatus: state.combinedStatus,
                 combinedFailure: state.combinedFailure || null,
+                combinedAttemptCount: state.combinedAttemptCount || 0,
+                combinedRetryBlocked: Boolean(state.combinedRetryBlocked),
                 modeInfo: state.modeInfo ? { ...state.modeInfo } : null,
                 modeMetadata,
                 modeInfoRequestStatuses: Object.fromEntries(
@@ -10729,7 +10954,7 @@ continuous_sensor_loop()
       return this._detectedHubModel;
     }
 
-    async _send(message) {
+    async _send(message, options = {}) {
       if (!this.isConnected()) throw new Error("LWP3 hub is not connected");
       const bytes = Uint8Array.from(message);
       const frameRecord = this._recordProtocolFrame(
@@ -10744,7 +10969,18 @@ continuous_sensor_loop()
             LWP3.SERVICE,
             LWP3.CHARACTERISTIC,
             Base64Util.uint8ArrayToBase64(bytes),
-            "base64"
+            "base64",
+            null,
+            this._getWriteQueueOptions(bytes, options)
+          );
+        } else if (this._link instanceof WebBLELink) {
+          write = this._link.write(
+            LWP3.SERVICE,
+            LWP3.CHARACTERISTIC,
+            bytes,
+            null,
+            frameRecord,
+            this._getWriteQueueOptions(bytes, options)
           );
         } else {
           write = this._link.write(LWP3.SERVICE, LWP3.CHARACTERISTIC, bytes);
@@ -10756,16 +10992,44 @@ continuous_sensor_loop()
         }
       } catch (error) {
         if (frameRecord) {
-          frameRecord.status = "write-failed";
+          frameRecord.status = error?.code === "ERR_BLE_WRITE_SUPERSEDED"
+            ? "queued-superseded"
+            : error?.code === "ERR_BLE_WRITE_EXPIRED"
+              ? "queued-expired"
+              : "write-failed";
           frameRecord.completedAt = Date.now();
           frameRecord.error = {
             name: String(error.name || "Error").slice(0, 80),
             message: String(error.message || error).slice(0, 240),
           };
         }
-        this._recordCommunicationError(error);
+        if (![
+          "ERR_BLE_WRITE_SUPERSEDED",
+          "ERR_BLE_WRITE_EXPIRED",
+        ].includes(error?.code)) {
+          this._recordCommunicationError(error);
+        }
         throw error;
       }
+    }
+
+    _getWriteQueueOptions(message, options = {}) {
+      const portId = message[3];
+      const port = portId === 0 ? "A" : portId === 1 ? "B" : null;
+      const isMotorOutput = message[2] === LWP3.OUTPUT &&
+        this._devices[port]?.type === "motor";
+      const isPortValueRead = message[2] === LWP3.PORT_INFORMATION_REQUEST &&
+        message[4] === 0;
+      const poll = port && this._sensorPollStates[port];
+      const priority = Number.isFinite(options.priority) ? options.priority :
+        isMotorOutput ? 100 : isPortValueRead && poll &&
+          this._monotonicNow() < poll.activeUntil ? 30 : 10;
+      const result = {priority};
+      if (options.coalesceKey) result.coalesceKey = options.coalesceKey;
+      if (Number.isFinite(options.expiresInMs)) {
+        result.expiresAt = Date.now() + options.expiresInMs;
+      }
+      return result;
     }
 
     _onMessage(data) {
@@ -10947,15 +11211,15 @@ continuous_sensor_loop()
         modeValueFormatStatus:
           definition?.type === "motor" ? "pending" : "not-requested",
       };
-      if (definition && Number.isInteger(definition.inputMode)) {
-        const setupInputMode =
-          definition.type === "motor"
-            ? this._prepareMotorPositionMode(port, definition.inputMode)
-            : this._setInputMode(port, definition.inputMode);
-        setupInputMode.catch((error) => this._recordCommunicationError(error));
-      }
       if (definition?.type === "motor") {
+        this._beginSensorPolling(port, this._devices[port], 3);
         this._discoverMotorPositionModes(port, this._devices[port]);
+      } else if (definition?.type === "distance") {
+        this._discoverDistanceSensorMode(port, this._devices[port], 0);
+      } else if (definition && Number.isInteger(definition.inputMode)) {
+        this._setInputMode(port, definition.inputMode).catch((error) =>
+          this._recordCommunicationError(error)
+        );
       }
     }
 
@@ -10966,6 +11230,293 @@ continuous_sensor_loop()
       for (const request of Object.values(this._modeInfoRequests[port] || {})) {
         if (request?.timeout) clearTimeout(request.timeout);
       }
+      const poll = this._sensorPollStates[port];
+      if (poll?.timeout) clearTimeout(poll.timeout);
+      if (poll?.pending?.timeout) clearTimeout(poll.pending.timeout);
+      delete this._sensorPollStates[port];
+      delete this._sensorLastPortSentAt[port];
+      const inputWaiter = this._inputFormatWaiters[port];
+      if (inputWaiter?.timer) clearTimeout(inputWaiter.timer);
+      inputWaiter?.reject?.(new Error(`Sensor device changed on port ${port}`));
+      delete this._inputFormatWaiters[port];
+      this._scheduleSensorPoll();
+    }
+
+    _monotonicNow() {
+      return typeof performance !== "undefined" &&
+        typeof performance.now === "function"
+        ? performance.now()
+        : Date.now();
+    }
+
+    _beginSensorPolling(port, device, mode) {
+      const attachmentId = device?.attachmentId;
+      if (!device || !attachmentId) return;
+      const old = this._sensorPollStates[port];
+      if (old?.timeout) clearTimeout(old.timeout);
+      this._sensorPollStates[port] = {
+        port,
+        attachmentId,
+        deviceType: device.deviceType,
+        mode,
+        activeUntil: 0,
+        nextDueAt: this._monotonicNow() + 200,
+        pending: null,
+        pollsSent: 0,
+        pollTimeouts: 0,
+        samplesReceived: 0,
+        notificationCount: 0,
+        unattributedSampleCount: 0,
+        consecutiveTimeouts: 0,
+        currentPollIntervalMs: 200,
+        communicationState: "NORMAL",
+        lastError: null,
+        stableSince: this._monotonicNow(),
+        intervals: [],
+        lastSampleMonotonicAt: null,
+      };
+      this._scheduleSensorPoll();
+    }
+
+    _pollTargetInterval(poll, now = this._monotonicNow()) {
+      return now < poll.activeUntil ? 25 : 200;
+    }
+
+    setSensorDemand(port, active = true) {
+      const normalized = this._requirePort(port);
+      const poll = this._sensorPollStates[normalized];
+      if (!poll || this._devices[normalized]?.attachmentId !== poll.attachmentId) return;
+      const now = this._monotonicNow();
+      poll.activeUntil = active ? now + 1500 : 0;
+      if (poll.communicationState === "NORMAL") {
+        poll.currentPollIntervalMs = this._pollTargetInterval(poll, now);
+      }
+      poll.nextDueAt = Math.min(
+        poll.nextDueAt,
+        now + (active ? 25 : 200)
+      );
+      this._scheduleSensorPoll();
+    }
+
+    _recordSensorSample(port, reading, receivedAt) {
+      const poll = this._sensorPollStates[port];
+      if (!poll || poll.attachmentId !== this._devices[port]?.attachmentId) return null;
+      const monotonicAt = this._monotonicNow();
+      const previousAt = poll.lastSampleMonotonicAt;
+      if (Number.isFinite(previousAt) && monotonicAt >= previousAt) {
+        poll.intervals.push(monotonicAt - previousAt);
+        if (poll.intervals.length > 100) poll.intervals.shift();
+      }
+      poll.lastSampleMonotonicAt = monotonicAt;
+      poll.samplesReceived += 1;
+      const wasRecovering = poll.communicationState !== "NORMAL";
+      poll.consecutiveTimeouts = 0;
+      poll.lastError = null;
+      if (wasRecovering) {
+        poll.communicationState = "RECOVERY";
+        if (!Number.isFinite(poll.stableSince)) poll.stableSince = monotonicAt;
+      }
+      if (poll.pending) {
+        const pending = poll.pending;
+        if (pending.timeout) clearTimeout(pending.timeout);
+        // LWP3 PortValue has no request id. This sample may be a notification
+        // or a response to the outstanding 0x21; retain the ambiguity.
+        poll.lastPollObservation = {
+          sentAt: pending.sentAt,
+          observedAt: monotonicAt,
+          latencyMs: Math.max(0, monotonicAt - pending.sentAt),
+          attribution: "ambiguous-notification-or-poll-response",
+        };
+        poll.unattributedSampleCount += 1;
+        poll.pending = null;
+      } else {
+        poll.notificationCount += 1;
+      }
+      const targetInterval = this._pollTargetInterval(poll, monotonicAt);
+      if (poll.currentPollIntervalMs > targetInterval) {
+        if (!Number.isFinite(poll.stableSince)) poll.stableSince = monotonicAt;
+        if (monotonicAt - poll.stableSince >= 5000) {
+          poll.currentPollIntervalMs = Math.max(
+            targetInterval,
+            Math.floor(poll.currentPollIntervalMs / 2)
+          );
+          poll.stableSince = monotonicAt;
+        }
+        if (poll.currentPollIntervalMs <= targetInterval) {
+          poll.communicationState = "NORMAL";
+        }
+      } else {
+        poll.currentPollIntervalMs = targetInterval;
+        poll.stableSince = monotonicAt;
+        poll.communicationState = "NORMAL";
+      }
+      poll.nextDueAt = monotonicAt + Math.max(targetInterval, poll.currentPollIntervalMs);
+      const sorted = [...poll.intervals].sort((a, b) => a - b);
+      const percentile = (p) => sorted.length
+        ? sorted[Math.min(sorted.length - 1, Math.ceil(sorted.length * p) - 1)]
+        : null;
+      const average = poll.intervals.length
+        ? poll.intervals.reduce((sum, value) => sum + value, 0) / poll.intervals.length
+        : null;
+      const telemetry = {
+        samplesReceived: poll.samplesReceived,
+        effectiveHz: average > 0 ? 1000 / average : null,
+        medianIntervalMs: percentile(0.5),
+        p95IntervalMs: percentile(0.95),
+        maxIntervalMs: sorted.length ? sorted[sorted.length - 1] : null,
+        latestSampleAgeMs: 0,
+        pollsSent: poll.pollsSent,
+        pollTimeouts: poll.pollTimeouts,
+        notificationCount: poll.notificationCount,
+        unattributedSampleCount: poll.unattributedSampleCount,
+        currentPollIntervalMs: poll.currentPollIntervalMs,
+        active: monotonicAt < poll.activeUntil,
+        communicationState: poll.communicationState,
+        quality: reading.quality || "valid",
+        lastError: poll.lastError,
+        lastPollObservation: poll.lastPollObservation || null,
+        receivedAt,
+        monotonicReceivedAt: monotonicAt,
+      };
+      return telemetry;
+    }
+
+    _scheduleSensorPoll() {
+      if (this._sensorPollTimer) clearTimeout(this._sensorPollTimer);
+      this._sensorPollTimer = null;
+      const now = this._monotonicNow();
+      const nextDue = Object.values(this._sensorPollStates)
+        .filter((poll) => !poll.pending && this._devices[poll.port]?.attachmentId === poll.attachmentId)
+        .reduce((soonest, poll) => Math.min(soonest, poll.nextDueAt), Infinity);
+      if (!Number.isFinite(nextDue)) return;
+      this._sensorPollTimer = setTimeout(
+        () => this._runSensorPollScheduler(),
+        Math.max(1, Math.min(250, nextDue - now))
+      );
+    }
+
+    _runSensorPollScheduler() {
+      this._sensorPollTimer = null;
+      const now = this._monotonicNow();
+      const ports = ["A", "B"];
+      const duePolls = ports
+        .slice(this._sensorPollRoundRobin)
+        .concat(ports.slice(0, this._sensorPollRoundRobin))
+        .map((port) => this._sensorPollStates[port])
+        .filter((poll) => poll && !poll.pending && poll.nextDueAt <= now &&
+          this._devices[poll.port]?.attachmentId === poll.attachmentId &&
+          this._portModes[poll.port] === poll.mode &&
+          this._inputFormats[poll.port]?.mode === poll.mode &&
+          this._inputFormats[poll.port]?.status === "acknowledged");
+      const stalePolls = duePolls.filter((poll) => {
+        const active = now < poll.activeUntil;
+        const staleLimit = active ? 50 : 200;
+        const age = Number.isFinite(poll.lastSampleMonotonicAt)
+          ? now - poll.lastSampleMonotonicAt
+          : Infinity;
+        return age >= staleLimit;
+      });
+      const poll = stalePolls[0];
+      if (poll) {
+        // Notifications remain the primary stream. Poll only when the stream
+        // has gone quiet long enough to need a current-value check.
+        const perPortInterval = 1000 / 30;
+        const sincePortWrite = now - (this._sensorLastPortSentAt[poll.port] || -Infinity);
+        const sinceHubWrite = now - (this._sensorGlobalLastSentAt || -Infinity);
+        if (sincePortWrite >= perPortInterval && sinceHubWrite >= 25) {
+          this._sensorPollRoundRobin = (ports.indexOf(poll.port) + 1) % ports.length;
+          this._sendSensorPoll(poll);
+        } else {
+          poll.nextDueAt = now + Math.max(2, perPortInterval - sincePortWrite, 25 - sinceHubWrite);
+        }
+      } else {
+        duePolls.forEach((due) => {
+          due.nextDueAt = now + (now < due.activeUntil ? 25 : 200);
+        });
+      }
+      this._scheduleSensorPoll();
+    }
+
+    _sendSensorPoll(poll, {priority = null} = {}) {
+      const now = this._monotonicNow();
+      const portId = poll.port === "A" ? 0 : 1;
+      const pending = {sentAt: now, timeout: null};
+      poll.pending = pending;
+      poll.pollsSent += 1;
+      poll.nextDueAt = Infinity;
+      this._sensorGlobalLastSentAt = now;
+      this._sensorLastPortSentAt[poll.port] = now;
+      poll.timeout = setTimeout(() => {
+        if (poll.pending !== pending) return;
+        poll.pending = null;
+        poll.pollTimeouts += 1;
+        poll.consecutiveTimeouts += 1;
+        const backoff = poll.consecutiveTimeouts <= 2 ? 50 :
+          poll.consecutiveTimeouts === 3 ? 100 : 200;
+        poll.currentPollIntervalMs = Math.max(this._pollTargetInterval(poll), backoff);
+        poll.communicationState = poll.consecutiveTimeouts < 2 ? "NORMAL" :
+          poll.consecutiveTimeouts === 2 ? "DEGRADED" :
+            poll.consecutiveTimeouts === 3 ? "BACKOFF" : "RECOVERY";
+        poll.stableSince = null;
+        poll.lastError = "no PortValue observed within 250 ms; LWP3 has no request id";
+        poll.nextDueAt = this._monotonicNow() + poll.currentPollIntervalMs;
+        this._scheduleSensorPoll();
+      }, 250);
+      pending.timeout = poll.timeout;
+      return this._send(
+        [5, 0, LWP3.PORT_INFORMATION_REQUEST, portId, 0],
+        {
+          priority: Number.isFinite(priority) ? priority :
+            now < poll.activeUntil ? 30 : 10,
+          coalesceKey: `lwp3-value-read-${poll.port}`,
+          expiresInMs: 250,
+        }
+      ).catch((error) => {
+        if (poll.pending === pending) {
+          clearTimeout(pending.timeout);
+          poll.pending = null;
+          poll.pollTimeouts += 1;
+          poll.consecutiveTimeouts += 1;
+          poll.lastError = error?.message || String(error);
+          const backoff = poll.consecutiveTimeouts <= 2 ? 50 :
+            poll.consecutiveTimeouts === 3 ? 100 : 200;
+          poll.currentPollIntervalMs = Math.max(this._pollTargetInterval(poll), backoff);
+          poll.communicationState = poll.consecutiveTimeouts < 2 ? "NORMAL" :
+            poll.consecutiveTimeouts === 2 ? "DEGRADED" :
+              poll.consecutiveTimeouts === 3 ? "BACKOFF" : "RECOVERY";
+          poll.stableSince = null;
+          poll.nextDueAt = this._monotonicNow() + poll.currentPollIntervalMs;
+          this._recordCommunicationError(error);
+          this._scheduleSensorPoll();
+        }
+      });
+    }
+
+    async _requestFreshPortValue(port, attachmentId, priority = 30) {
+      const poll = this._sensorPollStates[port];
+      if (poll && poll.attachmentId === attachmentId &&
+          this._devices[port]?.attachmentId === attachmentId) {
+        const now = this._monotonicNow();
+        poll.activeUntil = now + 1500;
+        if (poll.communicationState === "NORMAL") {
+          poll.currentPollIntervalMs = this._pollTargetInterval(poll, now);
+        }
+        poll.nextDueAt = Math.min(poll.nextDueAt, now + 25);
+        if (!poll.pending) await this._sendSensorPoll(poll, {priority});
+        this._scheduleSensorPoll();
+        return;
+      }
+      // Some modes do not create a recurring sensor poll. Keep their explicit
+      // fresh read on the same GATT write queue and bound it so an obsolete
+      // read cannot sit ahead of later control traffic.
+      await this._send(
+        [5, 0, LWP3.PORT_INFORMATION_REQUEST, port === "A" ? 0 : 1, 0],
+        {
+          priority,
+          coalesceKey: `lwp3-value-read-${port}`,
+          expiresInMs: 250,
+        }
+      );
     }
 
     async _prepareMotorPositionMode(port, mode) {
@@ -10982,9 +11533,15 @@ continuous_sensor_loop()
       await this._setInputMode(port, mode);
     }
 
-    async _requestModeValueFormat(port, mode) {
+    async _requestModeValueFormat(port, mode, waitForResponse = false) {
       this._requirePort(port);
       const portId = port === "A" ? 0 : 1;
+      const key = `${mode}:${LWP3.MODE_VALUE_FORMAT}`;
+      const current = this._modeInfoRequests[port]?.[key];
+      if (current?.status === "pending" && current.responsePromise) {
+        if (waitForResponse) return current.responsePromise;
+        return;
+      }
       const request = {
         mode,
         informationType: LWP3.MODE_VALUE_FORMAT,
@@ -10992,9 +11549,22 @@ continuous_sensor_loop()
         requestedAt: Date.now(),
         status: "pending",
       };
+      let resolveResponse;
+      let rejectResponse;
+      request.responsePromise = new Promise((resolve, reject) => {
+        resolveResponse = resolve;
+        rejectResponse = reject;
+      });
+      request.responsePromise.catch(() => {});
+      request.resolveResponse = resolveResponse;
+      request.rejectResponse = rejectResponse;
+      request.timeout = setTimeout(() => {
+        if (request.status !== "pending" || this._devices[port]?.attachmentId !== request.attachmentId) return;
+        request.status = "timeout";
+        request.rejectResponse(new Error(`LWP3 mode ${mode} value format timed out on port ${port}`));
+      }, 900);
       if (!this._modeInfoRequests[port]) this._modeInfoRequests[port] = {};
-      this._modeInfoRequests[port][`${mode}:${LWP3.MODE_VALUE_FORMAT}`] =
-        request;
+      this._modeInfoRequests[port][key] = request;
       try {
         await this._send([
           6,
@@ -11006,10 +11576,11 @@ continuous_sensor_loop()
         ]);
       } catch (error) {
         if (
-          this._modeInfoRequests[port][`${mode}:${LWP3.MODE_VALUE_FORMAT}`] ===
-          request
+          this._modeInfoRequests[port][key] === request
         ) {
+          clearTimeout(request.timeout);
           request.status = "write-failed";
+          request.rejectResponse(error);
           if (mode === 2) {
             this._portValues[port] = {
               ...this._portValues[port],
@@ -11020,6 +11591,159 @@ continuous_sensor_loop()
         }
         throw error;
       }
+      if (waitForResponse) return request.responsePromise;
+    }
+
+    async _ensureMotorPositionMode(port, mode) {
+      const previous = this._motorPositionModeQueues[port] || Promise.resolve();
+      const current = previous.catch(() => {}).then(async () => {
+        const device = this._devices[port];
+        const state = this._motorPositionModes[port];
+        const attachmentId = device?.attachmentId;
+        if (!device || device.type !== "motor" || !state || state.attachmentId !== attachmentId) {
+          throw this._deviceNotConnectedError(port, "angular motor");
+        }
+        if (mode !== 2 && mode !== 3) throw new Error(`Unsupported position mode ${mode}`);
+        if (
+          state.positionStreamMode === (mode === 2 ? "pos-single" : "apos-single") &&
+          this._portModes[port] === mode &&
+          this._inputFormats[port]?.status === "acknowledged"
+        ) return;
+        if (this._motorOutputActive[port]) {
+          throw Object.assign(new Error(`Stop the motor on port ${port} before changing its position mode`), {
+            code: "ERR_POSITION_MODE_REQUIRES_STOPPED_MOTOR"
+          });
+        }
+        if (mode === 2) {
+          await this._requestModeValueFormat(port, 2, true);
+          const format = this._motorPositionModes[port]?.modeMetadata?.[2]?.format;
+          if (!format || format.status !== "verified" || format.dataSets !== 1 || format.dataType !== 2 || format.decimals !== 0) {
+            throw Object.assign(new Error(`POS mode 2 format is unsupported on port ${port}`), {
+              code: "ERR_POS_MODE_UNAVAILABLE"
+            });
+          }
+        }
+        if (this._devices[port]?.attachmentId !== attachmentId) {
+          throw this._motorAngleCancelledError("Motor attachment changed during position mode setup");
+        }
+        await this._setInputMode(port, mode, mode === 3 ? LWP3.APOS_DELTA : 1, {waitForAck: true});
+        if (this._devices[port]?.attachmentId !== attachmentId) {
+          throw this._motorAngleCancelledError("Motor attachment changed during position mode setup");
+        }
+      });
+      this._motorPositionModeQueues[port] = current.catch(() => {});
+      return current;
+    }
+
+    _discoverDistanceSensorMode(port, device, mode) {
+      if (!device || device.type !== "distance") return;
+      device.modeMetadata = device.modeMetadata || {};
+      device.distanceMode = mode;
+      device.distanceModeStatus = "reading-mode-metadata";
+      this._portValues[port] = {
+        ...this._portValues[port],
+        distanceMode: mode,
+        distanceModeStatus: device.distanceModeStatus,
+        distanceModeMetadata: device.modeMetadata,
+        distanceMM: null,
+        distance: null,
+        quality: "pending-mode-metadata",
+      };
+      for (const informationType of [0, LWP3.MODE_VALUE_FORMAT, 3, 4]) {
+        this._requestDistanceModeMetadata(port, mode, informationType, device);
+      }
+    }
+
+    _requestDistanceModeMetadata(port, mode, informationType, device) {
+      const key = `${mode}:${informationType}`;
+      const attachmentId = device.attachmentId;
+      if (!this._modeInfoRequests[port]) this._modeInfoRequests[port] = {};
+      const request = {mode, informationType, attachmentId, status: "pending"};
+      this._modeInfoRequests[port][key] = request;
+      request.timeout = setTimeout(() => {
+        if (this._devices[port]?.attachmentId !== attachmentId || request.status !== "pending") return;
+        request.status = "timeout";
+        const current = this._devices[port];
+        if (current?.attachmentId === attachmentId) {
+          current.distanceModeStatus = `mode-info-${informationType}-timeout`;
+          this._portValues[port] = {
+            ...this._portValues[port],
+            distanceModeStatus: current.distanceModeStatus,
+            quality: "mode-metadata-timeout",
+          };
+        }
+      }, 900);
+      this._send([
+        6,
+        0,
+        LWP3.PORT_MODE_INFORMATION_REQUEST,
+        port === "A" ? 0 : 1,
+        mode,
+        informationType,
+      ]).catch((error) => {
+        if (this._modeInfoRequests[port]?.[key] === request) {
+          request.status = "write-failed";
+          this._devices[port].distanceModeStatus = "mode-info-write-failed";
+          this._portValues[port] = {
+            ...this._portValues[port],
+            distanceModeStatus: "mode-info-write-failed",
+            quality: "mode-metadata-write-failed",
+          };
+        }
+        this._recordCommunicationError(error);
+      });
+    }
+
+    _maybeStartDistanceSensorMode(port, device, mode) {
+      if (!device || device.type !== "distance" || device.attachmentId !== this._devices[port]?.attachmentId) return;
+      if (device.distanceModeConfiguring || this._portModes[port] === mode) return;
+      const metadata = device.modeMetadata?.[mode];
+      const format = metadata?.format;
+      const supportedUnit = ["mm", "cm", "m"].includes(String(metadata?.symbol || "").toLowerCase());
+      const expectedName = mode === 0 ? "DISTL" : mode === 1 ? "DISTS" : null;
+      const rangeKnown = Number.isFinite(metadata?.siRange?.min) && Number.isFinite(metadata?.siRange?.max);
+      const supportedFormat = format?.status === "verified" && format.dataSets === 1 &&
+        [0, 1, 2, 3].includes(format.dataType) && supportedUnit && rangeKnown &&
+        metadata?.name === expectedName;
+      if (!supportedFormat) {
+        if (format?.status === "unsupported-format" || (metadata?.symbol && !supportedUnit)) {
+          device.distanceModeStatus = "unsupported-value-format-or-unit";
+          this._portValues[port] = {
+            ...this._portValues[port],
+            distanceModeStatus: device.distanceModeStatus,
+            distanceModeMetadata: metadata,
+            quality: "unsupported-mode-format",
+          };
+        }
+        return;
+      }
+      device.distanceModeConfiguring = true;
+      device.distanceModeStatus = "configuring";
+      this._portValues[port] = {
+        ...this._portValues[port],
+        distanceModeStatus: "configuring",
+        distanceModeMetadata: metadata,
+      };
+      this._setInputMode(port, mode, LWP3.DISTANCE_DELTA).then(() => {
+        if (this._devices[port]?.attachmentId !== device.attachmentId) return;
+        device.distanceModeConfiguring = false;
+        device.distanceModeStatus = "awaiting-input-format-ack";
+        this._portValues[port] = {
+          ...this._portValues[port],
+          distanceModeStatus: device.distanceModeStatus,
+          inputMode: mode,
+          inputDelta: LWP3.DISTANCE_DELTA,
+        };
+      }).catch((error) => {
+        device.distanceModeConfiguring = false;
+        device.distanceModeStatus = "input-format-write-failed";
+        this._portValues[port] = {
+          ...this._portValues[port],
+          distanceModeStatus: device.distanceModeStatus,
+          quality: "input-format-write-failed",
+        };
+        this._recordCommunicationError(error);
+      });
     }
 
     _discoverMotorPositionModes(port, attachedDevice) {
@@ -11033,9 +11757,11 @@ continuous_sensor_loop()
         posSingleAcknowledged: false,
         modeMetadata: {},
         possibleModeCombinations: null,
-        positionStreamMode: "pos-single",
+        positionStreamMode: "apos-single",
         aposStatus: "checking-modes",
-        combinedStatus: "not-checked",
+        combinedStatus: "available-on-demand",
+        combinedAttemptCount: 0,
+        combinedRetryBlocked: false,
         timeout: null,
       };
       this._motorPositionModes[port] = state;
@@ -11183,29 +11909,13 @@ continuous_sensor_loop()
         for (const informationType of [0, LWP3.MODE_VALUE_FORMAT, 3, 4]) {
           this._requestMotorModeMetadata(port, 3, informationType, state);
         }
-        if ((state.capabilities & 0x04) !== 0) {
-          this._portInfoRequests[port][2] = {
-            status: "pending",
-            attachmentId: state.attachmentId,
-          };
-          state.comboTimeout = setTimeout(() => {
-            if (
-              this._devices[port]?.attachmentId === state.attachmentId &&
-              this._motorPositionModes[port] === state &&
-              this._portInfoRequests[port]?.[2]?.status === "pending"
-            ) {
-              this._portInfoRequests[port][2].status = "timeout";
-              state.combinedStatus = "combination-query-timeout";
-              this._updateMotorPositionDiagnostics(port, state);
-            }
-          }, 900);
-          const portId = port === "A" ? 0 : 1;
-          this._send([5, 0, LWP3.PORT_INFORMATION_REQUEST, portId, 0x02]).catch(
-            (error) => this._recordCommunicationError(error)
-          );
-        } else {
-          state.combinedStatus = "not-combinable";
-        }
+        // APOS mode 3 is the stable default. Combined POS/APOS negotiation
+        // is deferred until a feature explicitly needs simultaneous streams;
+        // ordinary motor connection never probes it.
+        state.combinedStatus =
+          (state.capabilities & 0x04) !== 0
+            ? "available-on-demand"
+            : "not-combinable";
         return;
       }
       if (informationType === 2) {
@@ -11235,7 +11945,7 @@ continuous_sensor_loop()
         state.possibleModeCombinations = combinations;
         state.combinedStatus = "combinations-received";
         this._updateMotorPositionDiagnostics(port, state);
-        this._maybeConfigureCombinedPositionMode(port, state);
+        if (state.combinedRequested) this._maybeConfigureCombinedPositionMode(port, state);
       }
     }
 
@@ -11260,9 +11970,13 @@ continuous_sensor_loop()
         return;
       if (request.timeout) clearTimeout(request.timeout);
       const state = this._motorPositionModes[port];
+      const device = this._devices[port];
       const metadata =
         state && state.attachmentId === this._devices[port].attachmentId
           ? state.modeMetadata[mode] || (state.modeMetadata[mode] = {})
+          : device.type === "distance"
+            ? (device.modeMetadata || (device.modeMetadata = {}))[mode] ||
+              (device.modeMetadata[mode] = {})
           : null;
       if (informationType === 0) {
         request.status = "received";
@@ -11271,6 +11985,16 @@ continuous_sensor_loop()
           ""
         );
         if (metadata) metadata.name = name;
+        if (device.type === "distance") {
+          device.distanceModeName = name;
+          this._portValues[port] = {
+            ...this._portValues[port],
+            distanceModeName: name,
+            distanceModeMetadata: metadata,
+          };
+          this._maybeStartDistanceSensorMode(port, device, mode);
+          return;
+        }
         if (state && mode === 3 && name !== "APOS") {
           state.aposStatus = "mode-3-not-apos";
           this._updateMotorPositionDiagnostics(port, state);
@@ -11294,6 +12018,14 @@ continuous_sensor_loop()
             ? "received"
             : "malformed-response";
         if (metadata && request.status === "received") metadata.siRange = range;
+        if (device.type === "distance") {
+          this._portValues[port] = {
+            ...this._portValues[port],
+            distanceModeMetadata: metadata,
+          };
+          this._maybeStartDistanceSensorMode(port, device, mode);
+          return;
+        }
         this._maybeStartAposMode(port, state);
         return;
       }
@@ -11308,11 +12040,20 @@ continuous_sensor_loop()
             /\0+$/,
             ""
           );
+        if (device.type === "distance") {
+          this._portValues[port] = {
+            ...this._portValues[port],
+            distanceModeMetadata: metadata,
+          };
+          this._maybeStartDistanceSensorMode(port, device, mode);
+          return;
+        }
         this._maybeStartAposMode(port, state);
         return;
       }
       if (informationType !== LWP3.MODE_VALUE_FORMAT || message.length !== 10) {
         request.status = "malformed-response";
+        request.rejectResponse?.(new Error(`Malformed LWP3 mode ${mode} VALUE FORMAT response on port ${port}`));
         return;
       }
       const format = {
@@ -11332,6 +12073,7 @@ continuous_sensor_loop()
       if (metadata) metadata.format = format;
       if (mode === 2) this._modeValueFormats[port] = format;
       request.status = format.status;
+      request.resolveResponse?.(format);
       if (mode === 2) {
         this._portValues[port] = {
           ...this._portValues[port],
@@ -11365,6 +12107,21 @@ continuous_sensor_loop()
         state.aposStatus = "unsupported-mode-3-format";
         this._updateMotorPositionDiagnostics(port, state);
       }
+      if (device.type === "distance") {
+        device.modeValueFormat = {...format};
+        device.distanceModeStatus = format.status === "verified"
+          ? "mode-metadata-verified"
+          : "unsupported-value-format";
+        this._portValues[port] = {
+          ...this._portValues[port],
+          modeValueFormat: {...format},
+          modeValueFormatStatus: format.status,
+          distanceModeStatus: device.distanceModeStatus,
+          distanceModeMetadata: metadata,
+        };
+        this._maybeStartDistanceSensorMode(port, device, mode);
+        return;
+      }
       this._maybeStartAposMode(port, state);
     }
 
@@ -11372,6 +12129,10 @@ continuous_sensor_loop()
       if (
         !state ||
         state.attachmentId !== this._devices[port].attachmentId ||
+        // An on-demand POS operation deliberately pauses APOS. Late metadata
+        // replies must not silently switch the same physical input back to
+        // mode 3 while a POS read or reset is in progress.
+        state.aposStatus === "paused-for-pos" ||
         state.aposStatus === "subscribing" ||
         state.aposStatus === "awaiting-sample" ||
         state.aposStatus === "ready"
@@ -11438,26 +12199,80 @@ continuous_sensor_loop()
       });
     }
 
-    async _setInputMode(port, mode) {
+    async _setInputMode(port, mode, requestedDelta = null, options = {}) {
       this._requirePort(port);
-      if (this._portModes[port] === mode) return;
+      if (
+        this._portModes[port] === mode &&
+        this._inputFormats[port]?.mode === mode &&
+        this._inputFormats[port]?.status === "acknowledged"
+      ) return this._inputFormats[port].response;
       const portId = port === "A" ? 0 : 1;
+      const delta = Number.isInteger(requestedDelta)
+        ? requestedDelta
+        : mode === 3
+          ? LWP3.APOS_DELTA
+          : this._devices[port]?.type === "distance"
+            ? LWP3.DISTANCE_DELTA
+            : LWP3.PORT_VALUE_DELTA;
       // LWP3 §3.17 Port Input Format Setup Single. Delta 1 requests changes
       // at the device's least significant reporting unit; delta 0 can request
       // every available sample and create avoidable BLE traffic.
       const previousMode = this._portModes[port];
       const request = {
         mode,
-        delta: LWP3.PORT_VALUE_DELTA,
+        delta,
         notificationEnabled: true,
         requestedAt: Date.now(),
         status: "pending",
       };
+      let ackWaiter = null;
+      let ackPromise = null;
+      if (options.waitForAck) {
+        ackPromise = new Promise((resolve, reject) => {
+          ackWaiter = {
+            request,
+            resolve,
+            reject,
+            timer: setTimeout(() => {
+              if (this._inputFormatWaiters[port] === ackWaiter) {
+                delete this._inputFormatWaiters[port];
+                reject(new Error(`LWP3 mode ${mode} acknowledgement timed out on port ${port}`));
+              }
+            }, 1200)
+          };
+          this._inputFormatWaiters[port] = ackWaiter;
+        });
+        ackPromise.catch(() => {});
+      }
       // A fast 0x47 acknowledgement or 0x45 value can arrive as soon as the
       // characteristic write finishes. Publish the requested mode before the
       // await so the first sample is decoded against that mode.
       this._portModes[port] = mode;
       this._inputFormats[port] = request;
+      if (this._devices[port]?.type === "motor") {
+        const positionState = this._motorPositionModes[port];
+        if (positionState?.attachmentId === this._devices[port].attachmentId && !positionState.combinedSetup) {
+          positionState.positionStreamMode = mode === 3 ? "apos-configuring" : "pos-configuring";
+          if (mode === 3) positionState.aposStatus = "subscribing";
+          this._updateMotorPositionDiagnostics(port, positionState);
+        }
+        this._portValues[port] = {
+          ...this._portValues[port],
+          receivedAt: null,
+          absolutePosition: null,
+          absolutePositionRaw: null,
+          absolutePositionReceivedAt: null,
+          absolutePositionAvailable: false,
+          position: null,
+          relativePosition: null,
+          relativePositionReceivedAt: null,
+          degreesCounted: null,
+          speed: null,
+          positionMode: mode === 3 ? "APOS" : "POS",
+          inputMode: mode,
+          inputFormatStatus: "pending"
+        };
+      }
       if (this._portValues[port]) {
         this._portValues[port] = {
           ...this._portValues[port],
@@ -11472,13 +12287,17 @@ continuous_sensor_loop()
           LWP3.PORT_INPUT_FORMAT_SETUP_SINGLE,
           portId,
           mode,
-          LWP3.PORT_VALUE_DELTA,
+          delta,
           0,
           0,
           0,
           1,
         ]);
+        if (ackPromise) return await ackPromise;
       } catch (error) {
+        if (ackWaiter?.timer) clearTimeout(ackWaiter.timer);
+        if (this._inputFormatWaiters[port] === ackWaiter) delete this._inputFormatWaiters[port];
+        ackWaiter?.reject(error);
         if (this._inputFormats[port] === request) {
           if (previousMode === undefined) delete this._portModes[port];
           else this._portModes[port] = previousMode;
@@ -11563,6 +12382,39 @@ continuous_sensor_loop()
           inputFormatResponse: response,
           inputFormatStatus: status,
         };
+        if (this._devices[port].type === "distance") {
+          this._devices[port].distanceModeStatus = matchesRequest
+            ? "ready"
+            : "input-format-rejected";
+          this._portValues[port] = {
+            ...this._portValues[port],
+            distanceModeStatus: this._devices[port].distanceModeStatus,
+          };
+          if (matchesRequest) {
+            this._beginSensorPolling(port, this._devices[port], mode);
+            this._sensorPollStates[port].nextDueAt = this._monotonicNow();
+            this._scheduleSensorPoll();
+          }
+        } else if (matchesRequest && this._devices[port].type !== "motor") {
+          this._beginSensorPolling(port, this._devices[port], mode);
+          this._sensorPollStates[port].nextDueAt = this._monotonicNow();
+          this._scheduleSensorPoll();
+        }
+      }
+      if (matchesRequest && this._devices[port]?.type === "motor") {
+        const positionState = this._motorPositionModes[port];
+        if (positionState?.attachmentId === this._devices[port].attachmentId && !positionState.combinedSetup) {
+          if (mode === 3) {
+            positionState.positionStreamMode = "apos-single";
+            positionState.aposStatus = "awaiting-sample";
+            if (this._sensorPollStates[port]) this._sensorPollStates[port].mode = 3;
+          } else if (mode === 2) {
+            positionState.positionStreamMode = "pos-single";
+            positionState.posSingleAcknowledged = true;
+            positionState.aposStatus = "paused-for-pos";
+            if (this._sensorPollStates[port]) this._sensorPollStates[port].mode = 2;
+          }
+        }
       }
       if (requestInitialValue) {
         if (mode === 3) {
@@ -11599,11 +12451,17 @@ continuous_sensor_loop()
           state.combinedSetup.awaitingMode = null;
           if (waiter) waiter.resolve(response);
         }
-        if (mode === 2 && !state.combinedSetup)
+        if (mode === 2 && state.combinedRequested && !state.combinedSetup)
           this._maybeConfigureCombinedPositionMode(port, state);
-        if (mode === 3 && requestInitialValue && !state.combinedSetup) {
+        if (mode === 3 && requestInitialValue && state.combinedRequested && !state.combinedSetup)
           this._maybeConfigureCombinedPositionMode(port, state);
-        }
+      }
+      const inputWaiter = this._inputFormatWaiters[port];
+      if (inputWaiter?.request === request) {
+        if (inputWaiter.timer) clearTimeout(inputWaiter.timer);
+        delete this._inputFormatWaiters[port];
+        if (matchesRequest) inputWaiter.resolve(response);
+        else inputWaiter.reject(new Error(`LWP3 rejected mode ${mode} on port ${port}`));
       }
     }
 
@@ -11611,6 +12469,8 @@ continuous_sensor_loop()
       if (
         !state ||
         state.combinedSetup ||
+        !state.combinedRequested ||
+        state.combinedRetryBlocked ||
         state.attachmentId !== this._devices[port]?.attachmentId ||
         !state.posSingleAcknowledged ||
         state.aposStatus !== "ready"
@@ -11647,6 +12507,7 @@ continuous_sensor_loop()
         awaitingMode: null,
         singleModeWaiter: null,
       };
+      state.combinedAttemptCount += 1;
       state.combinedSetup = setup;
       state.combinedStatus = "locking-device";
       this._updateMotorPositionDiagnostics(port, state);
@@ -11842,6 +12703,10 @@ continuous_sensor_loop()
       setup.stage = "failed";
       state.combinedStatus = "combined-setup-failed";
       state.combinedFailure = error?.message || String(error);
+      // A firmware/device may advertise a combination that it will not
+      // acknowledge. Keep the APOS single-mode fallback stable for this
+      // attachment; reconnect creates a new state and is the retry boundary.
+      state.combinedRetryBlocked = true;
       state.combinedSetup = null;
       if (this._devices[port]?.attachmentId === state.attachmentId) {
         // Combined mode setup can change the device's active stream while the
@@ -12006,6 +12871,7 @@ continuous_sensor_loop()
       if (!port || !this._devices[port]) return;
       const device = this._devices[port];
       const mode = this._portModes[port];
+      if (this._inputFormats[port]?.status === "pending") return;
       if (
         device.type === "motor" &&
         this._motorPositionModes[port]?.combinedSetup
@@ -12142,16 +13008,38 @@ continuous_sensor_loop()
         this._recordColorEdge(port, previous.color, color);
       } else if (
         device.type === "distance" &&
-        mode === 1 &&
-        message.length >= 6
+        mode === device.distanceMode &&
+        ["awaiting-input-format-ack", "ready"].includes(device.distanceModeStatus)
       ) {
-        let millimeters = message[4] | (message[5] << 8);
-        if (millimeters > 32767) millimeters -= 65536;
+        const metadata = device.modeMetadata?.[mode];
+        const format = metadata?.format;
+        const size = format?.dataType === 0 ? 1 : format?.dataType === 1 ? 2 :
+          format?.dataType === 2 || format?.dataType === 3 ? 4 : 0;
+        if (!size || format.status !== "verified" || format.dataSets !== 1 || message.length !== 4 + size) return;
+        const view = new DataView(message.buffer, message.byteOffset + 4, size);
+        const rawValue = format.dataType === 0 ? view.getInt8(0) :
+          format.dataType === 1 ? view.getInt16(0, true) :
+            format.dataType === 2 ? view.getInt32(0, true) : view.getFloat32(0, true);
+        if (!Number.isFinite(rawValue)) return;
+        const scale = Math.pow(10, -format.decimals);
+        const value = rawValue * scale;
+        const unit = String(metadata.symbol || "").toLowerCase();
+        const millimeters = value * (unit === "m" ? 1000 : unit === "cm" ? 10 : unit === "mm" ? 1 : NaN);
+        const inRange = Number.isFinite(value) && value >= metadata.siRange.min && value <= metadata.siRange.max;
+        const quality = rawValue < 0 ? "measurement-unavailable" : !inRange ? "out-of-range" : "valid";
         next = {
           ...next,
           type: "distance",
-          distanceMM: millimeters < 0 ? null : millimeters,
-          distance: millimeters < 0 ? null : millimeters / 10,
+          rawValue,
+          rawUnit: unit,
+          value,
+          unit,
+          distanceMM: quality === "valid" && Number.isFinite(millimeters) ? millimeters : null,
+          distance: quality === "valid" && Number.isFinite(millimeters) ? millimeters / 10 : null,
+          distanceQuality: quality,
+          quality,
+          distanceModeMetadata: metadata,
+          distanceModeStatus: "ready",
         };
       } else if (device.type === "force" && mode === 0) {
         const force = message[4];
@@ -12178,8 +13066,10 @@ continuous_sensor_loop()
         // values; attached-device metadata remains available independently.
         return;
       }
+      const sensorTelemetry = this._recordSensorSample(port, next, now);
       this._portValues[port] = {
         ...next,
+        ...(sensorTelemetry ? {sensorTelemetry} : {}),
         receivedAt: now,
       };
       if (device.type === "motor" && mode === 3) {
@@ -12195,7 +13085,7 @@ continuous_sensor_loop()
         if (state) {
           this._updateMotorPositionDiagnostics(port, state);
           if (state.positionStreamMode === "apos-single") {
-            this._maybeConfigureCombinedPositionMode(port, state);
+            if (state.combinedRequested) this._maybeConfigureCombinedPositionMode(port, state);
           }
         }
       }
@@ -12263,7 +13153,8 @@ continuous_sensor_loop()
     }
 
     _output(port, subcommand, payload, feedback = true) {
-      const portId = this._requirePort(port) === "A" ? 0 : 1;
+      const normalizedPort = this._requirePort(port);
+      const portId = normalizedPort === "A" ? 0 : 1;
       const message = [
         6 + payload.length,
         0,
@@ -12273,7 +13164,9 @@ continuous_sensor_loop()
         subcommand,
         ...payload,
       ];
-      return this._send(message);
+      return this._send(message, {
+        priority: this._devices[normalizedPort]?.type === "motor" ? 100 : 60,
+      });
     }
 
     _int32(value) {
@@ -12297,12 +13190,16 @@ continuous_sensor_loop()
         port,
         "Absolute angle move cancelled by motor stop"
       );
-      if (mode === "hold")
-        return this._output(port, LWP3Output.START_SPEED, [0, 100, 0]);
-      return this._output(port, LWP3Output.WRITE_DIRECT_MODE_DATA, [
-        0,
-        mode === "brake" ? 127 : 0,
-      ]);
+      const stop = mode === "hold"
+        ? this._output(port, LWP3Output.START_SPEED, [0, 100, 0])
+        : this._output(port, LWP3Output.WRITE_DIRECT_MODE_DATA, [
+          0,
+          mode === "brake" ? 127 : 0,
+        ]);
+      return stop.then((result) => {
+        this._motorOutputActive[port] = false;
+        return result;
+      });
     }
 
     _motorAngleCancelledError(message) {
@@ -12340,7 +13237,7 @@ continuous_sensor_loop()
       return current;
     }
 
-    async _requestFreshApos(port, attachmentId, generation) {
+    async _requestFreshApos(port, attachmentId, generation, options = {}) {
       const device = this._devices[port];
       const state = this._motorPositionModes[port];
       if (!device || device.attachmentId !== attachmentId || !state ||
@@ -12377,6 +13274,21 @@ continuous_sensor_loop()
 
       const baselineSequence = this._absolutePositionSequences[port] || 0;
       const requestedAt = Date.now();
+      const cached = this._portValues[port];
+      if (
+        !options.requireFresh &&
+        Number.isFinite(cached?.absolutePosition) &&
+        Number.isFinite(cached.absolutePositionReceivedAt) &&
+        requestedAt - cached.absolutePositionReceivedAt <=
+          LWP3_POSITION_CACHE_MAX_AGE_MS
+      ) {
+        return {
+          value: cached.absolutePosition,
+          receivedAt: cached.absolutePositionReceivedAt,
+          sequence: baselineSequence,
+          cached: true,
+        };
+      }
       let waiter;
       const samplePromise = new Promise((resolve, reject) => {
         waiter = {
@@ -12416,13 +13328,8 @@ continuous_sensor_loop()
       try {
         // LWP3 §3.15, information type 0 requests the current port value.
         // Register first because the hub can emit the reply before write() resolves.
-        await this._send([
-          5,
-          0,
-          LWP3.PORT_INFORMATION_REQUEST,
-          port === "A" ? 0 : 1,
-          0,
-        ]);
+        // Share an in-flight poll; LWP3 has no request ID to disambiguate replies.
+        await this._requestFreshPortValue(port, attachmentId, 30);
       } catch (error) {
         waiter.reject(error);
         throw error;
@@ -12430,7 +13337,7 @@ continuous_sensor_loop()
       return samplePromise;
     }
 
-    async _requestFreshRelativePosition(port, attachmentId, generation) {
+    async _requestFreshRelativePosition(port, attachmentId, generation, options = {}) {
       const device = this._devices[port];
       const state = this._motorPositionModes[port];
       if (
@@ -12471,6 +13378,21 @@ continuous_sensor_loop()
 
       const baselineSequence = this._relativePositionSequences[port] || 0;
       const requestedAt = Date.now();
+      const cached = this._portValues[port];
+      if (
+        !options.requireFresh &&
+        Number.isFinite(cached?.relativePosition) &&
+        Number.isFinite(cached.relativePositionReceivedAt) &&
+        requestedAt - cached.relativePositionReceivedAt <=
+          LWP3_POSITION_CACHE_MAX_AGE_MS
+      ) {
+        return {
+          value: cached.relativePosition,
+          receivedAt: cached.relativePositionReceivedAt,
+          sequence: baselineSequence,
+          cached: true,
+        };
+      }
       let waiter;
       const samplePromise = new Promise((resolve, reject) => {
         waiter = {
@@ -12510,13 +13432,7 @@ continuous_sensor_loop()
       try {
         // LWP3 §3.15: request the current port value. Install the waiter first
         // because a fast PortValue may arrive before the BLE write resolves.
-        await this._send([
-          5,
-          0,
-          LWP3.PORT_INFORMATION_REQUEST,
-          port === "A" ? 0 : 1,
-          0,
-        ]);
+        await this._requestFreshPortValue(port, attachmentId, 30);
       } catch (error) {
         waiter.reject(error);
         throw error;
@@ -12582,6 +13498,7 @@ continuous_sensor_loop()
         waiter = {
           attachmentId,
           generation,
+          requestedAtMonotonic: this._monotonicNow(),
           sawProgress: false,
           resolve: (value) => settle(resolve, value),
           reject: (error) => settle(reject, error),
@@ -12613,6 +13530,8 @@ continuous_sensor_loop()
             : null;
         if (!port) continue;
         const status = message[offset + 1];
+        if (status & 0x01) this._motorOutputActive[port] = true;
+        if (status & (0x02 | 0x04 | 0x08 | 0x10)) this._motorOutputActive[port] = false;
         const waiter = this._outputFeedbackWaiters[port];
         if (!waiter) continue;
         if (
@@ -12650,7 +13569,9 @@ continuous_sensor_loop()
         // completion bit; otherwise a delayed completion from a cancelled
         // command could settle a newer move on the same port.
         if ((status & 0x02) && waiter.sawProgress) {
-          waiter.resolve({ status, receivedAt: Date.now() });
+          const latencyMs = Math.max(0, this._monotonicNow() - waiter.requestedAtMonotonic);
+          this._recordMotorCommandLatency(port, latencyMs);
+          waiter.resolve({ status, receivedAt: Date.now(), latencyMs });
         }
         // 0x08 (idle) alone is not proof that this requested command completed.
       }
@@ -12744,7 +13665,10 @@ continuous_sensor_loop()
             100,
             stopMode === "coast" ? 0 : stopMode === "hold" ? 126 : 127,
             0x11,
-          ]),
+          ]).then((result) => {
+            this._motorOutputActive[port] = true;
+            return result;
+          }),
           feedback,
         ]);
       } catch (error) {
@@ -12759,7 +13683,12 @@ continuous_sensor_loop()
           "Motor changed before absolute angle verification"
         );
       }
-      const final = await this._requestFreshApos(port, attachmentId, generation);
+      const final = await this._requestFreshApos(
+        port,
+        attachmentId,
+        generation,
+        {requireFresh: true}
+      );
       const actual = ((final.value % 360) + 360) % 360;
       const error = Math.min(
         (actual - target + 360) % 360,
@@ -12873,6 +13802,8 @@ continuous_sensor_loop()
       if (!Number.isFinite(target) || Math.abs(target) > 2147483647) {
         throw this._unsupportedError("relative target position must be a 32-bit number");
       }
+      await this._ensureMotorPositionMode(port, 2);
+      try {
       const initial = await this._requestFreshRelativePosition(
         port,
         attachmentId,
@@ -12921,7 +13852,10 @@ continuous_sensor_loop()
             100,
             stopMode === "coast" ? 0 : stopMode === "hold" ? 126 : 127,
             useProfile,
-          ]),
+          ]).then((result) => {
+            this._motorOutputActive[port] = true;
+            return result;
+          }),
           feedback,
         ]);
       } catch (error) {
@@ -12939,7 +13873,8 @@ continuous_sensor_loop()
       const final = await this._requestFreshRelativePosition(
         port,
         attachmentId,
-        generation
+        generation,
+        {requireFresh: true}
       );
       if (Math.abs(final.value - target) > 5) {
         throw Object.assign(
@@ -12948,6 +13883,67 @@ continuous_sensor_loop()
           ),
           {code: "ERR_MOTOR_RELATIVE_TARGET_NOT_REACHED"}
         );
+      }
+      } finally {
+        if (this._devices[port]?.attachmentId === attachmentId && this.isConnected()) {
+          await this._ensureMotorPositionMode(port, 3);
+        }
+      }
+    }
+
+    async _resetMotorPosition(port, position) {
+      this._requireMotor(port);
+      const device = this._devices[port];
+      const attachmentId = device.attachmentId;
+      const previous = this._portValues[port] || {};
+      await this._ensureMotorPositionMode(port, 2);
+      if (this._devices[port]?.attachmentId !== attachmentId) {
+        throw this._motorAngleCancelledError("Motor changed during POS reset setup");
+      }
+      const resetState = {
+        ...previous,
+        connected: true,
+        positionMode: "POS",
+        relativePosition: null,
+        relativePositionReceivedAt: null,
+        degreesCounted: null,
+        speed: null,
+        receivedAt: null,
+        positionResetPending: true,
+        positionResetStatus: "pending",
+        positionResetReadRequestedAt: null
+      };
+      this._portValues[port] = resetState;
+      try {
+        await this._output(port, LWP3Output.WRITE_DIRECT_MODE_DATA, [
+          2,
+          ...this._int32(position)
+        ]);
+        if (this._devices[port]?.attachmentId !== attachmentId) {
+          throw this._motorAngleCancelledError("Motor changed during POS reset");
+        }
+        const generation = this._motorAngleGenerations[port] || 0;
+        const sample = await this._requestFreshRelativePosition(
+          port,
+          attachmentId,
+          generation,
+          {requireFresh: true}
+        );
+        this._portValues[port] = {
+          ...this._portValues[port],
+          positionResetPending: false,
+          positionResetStatus: "confirmed-by-pos-sample",
+          positionResetReadRequestedAt: sample.receivedAt
+        };
+      } catch (error) {
+        if (this._devices[port]?.attachmentId === attachmentId && this._portValues[port] === resetState) {
+          this._portValues[port] = previous;
+        }
+        throw error;
+      } finally {
+        if (this._devices[port]?.attachmentId === attachmentId && this.isConnected()) {
+          await this._ensureMotorPositionMode(port, 3);
+        }
       }
     }
 
@@ -12977,16 +13973,24 @@ continuous_sensor_loop()
                 speed & 0xff,
                 100,
                 profile,
-              ])
+              ]).then((result) => {
+                this._motorOutputActive[port] = speed !== 0;
+                return result;
+              })
             );
           }
           case "scratch.motor_power":
             this._requireMotor(port);
-            return this._output(port, LWP3Output.WRITE_DIRECT_MODE_DATA, [
-              0,
-              Math.max(-100, Math.min(100, Math.round(Number(p.power) || 0))) &
-                0xff,
-            ]);
+            {
+              const power = Math.max(-100, Math.min(100, Math.round(Number(p.power) || 0)));
+              return this._output(port, LWP3Output.WRITE_DIRECT_MODE_DATA, [
+                0,
+                power & 0xff,
+              ]).then((result) => {
+                this._motorOutputActive[port] = power !== 0;
+                return result;
+              });
+            }
           case "scratch.motor_stop":
             this._requireMotor(port);
             return this._stopMotor(port, stopMode);
@@ -13010,7 +14014,10 @@ continuous_sensor_loop()
                 100,
                 stopMode === "coast" ? 0 : stopMode === "hold" ? 126 : 127,
                 profile,
-              ])
+              ]).then((result) => {
+                this._motorOutputActive[port] = degrees !== 0;
+                return result;
+              })
             );
           }
           case "scratch.motor_run_timed": {
@@ -13034,7 +14041,10 @@ continuous_sensor_loop()
                 100,
                 stopMode === "coast" ? 0 : stopMode === "hold" ? 126 : 127,
                 profile,
-              ])
+              ]).then((result) => {
+                this._motorOutputActive[port] = speed !== 0;
+                return result;
+              })
             );
           }
           case "scratch.motor_run_to_position":
@@ -13043,82 +14053,7 @@ continuous_sensor_loop()
             return this._runMotorToRelativePosition(port, p, speed, stopMode);
           case "scratch.motor_reset_position":
             this._requireMotor(port);
-            {
-              const attachedDevice = this._devices[port];
-              const attachmentId = attachedDevice?.attachmentId;
-              const previous = this._portValues[port] || {};
-              const positionState = this._motorPositionModes[port];
-              const streamMode = positionState?.positionStreamMode;
-              const hasPosStream =
-                streamMode === "pos-single" ||
-                streamMode === "apos-pos-combined";
-              const resetState = {
-                ...previous,
-                connected: true,
-                positionMode:
-                  streamMode === "apos-pos-combined"
-                    ? "APOS+POS"
-                    : previous.positionMode,
-                relativePosition: null,
-                relativePositionReceivedAt: null,
-                degreesCounted: null,
-                speed: null,
-                speedDerived: true,
-                speedUnit: "degrees-per-second",
-                speedSource: "delta-angle-over-received-time",
-                positionResetPending: hasPosStream,
-                positionResetStatus: hasPosStream
-                  ? "pending"
-                  : "pos-stream-unavailable",
-                positionResetReadRequestedAt: null,
-              };
-              // Invalidate before the write. A notification may arrive before
-              // the write Promise resolves; it must replace this placeholder
-              // rather than be overwritten by completion handling.
-              this._portValues[port] = resetState;
-              return this._output(port, LWP3Output.WRITE_DIRECT_MODE_DATA, [
-                2,
-                ...this._int32(p.position),
-              ])
-                .then(async () => {
-                  if (
-                    this._devices[port]?.attachmentId !== attachmentId ||
-                    this._portValues[port] !== resetState ||
-                    !hasPosStream ||
-                    !(
-                      this._inputFormats[port]?.status === "acknowledged" ||
-                      (this._inputFormats[port]?.mode === 2 &&
-                        this._motorPositionModes[port]?.positionStreamMode ===
-                          "apos-pos-combined")
-                    )
-                  ) {
-                    return;
-                  }
-                  const readState = {
-                    ...resetState,
-                    positionResetReadRequestedAt: Date.now(),
-                  };
-                  this._portValues[port] = readState;
-                  // A single documented Port Value read handles unchanged POS
-                  // values. APOS-only mode is not evidence that POS reset.
-                  await this._send([
-                    5,
-                    0,
-                    LWP3.PORT_INFORMATION_REQUEST,
-                    port === "A" ? 0 : 1,
-                    0,
-                  ]).catch((error) => this._recordCommunicationError(error));
-                })
-                .catch((error) => {
-                  if (
-                    this._devices[port]?.attachmentId === attachmentId &&
-                    this._portValues[port] === resetState
-                  ) {
-                    this._portValues[port] = previous;
-                  }
-                  throw error;
-                });
-            }
+            return this._resetMotorPosition(port, p.position);
           case "scratch.motor_set_stop_action":
             this._requireMotor(port);
             this._motorSettings[port].stopMode = {
@@ -13251,17 +14186,25 @@ continuous_sensor_loop()
       this._requireMotor(left);
       this._requireMotor(right);
       await this._configureRampProfiles([left, right], acceleration, acceleration);
+      const leftPower = Math.max(-100, Math.min(100, Math.round(leftSpeed)));
+      const rightPower = Math.max(-100, Math.min(100, Math.round(rightSpeed)));
       return Promise.all([
         this._output(left, LWP3Output.START_SPEED, [
-          Math.max(-100, Math.min(100, Math.round(leftSpeed))) & 0xff,
+          leftPower & 0xff,
           100,
           0x11,
-        ]),
+        ]).then((result) => {
+          this._motorOutputActive[left] = leftPower !== 0;
+          return result;
+        }),
         this._output(right, LWP3Output.START_SPEED, [
-          Math.max(-100, Math.min(100, Math.round(rightSpeed))) & 0xff,
+          rightPower & 0xff,
           100,
           0x11,
-        ]),
+        ]).then((result) => {
+          this._motorOutputActive[right] = rightPower !== 0;
+          return result;
+        }),
       ]);
     }
 
@@ -13429,6 +14372,16 @@ continuous_sensor_loop()
       );
       if (error) this._recordCommunicationError(error);
       this._frame = [];
+      if (this._sensorPollTimer) clearTimeout(this._sensorPollTimer);
+      this._sensorPollTimer = null;
+      for (const poll of Object.values(this._sensorPollStates)) {
+        if (poll.timeout) clearTimeout(poll.timeout);
+      }
+      this._sensorPollStates = {};
+      this._sensorLastPortSentAt = {};
+      this._sensorGlobalLastSentAt = 0;
+      this._sensorCommunicationState = "NORMAL";
+      this._motorCommandTelemetry = {};
       this._devices = {};
       this._portModes = {};
       this._modeInfoRequests = {};
@@ -13560,6 +14513,7 @@ continuous_sensor_loop()
       this._bridgeURL = "localhost:8081";
       this._selectedHubModel = "auto";
       this._movementSettings = {stopMode: "brake", acceleration: "medium"};
+      this._sensorDemandUntil = {};
 
       this._repl = new SpikePrime(this._runtime, extensionId);
       this._spike3 = new Spike3Hub(this._runtime, extensionId);
@@ -13944,6 +14898,7 @@ continuous_sensor_loop()
       if (this._activeProtocol === "essential") this._essential.disconnect();
       else if (this._activeProtocol === "spike3") this._spike3.disconnect();
       else this._repl.disconnect();
+      this._sensorDemandUntil = {};
       this._resolvedMode = null;
       this._emitModelChange("hub-disconnect-requested");
     }
@@ -14080,6 +15035,27 @@ continuous_sensor_loop()
     sendCommand(method, params, needsResponse = false) {
       return this.active.sendCommand(method, params, needsResponse);
     }
+    setSensorDemand(port, active = true) {
+      const normalized = String(port || "").trim().toUpperCase();
+      if (normalized !== "HUB" && !/^[A-F]$/.test(normalized)) return false;
+      this._sensorDemandUntil[normalized] = active
+        ? this._sensorDemandNow() + 1500
+        : 0;
+      if (normalized !== "HUB" && this._activeProtocol === "essential") {
+        this._essential.setSensorDemand(normalized, active);
+      }
+      return true;
+    }
+    _sensorDemandNow() {
+      return typeof performance !== "undefined" && typeof performance.now === "function"
+        ? performance.now()
+        : Date.now();
+    }
+    isSensorDemandActive(port) {
+      const normalized = String(port || "").trim().toUpperCase();
+      return Number.isFinite(this._sensorDemandUntil[normalized]) &&
+        this._sensorDemandNow() < this._sensorDemandUntil[normalized];
+    }
     sendPythonCommand(code) {
       return this.active.sendPythonCommand(code);
     }
@@ -14145,10 +15121,17 @@ continuous_sensor_loop()
 
     getCommunicationDiagnostics() {
       const connectionMode = this._resolvedMode || this._mode;
+      const sensorDemand = {
+        ports: Object.fromEntries(Object.entries(this._sensorDemandUntil).map(([port, until]) => [
+          port,
+          {active: Number.isFinite(until) && this._sensorDemandNow() < until},
+        ])),
+      };
       if (this._activeProtocol === "essential") {
         const detectedHubModel = this._essential.detectedHubModel;
         return {
           ...this._essential.getDiagnostics(connectionMode),
+          sensorDemand,
           selectedHubModel: this._selectedHubModel,
           detectedHubModel,
           effectiveHubModel: this._essential.isConnected()
@@ -14168,6 +15151,7 @@ continuous_sensor_loop()
       if (this._activeProtocol === "spike3") {
         return {
           ...this._spike3.getDiagnostics(connectionMode),
+          sensorDemand,
           selectedHubModel: this._selectedHubModel,
           detectedHubModel: this._spike3.detectedHubModel,
           effectiveHubModel: this._spike3.detectedHubModel,
@@ -18908,6 +19892,7 @@ continuous_sensor_loop()
             opcode: "getColorRGB",
             text: t("getColorRGB"),
             blockType: BlockType.REPORTER,
+            hideFromPalette: true,
             arguments: {
               PORT: {
                 type: ArgumentType.STRING,
@@ -20234,11 +21219,12 @@ continuous_sensor_loop()
 
     getMotorPower(args) {
       const port = Cast.toString(args.PORT).trim().toUpperCase();
+      this._peripheral.setSensorDemand?.(port, true);
       if (this._peripheral._activeProtocol !== "spike3") return "";
       const reading = this._peripheral.portValues[port];
       if (
         reading?.type !== "motor" ||
-        !this._hasFreshPortReading(reading) ||
+        !this._hasFreshPortReading(reading, port) ||
         !Number.isFinite(reading.power) ||
         reading.power < -10000 ||
         reading.power > 10000
@@ -20249,10 +21235,12 @@ continuous_sensor_loop()
     getPosition(args) {
       const port = Cast.toString(args.PORT).trim().toUpperCase();
       const peripheral = this._peripheral;
+      peripheral.setSensorDemand?.(port, true);
       if (
         peripheral._activeProtocol === "spike3" ||
         peripheral._activeProtocol === "essential"
       ) {
+        if (!this._hasFreshPortReading(peripheral.portValues?.[port], port)) return "";
         const position =
           peripheral._sensors?.motorPositions?.[port] ||
           peripheral.portValues?.[port];
@@ -20273,6 +21261,8 @@ continuous_sensor_loop()
 
     getRelativePosition(args) {
       const port = Cast.toString(args.PORT).trim().toUpperCase();
+      this._peripheral.setSensorDemand?.(port, true);
+      if (!this._hasFreshPortReading(this._peripheral.portValues[port], port)) return "";
       const altData = this._peripheral._sensors.motorPositions[port];
       if (typeof altData?.relativePosition === "number")
         return altData.relativePosition;
@@ -20281,6 +21271,8 @@ continuous_sensor_loop()
 
     getAbsolutePosition(args) {
       const port = Cast.toString(args.PORT).trim().toUpperCase();
+      this._peripheral.setSensorDemand?.(port, true);
+      if (!this._hasFreshPortReading(this._peripheral.portValues[port], port)) return "";
       const altData = this._peripheral._sensors.motorPositions[port];
       if (typeof altData?.absolutePosition === "number")
         return altData.absolutePosition;
@@ -20289,6 +21281,8 @@ continuous_sensor_loop()
 
     getSpeed(args) {
       const port = Cast.toString(args.PORT).trim().toUpperCase();
+      this._peripheral.setSensorDemand?.(port, true);
+      if (!this._hasFreshPortReading(this._peripheral.portValues[port], port)) return "";
       const altData = this._peripheral._sensors.motorPositions[port];
       const value = altData || this._peripheral.portValues[port];
       if (typeof value?.speed !== "number") return "";
@@ -20479,20 +21473,23 @@ continuous_sensor_loop()
     // IMU & Gyro
     _hasFreshPrimeImuReading() {
       if (this._peripheral._activeProtocol !== "spike3") return true;
+      this._peripheral.setSensorDemand?.("HUB", true);
       const receivedAt =
         this._peripheral.active?._diagnostics?.lastImuReceivedAt;
-      return this._hasFreshSensorTimestamp(receivedAt);
+      return this._hasFreshSensorTimestamp(receivedAt, "HUB");
     }
     _hasFreshPrimeControllerReading() {
       if (this._peripheral._activeProtocol !== "spike3") return true;
+      this._peripheral.setSensorDemand?.("HUB", true);
       const receivedAt =
         this._peripheral.active?._lastControllerSensorReceivedAt;
-      return this._hasFreshSensorTimestamp(receivedAt);
+      return this._hasFreshSensorTimestamp(receivedAt, "HUB");
     }
-    _hasFreshSensorTimestamp(receivedAt) {
+    _hasFreshSensorTimestamp(receivedAt, sensorGroup = "HUB") {
       if (!Number.isFinite(receivedAt)) return false;
       const age = Date.now() - receivedAt;
-      return age >= 0 && age <= SPIKE_SENSOR_STALE_AFTER_MS;
+      const active = this._peripheral.isSensorDemandActive?.(sensorGroup);
+      return age >= 0 && age <= (active ? LWP3_SENSOR_ACTIVE_FRESH_MS : 500);
     }
     getAngle(args) {
       if (!this._hasFreshPrimeImuReading()) return "";
@@ -20670,6 +21667,7 @@ continuous_sensor_loop()
     // Gestures
     whenGesture(args) {
       if (this._peripheral.protocol === "spike3") {
+        this._peripheral.setSensorDemand?.("HUB", true);
         const gesture = Cast.toString(args.GESTURE).toLowerCase();
         return this._peripheral._consumeSensorEdge(`gesture:${gesture}`);
       }
@@ -20706,10 +21704,11 @@ continuous_sensor_loop()
     getGesture() {
       const active = this._peripheral.active;
       if (this._peripheral._activeProtocol === "essential") return "";
+      if (!this._hasFreshPrimeControllerReading()) return "";
       const receivedAt = active?._lastControllerSensorReceivedAt;
       if (
         Number.isFinite(receivedAt) &&
-        Date.now() - receivedAt <= SPIKE_SENSOR_STALE_AFTER_MS
+        this._hasFreshSensorTimestamp(receivedAt, "HUB")
       ) {
         return active._lastControllerGesture || "none";
       }
@@ -20865,13 +21864,20 @@ continuous_sensor_loop()
     }
 
     // Sensors
-    _hasFreshPortReading(portData) {
-      return this._hasFreshSensorTimestamp(portData?.receivedAt);
+    _hasFreshPortReading(portData, port = portData?.port) {
+      if (!Number.isFinite(portData?.receivedAt)) return false;
+      const age = Date.now() - portData.receivedAt;
+      const essential = this._peripheral._essential;
+      const sensorPort = port || portData?.port;
+      const poll = essential?._sensorPollStates?.[sensorPort];
+      const active = this._peripheral.isSensorDemandActive?.(sensorPort) ||
+        (poll && essential._monotonicNow() < poll.activeUntil);
+      return age >= 0 && age <= (active ? LWP3_SENSOR_ACTIVE_FRESH_MS : 500);
     }
-    _forceSensorValue(portData) {
+    _forceSensorValue(portData, port) {
       if (
         portData?.type !== "force" ||
-        !this._hasFreshPortReading(portData) ||
+        !this._hasFreshPortReading(portData, port) ||
         !Number.isFinite(portData.force) ||
         portData.force < 0 ||
         portData.force > 100
@@ -20889,11 +21895,12 @@ continuous_sensor_loop()
     }
     getDistance(args) {
       const port = Cast.toString(args.PORT).trim().toUpperCase();
+      this._peripheral.setSensorDemand?.(port, true);
       const portData = this._peripheral.portValues[port];
       if (
         portData?.type === "distance" &&
         typeof portData.distance === "number" &&
-        this._hasFreshPortReading(portData)
+        this._hasFreshPortReading(portData, port)
       ) {
         return portData.distance;
       }
@@ -20901,10 +21908,11 @@ continuous_sensor_loop()
     }
     isDistanceCompared(args) {
       const port = Cast.toString(args.PORT).trim().toUpperCase();
+      this._peripheral.setSensorDemand?.(port, true);
       const reading = this._peripheral.portValues[port];
       if (
         reading?.type !== "distance" ||
-        !this._hasFreshPortReading(reading) ||
+        !this._hasFreshPortReading(reading, port) ||
         !Number.isFinite(reading.distance) ||
         reading.distance < 0
       ) return false;
@@ -20936,8 +21944,9 @@ continuous_sensor_loop()
     }
     getColor(args) {
       const port = Cast.toString(args.PORT).trim().toUpperCase();
+      this._peripheral.setSensorDemand?.(port, true);
       const portData = this._peripheral.portValues[port];
-      if (portData?.type === "color" && this._hasFreshPortReading(portData)) {
+      if (portData?.type === "color" && this._hasFreshPortReading(portData, port)) {
         const colorNames = [
           "black",
           "magenta",
@@ -20958,8 +21967,9 @@ continuous_sensor_loop()
     getReflection(args) {
       if (!this._needs("reflection")) return "";
       const port = Cast.toString(args.PORT).trim().toUpperCase();
+      this._peripheral.setSensorDemand?.(port, true);
       const portData = this._peripheral.portValues[port];
-      return this._hasFreshPortReading(portData) && typeof portData?.reflection === "number"
+      return this._hasFreshPortReading(portData, port) && typeof portData?.reflection === "number"
         ? portData.reflection
         : "";
     }
@@ -20975,18 +21985,20 @@ continuous_sensor_loop()
     getAmbientLight(args) {
       if (!this._needs("ambient")) return "";
       const port = Cast.toString(args.PORT).trim().toUpperCase();
+      this._peripheral.setSensorDemand?.(port, true);
       const portData = this._peripheral.portValues[port];
-      return this._hasFreshPortReading(portData) &&
+      return this._hasFreshPortReading(portData, port) &&
         typeof portData?.ambient === "number"
         ? portData.ambient
         : "";
     }
     getColorRGB(args) {
       const port = Cast.toString(args.PORT).trim().toUpperCase();
+      this._peripheral.setSensorDemand?.(port, true);
       const channel = Cast.toString(args.CHANNEL).toLowerCase();
       if (!["red", "green", "blue"].includes(channel)) return "";
       const portData = this._peripheral.portValues[port];
-      return this._hasFreshPortReading(portData) && typeof portData?.[channel] === "number"
+      return this._hasFreshPortReading(portData, port) && typeof portData?.[channel] === "number"
         ? portData[channel]
         : "";
     }
@@ -20997,6 +22009,7 @@ continuous_sensor_loop()
     }
     getForce(args) {
       const port = Cast.toString(args.PORT).trim().toUpperCase();
+      this._peripheral.setSensorDemand?.(port, true);
       const portData = this._peripheral.portValues[port];
       const raw = this._forceSensorValue(portData);
       if (raw === null) return "";
@@ -21006,6 +22019,7 @@ continuous_sensor_loop()
     }
     isForceSensorPressed(args) {
       const port = Cast.toString(args.PORT).trim().toUpperCase();
+      this._peripheral.setSensorDemand?.(port, true);
       const portData = this._peripheral.portValues[port];
       const force = this._forceSensorValue(portData);
       if (force === null) return false;
@@ -21019,16 +22033,18 @@ continuous_sensor_loop()
       return false;
     }
     whenColor(args) {
-      if (this._peripheral.protocol !== "spike3") return this.isColor(args);
       const port = Cast.toString(args.PORT).trim().toUpperCase();
+      this._peripheral.setSensorDemand?.(port, true);
+      if (this._peripheral.protocol !== "spike3") return this.isColor(args);
       const color = Cast.toString(args.COLOR).toLowerCase();
       return this._peripheral._consumeSensorEdge(`color:${port}:${color}`);
     }
     isColor(args) {
       const port = Cast.toString(args.PORT).trim().toUpperCase();
+      this._peripheral.setSensorDemand?.(port, true);
       const color = Cast.toString(args.COLOR).toLowerCase();
       const portData = this._peripheral.portValues[port];
-      if (portData?.type === "color" && this._hasFreshPortReading(portData)) {
+      if (portData?.type === "color" && this._hasFreshPortReading(portData, port)) {
         const colorNames = [
           "black",
           "magenta",
@@ -21048,6 +22064,7 @@ continuous_sensor_loop()
     }
     whenForceSensor(args) {
       const port = Cast.toString(args.PORT).trim().toUpperCase();
+      this._peripheral.setSensorDemand?.(port, true);
       const state = Cast.toString(args.STATE);
       const portData = this._peripheral.portValues[port];
       if (this._peripheral.protocol === "spike3") {
@@ -21055,7 +22072,8 @@ continuous_sensor_loop()
           return false;
         return this._peripheral._consumeSensorEdge(`force:${port}:${state}`);
       }
-      if (portData && portData.type === "force") {
+      if (portData && portData.type === "force" &&
+        this._hasFreshPortReading(portData, port)) {
         switch (state) {
           case "pressed":
             return portData.pressed;
@@ -21086,6 +22104,7 @@ continuous_sensor_loop()
     whenButtonPressed(args) {
       const name = Cast.toString(args.BUTTON).toLowerCase();
       if (this._peripheral.protocol === "spike3") {
+        this._peripheral.setSensorDemand?.("HUB", true);
         return this._peripheral._consumeSensorEdge(`button:${name}`);
       }
       return this.isButtonPressed(args);
@@ -21970,12 +22989,13 @@ continuous_sensor_loop()
      */
     getDistanceIn(args) {
       const port = Cast.toString(args.PORT).trim().toUpperCase();
+      this._peripheral.setSensorDemand?.(port, true);
       const portData = this._peripheral.portValues[port];
       if (
         !portData ||
         portData.type !== "distance" ||
         typeof portData.distance !== "number" ||
-        !this._hasFreshPortReading(portData)
+        !this._hasFreshPortReading(portData, port)
       )
         return "";
       const cm = portData.distance;
