@@ -106,6 +106,164 @@ describe('SPIKE Prime control center', () => {
         component.unmount();
     });
 
+    test('offers explicit no-upload slot recovery only after an unregistered Prime controller failure', async () => {
+        snapshot = {
+            ...snapshot,
+            connected: true,
+            protocol: 'spike3',
+            detectedHubModel: 'prime',
+            effectiveHubModel: 'prime',
+            standaloneCapable: true,
+            controllerSlot: null,
+            diagnostics: {
+                controllerCommandPreparation: {
+                    reason: 'no-controller-slot-registered-for-this-hub',
+                    outcome: 'rejected',
+                    sessionId: 8,
+                    timestamp: Date.now()
+                },
+                notificationTelemetry: {sessionId: 8}
+            },
+            deviceId: 'hub-session-a',
+            deviceName: 'SPIKE Prime'
+        };
+        api.recoverControllerSlot = jest.fn(slot => {
+            snapshot = {...snapshot, controllerSlot: slot, controllerReady: true};
+            return Promise.resolve({ready: true, slot});
+        });
+        api.getState.mockImplementation(() => snapshot);
+        const component = mount(<SpikePrimeControlCenter intl={{locale: 'en'}} vm={vm} />);
+        expect(api.recoverControllerSlot).not.toHaveBeenCalled();
+        expect(component.find('button').filterWhere(button => button.text() === 'Register controller slot'))
+            .toHaveLength(1);
+        component.find('button').filterWhere(button => button.text() === 'Register controller slot').simulate('click');
+        component.update();
+        expect(component.find('section[aria-label="LEGO hub"]')).toHaveLength(1);
+        expect(component.find('details').filterWhere(details => details.find('summary').text() === 'Controller')
+            .getDOMNode().open).toBe(true);
+        expect(component.text()).toContain('Select the existing Brickwright controller slot to start it without uploading or erasing.');
+        expect(component.find('button').filterWhere(button => button.text() === 'Register existing controller in slot 0'))
+            .toHaveLength(1);
+
+        component.find('select[aria-label="Controller slot"]').simulate('change', {
+            target: {value: '6'}
+        });
+        component.update();
+        expect(component.find('button').filterWhere(button => button.text() === 'Register existing controller in slot 6'))
+            .toHaveLength(1);
+        await act(async () => {
+            component.find('button').filterWhere(button => button.text() === 'Register existing controller in slot 6')
+                .simulate('click');
+            await Promise.resolve();
+        });
+        expect(api.recoverControllerSlot).toHaveBeenCalledTimes(1);
+        expect(api.recoverControllerSlot).toHaveBeenCalledWith(6);
+        expect(api.installController).not.toHaveBeenCalled();
+        expect(api.uploadAndRun).not.toHaveBeenCalled();
+        component.update();
+        expect(component.find('button').filterWhere(button => button.text() === 'Register controller slot'))
+            .toHaveLength(0);
+        component.unmount();
+    });
+
+    test('does not offer recovery for known slots, non-Prime hubs or unrelated preparation errors', () => {
+        const cases = [
+            {controllerSlot: 0},
+            {effectiveHubModel: 'essential', detectedHubModel: 'essential'},
+            {diagnostics: {
+                controllerCommandPreparation: {
+                    reason: 'controller-is-already-ready',
+                    outcome: 'rejected',
+                    sessionId: 4,
+                    timestamp: Date.now()
+                },
+                notificationTelemetry: {sessionId: 4}
+            }},
+            {diagnostics: {
+                controllerCommandPreparation: {
+                    reason: 'no-controller-slot-registered-for-this-hub',
+                    outcome: 'rejected',
+                    sessionId: 4,
+                    timestamp: Date.now()
+                },
+                notificationTelemetry: {sessionId: 5}
+            }}
+        ];
+        for (const overrides of cases) {
+            snapshot = {
+                ...snapshot,
+                connected: true,
+                protocol: 'spike3',
+                detectedHubModel: 'prime',
+                effectiveHubModel: 'prime',
+                controllerSlot: null,
+                diagnostics: {
+                    controllerCommandPreparation: {
+                        reason: 'no-controller-slot-registered-for-this-hub',
+                        outcome: 'rejected',
+                        sessionId: 4,
+                        timestamp: Date.now()
+                    },
+                    notificationTelemetry: {sessionId: 4}
+                },
+                ...overrides
+            };
+            api.recoverControllerSlot = jest.fn();
+            api.getState.mockImplementation(() => snapshot);
+            const component = mount(<SpikePrimeControlCenter intl={{locale: 'en'}} vm={vm} />);
+            component.find('button[aria-label^="LEGO hub:"]').simulate('click');
+            component.find('details').filterWhere(details => details.find('summary').text() === 'Controller')
+                .find('summary').simulate('click');
+            expect(component.find('button').filterWhere(button => button.text().startsWith('Register existing controller')))
+                .toHaveLength(0);
+            component.unmount();
+        }
+    });
+
+    test('rechecks the selected hub before invoking slot recovery', async () => {
+        snapshot = {
+            ...snapshot,
+            connected: true,
+            protocol: 'spike3',
+            detectedHubModel: 'prime',
+            effectiveHubModel: 'prime',
+            controllerSlot: null,
+            diagnostics: {
+                controllerCommandPreparation: {
+                    reason: 'no-controller-slot-registered-for-this-hub',
+                    outcome: 'rejected',
+                    sessionId: 9,
+                    timestamp: Date.now()
+                },
+                notificationTelemetry: {sessionId: 9}
+            },
+            deviceId: 'hub-session-a',
+            deviceName: 'SPIKE Prime A'
+        };
+        api.recoverControllerSlot = jest.fn(() => Promise.resolve({ready: true}));
+        api.getState.mockImplementation(() => snapshot);
+        const component = mount(<SpikePrimeControlCenter intl={{locale: 'en'}} vm={vm} />);
+        component.find('button').filterWhere(button => button.text() === 'Register controller slot').simulate('click');
+        component.update();
+        snapshot = {
+            ...snapshot,
+            deviceId: 'hub-session-b',
+            deviceName: 'SPIKE Prime B',
+            diagnostics: {
+                ...snapshot.diagnostics,
+                notificationTelemetry: {sessionId: 10}
+            }
+        };
+        await act(async () => {
+            component.find('button').filterWhere(button => button.text() === 'Register existing controller in slot 0')
+                .simulate('click');
+            await Promise.resolve();
+        });
+        expect(api.recoverControllerSlot).not.toHaveBeenCalled();
+        expect(component.text()).toContain('The connected hub changed.');
+        component.unmount();
+    });
+
     test('starts the explicitly confirmed saved controller without transferring or clearing the slot', async () => {
         snapshot = {
             ...snapshot,

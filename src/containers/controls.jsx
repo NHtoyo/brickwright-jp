@@ -205,7 +205,12 @@ class Controls extends React.Component {
             await api.uploadAndRun(confirmation.slot, source);
             this.setState({hubConfirmation: null});
         } catch (error) {
-            this.setState({hubConfirmation: null, hubRunError: error.message || String(error)});
+            const hubRunError = error && error.code === 'ERR_SPIKE_STANDALONE_UNSUPPORTED_VALUE' ? {
+                code: error.code,
+                slot: confirmation.slot,
+                opcode: error.opcode || error.blockOpcode || null
+            } : error.message || String(error);
+            this.setState({hubConfirmation: null, hubRunError});
         } finally {
             this.setState({hubRunBusy: false});
             this.refreshHubState();

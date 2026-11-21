@@ -65,6 +65,11 @@ const words = {
             'It will not upload or erase anything.',
         runSavedControllerConfirm: 'Start slot {slot}',
         startingController: 'Starting and verifying…',
+        recoverControllerSlotReason: 'Select the existing Brickwright controller slot to start it without ' +
+            'uploading or erasing.',
+        recoverControllerSlotPrompt: 'Register controller slot',
+        recoverControllerSlotAction: 'Register existing controller in slot {slot}',
+        recoveryHubChanged: 'The connected hub changed. Check the connection before trying again.',
         install: 'Install controller',
         installTo: 'Install to slot',
         controllerWarning: 'The hub slot contents cannot be read here. Installing clears the selected slot.',
@@ -184,6 +189,10 @@ const words = {
         runSavedControllerWarning: 'スロット{slot}に現在保存されているプログラムを起動します。転送・消去は行いません。',
         runSavedControllerConfirm: 'スロット{slot}を起動',
         startingController: '起動を確認中…',
+        recoverControllerSlotReason: 'Brickwright制御プログラムが入っているスロットを選ぶと、転送・消去せずにそのプログラムを起動します。',
+        recoverControllerSlotPrompt: '制御スロットを登録',
+        recoverControllerSlotAction: 'スロット{slot}の既存制御プログラムを登録',
+        recoveryHubChanged: '接続先のハブが変わりました。接続状態を確認してから、もう一度操作してください。',
         install: '制御プログラムを導入',
         installTo: '次のスロットに導入',
         controllerWarning: 'ハブ内のスロット内容はここでは読み取れません。導入すると選択したスロットを消去します。',
@@ -394,6 +403,8 @@ class SpikePrimeControlCenter extends React.Component {
             'handleStopHub', 'handleControllerSlotChanged', 'handleReviewControllerSlot',
             'handleConfirmControllerInstall', 'handleCancelControllerInstall',
             'handleVerifyController',
+            'handleRecoverControllerSlot',
+            'handleOpenControllerRecovery',
             'handleReviewSavedController', 'handleConfirmSavedController',
             'handleCancelSavedController',
             'handleConnectionModeChanged', 'handlePeripheralListUpdate',
@@ -812,6 +823,60 @@ class SpikePrimeControlCenter extends React.Component {
         this.runAction('verifyController');
     }
 
+    canRecoverControllerSlot (snapshot, api = this.getAPI()) {
+        const diagnostics = snapshot && snapshot.diagnostics;
+        const preparation = diagnostics && diagnostics.controllerCommandPreparation;
+        const telemetrySessionId = diagnostics && diagnostics.notificationTelemetry &&
+            diagnostics.notificationTelemetry.sessionId;
+        return Boolean(snapshot && snapshot.connected &&
+            this.getEffectiveModel(snapshot) === 'prime' &&
+            !Number.isInteger(snapshot.controllerSlot) &&
+            preparation && preparation.reason === 'no-controller-slot-registered-for-this-hub' &&
+            preparation.outcome === 'rejected' &&
+            Number.isInteger(preparation.sessionId) &&
+            Number.isInteger(telemetrySessionId) &&
+            preparation.sessionId === telemetrySessionId &&
+            api && typeof api.recoverControllerSlot === 'function');
+    }
+
+    handleRecoverControllerSlot () {
+        const snapshot = this.state.snapshot;
+        const api = this.getAPI();
+        const slot = this.state.controllerSlot;
+        const expectedIdentity = this.currentConnectionIdentity;
+        if (!Number.isInteger(slot) || !this.canRecoverControllerSlot(snapshot, api) || !expectedIdentity) return;
+
+        let latestSnapshot;
+        try {
+            latestSnapshot = api.getState();
+        } catch (error) {
+            this.updateIfMounted({error: error.message || String(error)});
+            return;
+        }
+        const latestIdentity = latestSnapshot && this.getConnectionIdentity(latestSnapshot);
+        const preparation = snapshot.diagnostics.controllerCommandPreparation;
+        if (latestIdentity !== expectedIdentity) {
+            this.updateIfMounted({error: this.getWords().recoveryHubChanged});
+            this.refresh();
+            return;
+        }
+        const latestPreparation = latestSnapshot && latestSnapshot.diagnostics &&
+            latestSnapshot.diagnostics.controllerCommandPreparation;
+        if (!this.canRecoverControllerSlot(latestSnapshot, api) ||
+            !latestPreparation || latestPreparation.reason !== preparation.reason ||
+            latestPreparation.sessionId !== preparation.sessionId) {
+            this.refresh();
+            return;
+        }
+        this.runAction('recoverControllerSlot', slot);
+    }
+
+    handleOpenControllerRecovery () {
+        this.setState({open: true}, () => {
+            if (this.controllerDetailsRef) this.controllerDetailsRef.open = true;
+        });
+    }
+
     handleReviewSavedController () {
         const snapshot = this.state.snapshot;
         const slot = snapshot && snapshot.controllerSlot;
@@ -1160,6 +1225,7 @@ class SpikePrimeControlCenter extends React.Component {
             snapshot.controllerSlot : null;
         const controllerInstallDisabled = busy || !connected || !api || !standaloneCapable ||
             !Number.isInteger(this.state.controllerSlot);
+        const canRecoverControllerSlot = this.canRecoverControllerSlot(snapshot, api);
         return (
             <div className={styles.root}>
                 <div
@@ -1183,6 +1249,11 @@ class SpikePrimeControlCenter extends React.Component {
                     >
                         {PORTS.map(port => this.renderPort(port, snapshot))}
                     </div>
+                    {canRecoverControllerSlot ? <button
+                        className={styles.recoveryChip}
+                        onClick={this.handleOpenControllerRecovery}
+                        type="button"
+                    >{w.recoverControllerSlotPrompt}</button> : null}
                 </div>
                 {open ? (
                     <section
@@ -1345,7 +1416,12 @@ class SpikePrimeControlCenter extends React.Component {
                                 </>
                             ) : null}
                         </details>
-                        {standaloneCapable ? <details className={styles.installBox}>
+                        {standaloneCapable ? <details
+                            className={styles.installBox}
+                            ref={element => {
+                                this.controllerDetailsRef = element;
+                            }}
+                        >
                             <summary>{w.controller}</summary>
                             {connected && effectiveModel === 'prime' && !controllerReady && api &&
                                 Number.isInteger(snapshot.controllerSlot) &&
@@ -1391,6 +1467,19 @@ class SpikePrimeControlCenter extends React.Component {
                                     </option>))}
                                 </select>
                             </label>
+                            {canRecoverControllerSlot ? <div
+                                className={styles.controllerRecovery}
+                                role="status"
+                            >
+                                <p>{w.recoverControllerSlotReason}</p>
+                                <button
+                                    disabled={busy || !Number.isInteger(this.state.controllerSlot)}
+                                    onClick={this.handleRecoverControllerSlot}
+                                    type="button"
+                                >{busy ? w.startingController : w.recoverControllerSlotAction.replace(
+                                        '{slot}', this.state.controllerSlot
+                                    )}</button>
+                            </div> : null}
                             {controllerReady ? <p>
                                 {w.controller}{': '}{w.ready}{' · '}
                                 {w.controllerSlot}{' '}{snapshot.controllerSlot}

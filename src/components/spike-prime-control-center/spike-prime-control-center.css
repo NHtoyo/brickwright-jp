@@ -40,6 +40,28 @@
     pointer-events: none;
 }
 
+.recovery-chip {
+    background: #fffbeb;
+    border: 1px solid #f59e0b;
+    border-radius: 999px;
+    color: #92400e;
+    cursor: pointer;
+    flex: 0 0 auto;
+    font: inherit;
+    font-size: 0.68rem;
+    font-weight: 700;
+    padding: 4px 8px;
+    pointer-events: auto;
+    white-space: nowrap;
+}
+
+.recovery-chip:hover,
+.recovery-chip:focus-visible {
+    background: #fef3c7;
+    outline: 2px solid #f59e0b;
+    outline-offset: 1px;
+}
+
 .live-port {
     align-items: center;
     background: rgba(255, 255, 255, 0.88);
@@ -390,6 +412,25 @@
 }
 
 .confirm-box button {
+    margin: 3px 5px 3px 0;
+}
+
+.controller-recovery {
+    background: #fffbeb;
+    border-left: 3px solid #f59e0b;
+    border-radius: 4px;
+    margin: 8px 0;
+    padding: 4px 8px;
+}
+
+.controller-recovery p {
+    color: #475569;
+    font-size: 0.78rem;
+    line-height: 1.4;
+    margin: 4px 0 8px;
+}
+
+.controller-recovery button {
     margin: 3px 5px 3px 0;
 }
 

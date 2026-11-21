@@ -28,17 +28,17 @@ const messages = defineMessages({
     },
     pc: {
         id: 'gui.controls.destinationPC',
-        defaultMessage: 'PC',
+        defaultMessage: 'Run normally',
         description: 'Run a Scratch project on the computer'
     },
     hubSlot: {
         id: 'gui.controls.destinationHubSlot',
-        defaultMessage: 'Hub {slot}',
-        description: 'Run a standalone program on a SPIKE hub slot'
+        defaultMessage: 'Transfer: {slot}',
+        description: 'Clear, upload and run a standalone program on a SPIKE hub slot'
     },
     reservedHubSlot: {
         id: 'gui.controls.destinationHubSlotReserved',
-        defaultMessage: 'Hub {slot} (reserved)',
+        defaultMessage: 'Transfer: {slot} (reserved)',
         description: 'Hub slot reserved for the controller program'
     },
     slotWillClear: {
@@ -65,19 +65,26 @@ const messages = defineMessages({
         id: 'gui.controls.hubRunUnavailable',
         defaultMessage: 'Hub execution is unavailable for this model or slot.',
         description: 'Error shown when the selected hub destination cannot be used'
+    },
+    standaloneUnsupportedValue: {
+        id: 'gui.controls.standaloneUnsupportedValue',
+        defaultMessage: 'Slot {slot} cannot run this block on the hub: {opcode} is not supported for ' +
+            'standalone execution. Choose “Run normally” instead.',
+        description: 'Error shown when a selected standalone destination cannot convert a Scratch value block'
     }
 });
 
 const japaneseLabels = {
     destination: '保存先',
-    pc: 'PC',
-    hubSlot: 'ハブ {slot}',
-    reservedHubSlot: 'ハブ {slot}（予約済み）',
+    pc: '通常実行',
+    hubSlot: '転送：{slot}',
+    reservedHubSlot: '転送：{slot}（予約済み）',
     slotWillClear: '転送前にスロット{slot}を消去します。',
     confirmHubRun: 'スロット{slot}を消去して転送・実行',
     cancelHubRun: 'キャンセル',
     connectBeforeHubRun: 'ハブで実行するにはSPIKE Primeを接続してください。',
-    hubRunUnavailable: 'このハブまたはスロットでは実行できません。'
+    hubRunUnavailable: 'このハブまたはスロットでは実行できません。',
+    standaloneUnsupportedValue: 'スロット{slot}へ転送できません。このブロックはハブ単独実行に未対応です（{opcode}）。「通常実行」に切り替えてください。'
 };
 
 const formatLabel = (intl, id, values = {}) => {
@@ -85,6 +92,17 @@ const formatLabel = (intl, id, values = {}) => {
     return japaneseLabels[id].replace(/\{(\w+)\}/g, (match, key) => (
         Object.prototype.hasOwnProperty.call(values, key) ? values[key] : match
     ));
+};
+
+const formatHubRunError = (intl, error) => {
+    if (error && typeof error === 'object' && error.code === 'ERR_SPIKE_STANDALONE_UNSUPPORTED_VALUE') {
+        return formatLabel(intl, 'standaloneUnsupportedValue', {
+            slot: error.slot,
+            opcode: error.opcode || 'unknown block'
+        });
+    }
+    if (typeof error === 'string') return error;
+    return error && error.message ? error.message : String(error);
 };
 
 const Controls = function (props) {
@@ -181,7 +199,8 @@ const Controls = function (props) {
                     role="status"
                 >
                     {hubRunError === 'connect' ? formatLabel(intl, 'connectBeforeHubRun') :
-                        hubRunError === 'unavailable' ? formatLabel(intl, 'hubRunUnavailable') : hubRunError}
+                        hubRunError === 'unavailable' ? formatLabel(intl, 'hubRunUnavailable') :
+                            formatHubRunError(intl, hubRunError)}
                 </span>
             ) : null}
         </div>
@@ -207,7 +226,7 @@ Controls.propTypes = {
     onDestinationChange: PropTypes.func,
     hubConfirmation: PropTypes.shape({slot: PropTypes.number}),
     hubRunBusy: PropTypes.bool,
-    hubRunError: PropTypes.string,
+    hubRunError: PropTypes.oneOfType([PropTypes.string, PropTypes.object]),
     onConfirmHubRun: PropTypes.func,
     onCancelHubRun: PropTypes.func
 };
