@@ -102,6 +102,14 @@ describe('makeToolboxXML palette mode', () => {
         expect(xml).not.toContain('other_extension_block');
     });
 
+    test('none mode hides both palettes without merging or leaking blocks', () => {
+        const xml = makeToolboxXML(false, true, 'target', categories, '', '', '', colors, 'none');
+        expect(xml).not.toContain('scratch_motion');
+        expect(xml).not.toContain('spikeprime_motorRunFor');
+        expect(xml).not.toContain('other_extension_block');
+        expect(new DOMParser().parseFromString(xml, 'text/xml').querySelectorAll('category')).toHaveLength(0);
+    });
+
     test('filters unsupported SPIKE toolbox blocks without changing saved block definitions', () => {
         const spikeCategory = '<category id="spikeprime" name="SPIKE">' +
             '<block type="spikeprime_connect"/>' +
@@ -132,7 +140,10 @@ describe('makeToolboxXML palette mode', () => {
 
     test('every SPIKE extension opcode is explicitly mapped to a palette category', () => {
         expect(getUncategorizedSpikeOpcodes(SPIKE_EXTENSION_OPCODE_CATALOG)).toEqual([]);
-        expect(SPIKE_CATEGORY_ORDER).toHaveLength(11);
+        expect(SPIKE_CATEGORY_ORDER).toEqual([
+            'motor', 'movement', 'light', 'sound', 'events', 'control',
+            'sensors', 'operators', 'variables', 'myBlocks', 'other'
+        ]);
         expect(getSpikeOpcodeCategories('motorRunFor')).toContain('motor');
         expect(getSpikeOpcodeCategories('getPosition')).toEqual(['motor']);
         expect(getSpikeOpcodeCategories('whenColor')).toContain('events');

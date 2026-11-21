@@ -20,7 +20,10 @@ export const SPIKE_EXTENSION_OPCODE_CATALOG = [
     'listScriptsOnHub', 'stopRunningScript', 'setMovementMotors', 'moveForward', 'steer',
     'motorPairMove', 'startTank', 'setMovementSpeed', 'stopMovement', 'motorRunFor',
     'motorRunToPosition', 'motorStart', 'motorStop', 'startMotor', 'stopMotor', 'motorSetSpeed',
-    'motorStartPower', 'motorSetStopAction', 'getPosition', 'getRelativePosition',
+    'motorStartPower', 'motorSetStopAction', 'getMotorPower', 'setMotorAcceleration',
+    'motorRunToRelativePosition', 'setMovementStopAction', 'setMovementAcceleration',
+    'isReflectionCompared', 'isDistanceCompared', 'isOrientation', 'getGesture', 'setYawFace',
+    'getPosition', 'getRelativePosition',
     'getAbsolutePosition', 'getSpeed', 'resetMotorPosition', 'displayText', 'displayImage',
     'displayPattern', 'displayClear', 'displayShowImage', 'setPixel', 'rotateDisplay',
     'setCenterButtonColor', 'getAngle', 'getGyroRate', 'getFilteredGyroRate', 'getAcceleration',
@@ -39,12 +42,14 @@ export const SPIKE_EXTENSION_OPCODE_CATALOG = [
 const categoryOpcodes = {
     motor: [
         'motorRunFor', 'motorRunToPosition', 'motorStart', 'motorStop', 'startMotor', 'stopMotor',
-        'motorSetSpeed', 'motorStartPower', 'motorSetStopAction', 'getPosition',
-        'getRelativePosition', 'getAbsolutePosition', 'getSpeed', 'resetMotorPosition'
+        'motorSetSpeed', 'getPosition', 'getAbsolutePosition', 'getRelativePosition', 'getSpeed',
+        'resetMotorPosition', 'motorRunToRelativePosition', 'motorStartPower', 'getMotorPower',
+        'motorSetStopAction', 'setMotorAcceleration'
     ],
     movement: [
-        'setMovementMotors', 'moveForward', 'steer', 'motorPairMove', 'startTank',
-        'setMovementSpeed', 'stopMovement'
+        'setMovementMotors', 'moveForward', 'steer', 'motorPairMove',
+        'setMovementSpeed', 'stopMovement', 'startTank', 'setMovementStopAction',
+        'setMovementAcceleration'
     ],
     light: [
         'displayText', 'displayImage', 'displayPattern', 'displayClear', 'displayShowImage',
@@ -61,13 +66,14 @@ const categoryOpcodes = {
         'checkHubController', 'stopRunningScript', 'exitScript'
     ],
     sensors: [
-        'getAngle', 'getGyroRate', 'getFilteredGyroRate', 'getAcceleration',
-        'getFilteredAcceleration', 'resetYaw', 'presetYaw', 'getOrientation', 'getFaceUp',
-        'isGesture', 'isColor',
+        'getAngle', 'getFilteredGyroRate', 'getFilteredAcceleration', 'resetYaw', 'presetYaw', 'getFaceUp',
+        'isGesture', 'isColor', 'isReflectionCompared', 'isDistanceCompared', 'isOrientation',
         'getBatteryLevel', 'getBatteryTemperature', 'getHubTemperature', 'getHubCurrent',
         'getHubVoltage', 'getTimer', 'resetTimer', 'getDistance', 'getDistanceIn',
-        'setDistanceLights', 'getColor', 'getReflection', 'getAmbientLight', 'getColorRGB',
-        'getForce', 'isForceSensorPressed', 'isButtonPressed'
+        'setDistanceLights', 'getColor', 'getReflection', 'getAmbientLight',
+        'getForce', 'isForceSensorPressed', 'isButtonPressed', 'getColorRGB',
+        'getRawColor255', 'getAcceleration', 'getGyroRate', 'getOrientation',
+        'isHubOrientation', 'getGesture', 'setYawFace'
     ],
     operators: [],
     variables: [],

@@ -368,6 +368,7 @@
       // Motors
       motorRunFor: "[PORT] run [DIRECTION] for [VALUE] [UNIT]",
       motorRunToPosition: "[PORT] run to position [POSITION] degrees via [PATH]",
+      motorRunToRelativePosition: "[PORT] move to relative position [POSITION] at [SPEED]% speed",
       "motorPath.shortest": "shortest path",
       "motorPath.clockwise": "clockwise",
       "motorPath.counterclockwise": "counterclockwise",
@@ -376,6 +377,11 @@
       motorSetSpeed: "[PORT] set speed to [SPEED] %",
       motorStartPower: "[PORT] start motor at [POWER] % power",
       motorSetStopAction: "[PORT] set stop action to [ACTION]",
+      getMotorPower: "[PORT] measured motor power",
+      getRawColor255: "[PORT] RAW [CHANNEL]",
+      setMotorAcceleration: "set [PORT] motor acceleration to [ACCELERATION]",
+      setMovementStopAction: "set movement motors stop action to [ACTION]",
+      setMovementAcceleration: "set movement acceleration to [ACCELERATION]",
       getPosition: "[PORT] position",
       getRelativePosition: "[PORT] relative position",
       getAbsolutePosition: "[PORT] absolute position",
@@ -419,6 +425,10 @@
       whenGesture: "when hub [GESTURE]",
       isGesture: "hub [GESTURE]?",
       getOrientation: "orientation",
+      isOrientation: "detect hub face [FACE] up",
+      isHubOrientation: "orientation is [FACE]",
+      getGesture: "gesture",
+      setYawFace: "set sensor yaw reference face to [FACE]",
       // Sound
       playHubSound: "play hub sound [SOUND]",
       playBeep: "beep [FREQUENCY] Hz for [DURATION] ms",
@@ -440,8 +450,10 @@
       setDistanceLights: "set [PORT] distance lights [TL] [TR] [BL] [BR]",
       getColor: "[PORT] color",
       getReflection: "[PORT] reflection",
+      isReflectionCompared: "[PORT] reflection [OPERATOR] [THRESHOLD]%",
       getAmbientLight: "[PORT] ambient light",
       getColorRGB: "[PORT] raw [CHANNEL]",
+      isDistanceCompared: "[PORT] distance [RELATION] than [DISTANCE] [UNIT]",
       getForce: "[PORT] force",
       isForceSensorPressed: "[PORT] force sensor pressed?",
       whenColor: "when [PORT] sees [COLOR]",
@@ -724,7 +736,7 @@
       setLightMatrixPixel:
         "[PORT] のカラー・ライトマトリクスの x:[X] y:[Y] を明るさ [BRIGHTNESS]% にする",
       getFaceUp: "ハブの上向き面",
-      getDistanceIn: "[PORT] の距離（[UNIT]）",
+      getDistanceIn: "[PORT] 距離 [UNIT]",
       transpilationLabel: "📝 コード生成",
       transpileProject: "プロジェクトをSPIKE Pythonコードに変換する",
       showCode: "生成したコードを表示する",
@@ -763,22 +775,28 @@
         "ポートA〜Fと、1〜3のピクセル座標を指定してください。",
       moveForward: "[DIRECTION] に [VALUE] [UNIT] 進む",
       steer: "ステアリング [STEERING] で動かす",
-      startTank: "左 [LEFT_SPEED]%、右 [RIGHT_SPEED]% の速さで動かす",
+      startTank: "[LEFT_SPEED] [RIGHT_SPEED] %のスピードで移動開始する",
       setMovementSpeed: "移動速度を [SPEED]% に設定する",
       stopMovement: "移動を停止する",
       motorRunFor: "[PORT] のモーターを [DIRECTION] に [VALUE] [UNIT] 動かす",
       motorRunToPosition: "[PORT] のモーターを [PATH] で位置 [POSITION] 度まで動かす",
+      motorRunToRelativePosition: "[PORT] 速度 [SPEED] % で相対位置 [POSITION] に移動",
       "motorPath.shortest": "最短経路",
       "motorPath.clockwise": "時計回り",
       "motorPath.counterclockwise": "反時計回り",
       motorStart: "[PORT] のモーターを [DIRECTION] に回転させる",
       motorStop: "[PORT] のモーターを停止する",
       motorSetSpeed: "[PORT] のスピードを [SPEED] % にする",
-      motorStartPower: "[PORT] のモーターを出力 [POWER]% で回転させる",
-      motorSetStopAction: "[PORT] モーターの停止方法を [ACTION] にする",
-      getPosition: "[PORT] の回転位置（度）",
-      getRelativePosition: "[PORT] モーターの相対角度（度）",
-      getAbsolutePosition: "[PORT] モーターの絶対角度（度）",
+      motorStartPower: "[PORT] モーターを [POWER] のパワーで動かす",
+      motorSetStopAction: "[PORT] モーターを停止時 [ACTION] に設定",
+      getMotorPower: "[PORT] のパワー",
+      getRawColor255: "[PORT] RAW [CHANNEL]",
+      setMotorAcceleration: "[PORT] 加速度を [ACCELERATION] に設定",
+      setMovementStopAction: "移動モーターを停止時 [ACTION] に設定",
+      setMovementAcceleration: "移動加速度を [ACCELERATION] に設定",
+      getPosition: "[PORT] 位置",
+      getRelativePosition: "[PORT] 相対位置",
+      getAbsolutePosition: "[PORT] 絶対角度",
       getSpeed: "[PORT] モーターの回転速度（度/秒）",
       resetMotorPosition: "[PORT] モーターの角度を [POSITION] 度に設定する",
       displayImage: "ハブのLEDライトマトリクスに [MATRIX] を表示する",
@@ -789,7 +807,7 @@
         "ハブのLEDライトマトリクスの x:[X] y:[Y] を明るさ [BRIGHTNESS]% にする",
       rotateDisplay: "ハブのLEDライトマトリクスを [ANGLE] 度回転する",
       setCenterButtonColor: "ハブ中央のボタンを [COLOR] に光らせる",
-      getAngle: "[AXIS] の角度",
+      getAngle: "[AXIS] 角",
       getGyroRate: "[AXIS] のジャイロ角速度（度/秒）",
       getFilteredGyroRate: "[AXIS] のフィルター済みジャイロ角速度（度/秒）",
       getAcceleration: "[AXIS] の加速度（ミリg）",
@@ -805,7 +823,11 @@
       clearMatrix3x3: "[PORT] のカラー・ライトマトリクスを消灯する",
       whenGesture: "ハブが [GESTURE] したとき",
       isGesture: "ハブは [GESTURE] していますか？",
-      getOrientation: "ハブの向き",
+      getOrientation: "向き",
+      isOrientation: "ハブの [FACE] の向きを検知する",
+      isHubOrientation: "向きが [FACE]",
+      getGesture: "ジェスチャー",
+      setYawFace: "センサーの向きを [FACE] に設定",
       playHubSound: "ハブのサウンド [SOUND] を再生する",
       playBeep: "[FREQUENCY] Hz の音を [DURATION] ms 鳴らす",
       playNote: "音符 [NOTE] を [SECS] 秒鳴らす",
@@ -825,14 +847,16 @@
         "[PORT] の距離センサーのライトを [TL] [TR] [BL] [BR] に設定する",
       getColor: "[PORT] の色",
       getReflection: "[PORT] の反射光",
+      isReflectionCompared: "[PORT] の反射光が [OPERATOR] [THRESHOLD] %",
       getAmbientLight: "[PORT] の周囲の明るさ",
-      getColorRGB: "[PORT] の生の [CHANNEL] 値",
-      getForce: "[PORT] のフォースセンサーの値",
-      isForceSensorPressed: "[PORT] のフォースセンサーは押されていますか？",
+      getColorRGB: "[PORT] RAW [CHANNEL]",
+      isDistanceCompared: "[PORT] の距離が [DISTANCE] [UNIT] より [RELATION]",
+      getForce: "[PORT] 圧力 [UNIT]",
+      isForceSensorPressed: "[PORT] が [STATE]",
       whenColor: "[PORT] が [COLOR] を検出したとき",
-      isColor: "[PORT] は [COLOR] を検出していますか？",
+      isColor: "[PORT] 色が [COLOR]",
       whenForceSensor: "[PORT] が [STATE] のとき",
-      isButtonPressed: "[BUTTON] ボタンは押されていますか？",
+      isButtonPressed: "[BUTTON] ボタンが [STATE]",
       whenButtonPressed: "[BUTTON] ボタンが押されたとき",
       writeLogFile: "[TEXT] をログファイル [FILENAME] に追加する",
       readLogFile: "ログファイル [FILENAME] を読み込む",
@@ -933,6 +957,7 @@
       // Motors
       motorRunFor: "[PORT] läuft [DIRECTION] für [VALUE] [UNIT]",
       motorRunToPosition: "[PORT] läuft auf [PATH] zu Position [POSITION] Grad",
+      motorRunToRelativePosition: "[PORT] auf relative Position [POSITION] mit [SPEED]% Geschwindigkeit bewegen",
       "motorPath.shortest": "kürzestem Weg",
       "motorPath.clockwise": "Uhrzeigersinn",
       "motorPath.counterclockwise": "Gegenuhrzeigersinn",
@@ -941,6 +966,11 @@
       motorSetSpeed: "[PORT] setze Geschwindigkeit auf [SPEED] %",
       motorStartPower: "[PORT] starte Motor mit [POWER] % Leistung",
       motorSetStopAction: "[PORT] setze Stopp-Aktion auf [ACTION]",
+      getMotorPower: "[PORT] gemessene Motorleistung",
+      getRawColor255: "[PORT] RAW [CHANNEL]",
+      setMotorAcceleration: "Beschleunigung von Motor [PORT] auf [ACCELERATION] setzen",
+      setMovementStopAction: "Stopp-Aktion der Bewegungsmotoren auf [ACTION] setzen",
+      setMovementAcceleration: "Bewegungsbeschleunigung auf [ACCELERATION] setzen",
       getPosition: "[PORT] Position",
       getRelativePosition: "[PORT] relative Position",
       getAbsolutePosition: "[PORT] absolute Position",
@@ -973,6 +1003,10 @@
       whenGesture: "wenn Hub [GESTURE]",
       isGesture: "Hub [GESTURE]?",
       getOrientation: "Ausrichtung",
+      isOrientation: "Hub-Seite [FACE] nach oben erkennen",
+      isHubOrientation: "Ausrichtung ist [FACE]",
+      getGesture: "Geste",
+      setYawFace: "Sensor-Bezug für Gierwinkel auf [FACE] setzen",
       // Sound
       playHubSound: "spiele Hub-Sound [SOUND]",
       playBeep: "Piep [FREQUENCY] Hz für [DURATION] ms",
@@ -994,10 +1028,12 @@
       setDistanceLights: "setze [PORT] Abstandslichter [TL] [TR] [BL] [BR]",
       getColor: "[PORT] Farbe",
       getReflection: "[PORT] Reflexion",
+      isReflectionCompared: "[PORT] Reflexion [OPERATOR] [THRESHOLD]%",
       getAmbientLight: "[PORT] Umgebungslicht",
-      getColorRGB: "[PORT] Rohwert [CHANNEL]",
-      getForce: "[PORT] Kraft",
-      isForceSensorPressed: "[PORT] Kraftsensor gedrückt?",
+      getColorRGB: "[PORT] RAW [CHANNEL]",
+      isDistanceCompared: "[PORT] Abstand [RELATION] als [DISTANCE] [UNIT]",
+      getForce: "[PORT] Druck [UNIT]",
+      isForceSensorPressed: "[PORT] [STATE]",
       whenColor: "wenn [PORT] sieht [COLOR]",
       isColor: "[PORT] sieht [COLOR]?",
       whenForceSensor: "wenn [PORT] ist [STATE]",
@@ -1342,6 +1378,10 @@
       "unit.rotations": "rotations",
       "unit.degrees": "degrees",
       "unit.seconds": "seconds",
+      "unit.cm": "cm",
+      "unit.mm": "mm",
+      "unit.inches": "inches",
+      "unit.percent": "%",
       "color.red": "Red",
       "color.green": "Green",
       "color.blue": "Blue",
@@ -1353,6 +1393,7 @@
       "state.pressed": "pressed",
       "state.hardPressed": "hard pressed",
       "state.released": "released",
+      "state.hard_pressed": "hard pressed",
       "action.coast": "coast",
       "action.brake": "brake",
       "action.hold": "hold",
@@ -1366,6 +1407,20 @@
       doubletapped: "double tapped",
       shake: "shake",
       freefall: "free fall",
+      "relation.near": "nearer",
+      "relation.far": "farther",
+      "acceleration.low": "low",
+      "acceleration.medium": "medium",
+      "acceleration.high": "high",
+      "face.top": "top",
+      "face.front": "front",
+      "face.right": "right",
+      "face.bottom": "bottom",
+      "face.back": "back",
+      "face.left": "left",
+      "axis.pitch": "pitch",
+      "axis.roll": "roll",
+      "axis.yaw": "yaw",
       "matrix.off": "Off",
       "matrix.magenta": "Magenta",
       "matrix.violet": "Violet",
@@ -1414,6 +1469,10 @@
       "unit.rotations": "回転",
       "unit.degrees": "度",
       "unit.seconds": "秒",
+      "unit.cm": "cm",
+      "unit.mm": "mm",
+      "unit.inches": "インチ",
+      "unit.percent": "%",
       "color.red": "赤",
       "color.green": "緑",
       "color.blue": "青",
@@ -1422,22 +1481,37 @@
       "color.magenta": "マゼンタ",
       "color.white": "白",
       "color.black": "黒",
-      "state.pressed": "押されている",
-      "state.hardPressed": "強く押されている",
-      "state.released": "離されている",
-      "action.coast": "惰性",
+      "state.pressed": "押された",
+      "state.hardPressed": "強く押された",
+      "state.released": "離された",
+      "state.hard_pressed": "強く押された",
+      "relation.near": "近い",
+      "relation.far": "遠い",
+      "acceleration.low": "低",
+      "acceleration.medium": "中",
+      "acceleration.high": "高",
+      "face.top": "上",
+      "face.front": "前",
+      "face.right": "右",
+      "face.bottom": "下",
+      "face.back": "後",
+      "face.left": "左",
+      "axis.pitch": "ピッチ",
+      "axis.roll": "ロール",
+      "axis.yaw": "ヨー",
+      "action.coast": "惰性回転",
       "action.brake": "ブレーキ",
-      "action.hold": "保持",
+      "action.hold": "位置を維持",
       "button.center": "中央",
       "button.connect": "接続",
       left: "左",
       right: "右",
       forward: "前進",
       backward: "後退",
-      tapped: "タップされたとき",
-      doubletapped: "2回タップされたとき",
-      shake: "振られたとき",
-      freefall: "自由落下したとき",
+      tapped: "タップ",
+      doubletapped: "ダブルタップ",
+      shake: "シェイク",
+      freefall: "自由落下",
       "matrix.off": "消灯",
       "matrix.magenta": "マゼンタ",
       "matrix.violet": "紫",
@@ -1485,6 +1559,20 @@
   };
   const mt = (key) =>
     menuLabels[currentLang]?.[key] || menuLabels.en[key] || key;
+    const addLongLabelTooltips = blocks =>
+        blocks.map(block => {
+            if (
+                !block ||
+                typeof block !== 'object' ||
+                !block.opcode ||
+                typeof block.text !== 'string' ||
+                block.text.length <= 22 ||
+                block.hideFromPalette
+            ) {
+                return block;
+            }
+            return {...block, tooltip: block.text};
+        });
   const menuItem = (key, value) => ({ text: mt(key), value });
 
   // Watch for language changes
@@ -1892,6 +1980,8 @@
     "scratch.motor_run_for_degrees",
     "scratch.motor_run_timed",
     "scratch.motor_run_to_position",
+    "scratch.motor_run_relative_position",
+    "scratch.motion_set_yaw_face",
     "scratch.display_set_pixel",
     "scratch.display_clear",
     "scratch.display_pattern",
@@ -1947,6 +2037,7 @@
     PORT_INPUT_FORMAT_COMBINED: 0x48,
     MODE_VALUE_FORMAT: 0x80,
     OUTPUT: 0x81,
+    PORT_OUTPUT_COMMAND_FEEDBACK: 0x82,
     SYSTEM_TYPE_ID: 0x0b,
     FW_VERSION: 0x03,
     BATTERY_VOLTAGE: 0x06,
@@ -2042,6 +2133,20 @@
   // Shared by both hub models. The motor's absolute angle is one revolution,
   // unlike its unbounded cumulative (relative) encoder position.
   const MOTOR_ANGLE_PATHS = new Set(["shortest", "clockwise", "counterclockwise"]);
+  const PRIME_ACCELERATION = Object.freeze({low: 300, medium: 1000, high: 3000});
+  const ESSENTIAL_PROFILE_MS = Object.freeze({low: 900, medium: 450, high: 150});
+  const SPIKE_SENSOR_STALE_AFTER_MS = 2000;
+  const STOP_MODE_VALUES = Object.freeze({coast: 0, brake: 1, hold: 2});
+  const compareNumber = (actual, operator, threshold) => {
+    if (!Number.isFinite(actual) || !Number.isFinite(threshold)) return false;
+    if (operator === "<") return actual < threshold;
+    if (operator === "=") return actual === threshold;
+    if (operator === ">") return actual > threshold;
+    return false;
+  };
+  const rawColorTo255 = (raw) => Number.isFinite(raw)
+    ? Math.round(Math.max(0, Math.min(1023, raw)) * 255 / 1023)
+    : "";
   const motorAngleDelta = (measuredAngle, requestedAngle, path = "shortest") => {
     if (!MOTOR_ANGLE_PATHS.has(path))
       throw new Error(`Unsupported motor angle path: ${path}`);
@@ -2057,6 +2162,8 @@
   };
 
   const LWP3Output = {
+    SET_ACCELERATION_TIME: 0x05,
+    SET_DECELERATION_TIME: 0x06,
     START_SPEED: 0x07,
     START_SPEED_FOR_TIME: 0x09,
     START_SPEED_FOR_DEGREES: 0x0b,
@@ -2144,7 +2251,7 @@ except ImportError:
         os = None
 
 CONTROLLER_PROTOCOL = "brickwright-spike-controller"
-CONTROLLER_VERSION = 1
+CONTROLLER_VERSION = 3
 MAX_QUEUE = 32
 MAX_VELOCITY = 1110
 HEARTBEAT_TIMEOUT_MS = 3000
@@ -2223,6 +2330,10 @@ def _mode(value):
     return modes[value]
 
 
+def _ramp(value, name):
+    return _integer(value, name, 1, 10000)
+
+
 def _api_color(value):
     names = ("BLACK", "MAGENTA", "PURPLE", "BLUE", "AZURE", "TURQUOISE",
              "GREEN", "YELLOW", "ORANGE", "RED", "WHITE")
@@ -2261,10 +2372,10 @@ def _receive(data):
         name = command.get("c")
         if name not in (
             "h", "p", "x",
-            "r", "s", "u", "d",
+                "r", "s", "u", "d",
             "t", "a", "j", "k", "P", "M", "G", "T", "K", "L", "Y", "Z",
             "l", "m", "c", "w",
-            "b", "q", "I", "O", "H", "3", "4", "5", "6", "V", "W", "F", "R", "N",
+            "b", "q", "I", "O", "H", "3", "4", "5", "6", "V", "W", "F", "R", "N", "J", "U",
         ):
             raise ValueError("unsupported command")
         if name == "x":
@@ -2318,7 +2429,7 @@ async def _dispatch(command):
         if name == "h":
             _active = True
             _last_heartbeat = time.ticks_ms()
-            _success(request_id, "bw-spike-1")
+            _success(request_id, "bw-spike-3")
         elif name == "p":
             _last_heartbeat = time.ticks_ms()
             _active = True
@@ -2333,7 +2444,8 @@ async def _dispatch(command):
                 _active_motor_ports.discard(port_name)
                 _success(request_id, {"state": "stopped"})
             else:
-                motor.run(PORTS[port_name], velocity)
+                acceleration = _ramp(command.get("A", 1000), "acceleration")
+                motor.run(PORTS[port_name], velocity, acceleration=acceleration)
                 _active_motor_ports.add(port_name)
                 _success(request_id, {"state": "started"})
         elif name == "s":
@@ -2363,7 +2475,9 @@ async def _dispatch(command):
             if velocity == 0:
                 raise ValueError("velocity must not be zero")
             stop_mode = _mode(command.get("n", "brake"))
-            operation = motor.run_for_degrees(PORTS[port_name], degrees, velocity, stop=stop_mode)
+            acceleration = _ramp(command.get("A", 1000), "acceleration")
+            deceleration = _ramp(command.get("B", acceleration), "deceleration")
+            operation = motor.run_for_degrees(PORTS[port_name], degrees, velocity, stop=stop_mode, acceleration=acceleration, deceleration=deceleration)
             _active_motor_ports.add(port_name)
             _queue_job(request_id, operation, "motor", {"port": port_name})
         elif name == "t":
@@ -2375,17 +2489,37 @@ async def _dispatch(command):
             if velocity == 0:
                 raise ValueError("velocity must not be zero")
             stop_mode = _mode(command.get("n", "brake"))
-            operation = motor.run_for_time(PORTS[port_name], duration, velocity, stop=stop_mode)
+            acceleration = _ramp(command.get("A", 1000), "acceleration")
+            deceleration = _ramp(command.get("B", acceleration), "deceleration")
+            operation = motor.run_for_time(PORTS[port_name], duration, velocity, stop=stop_mode, acceleration=acceleration, deceleration=deceleration)
             _active_motor_ports.add(port_name)
             _queue_job(request_id, operation, "motor", {"port": port_name})
         elif name == "a":
             port_name = command.get("p")
             if port_name not in PORTS:
                 raise ValueError("unknown motor port")
-            position = _integer(command.get("g"), "position", -36000, 36000)
+            position = _integer(command.get("g"), "position", 0, 359)
             velocity = _integer(command.get("v"), "velocity", 1, MAX_VELOCITY)
             stop_mode = _mode(command.get("n", "brake"))
-            operation = motor.run_to_absolute_position(PORTS[port_name], position, velocity, stop=stop_mode)
+            acceleration = _ramp(command.get("A", 1000), "acceleration")
+            deceleration = _ramp(command.get("B", acceleration), "deceleration")
+            direction_map = {
+                "shortest": motor.SHORTEST_PATH,
+                "clockwise": motor.CLOCKWISE,
+                "counterclockwise": motor.COUNTERCLOCKWISE,
+            }
+            path = command.get("h", "shortest")
+            if path not in direction_map:
+                raise ValueError("unknown motor path")
+            operation = motor.run_to_absolute_position(
+                PORTS[port_name],
+                position % 360,
+                velocity,
+                direction=direction_map[path],
+                stop=stop_mode,
+                acceleration=acceleration,
+                deceleration=deceleration,
+            )
             _active_motor_ports.add(port_name)
             _queue_job(request_id, operation, "motor", {"port": port_name})
         elif name == "j":
@@ -2395,6 +2529,23 @@ async def _dispatch(command):
             position = _integer(command.get("g", 0), "position", -36000, 36000)
             motor.reset_relative_position(PORTS[port_name], position)
             _success(request_id, {"state": "updated"})
+        elif name == "J":
+            port_name = command.get("p")
+            if port_name not in PORTS:
+                raise ValueError("unknown motor port")
+            position = _integer(command.get("g"), "relative position", -36000, 36000)
+            velocity = _integer(command.get("v"), "velocity", -MAX_VELOCITY, MAX_VELOCITY)
+            if velocity == 0:
+                raise ValueError("velocity must not be zero")
+            acceleration = _ramp(command.get("A", 1000), "acceleration")
+            deceleration = _ramp(command.get("B", acceleration), "deceleration")
+            operation = motor.run_to_relative_position(
+                PORTS[port_name], position, velocity,
+                stop=_mode(command.get("n", "brake")),
+                acceleration=acceleration, deceleration=deceleration,
+            )
+            _active_motor_ports.add(port_name)
+            _queue_job(request_id, operation, "motor", {"port": port_name})
         elif name == "k":
             port_name = command.get("p")
             if port_name not in PORTS:
@@ -2407,6 +2558,19 @@ async def _dispatch(command):
             angle = _integer(command.get("a", 0), "angle", -3600, 3600)
             motion_sensor.reset_yaw(angle)
             _success(request_id, {"state": "updated", "yaw": angle})
+        elif name == "U":
+            if motion_sensor is None or not hasattr(motion_sensor, "set_yaw_face"):
+                raise ValueError("motion_sensor.set_yaw_face API is unavailable")
+            face = command.get("H")
+            face_constants = {
+                "top": "TOP", "front": "FRONT", "right": "RIGHT",
+                "bottom": "BOTTOM", "back": "BACK", "left": "LEFT",
+            }
+            constant_name = face_constants.get(face)
+            if constant_name is None or not hasattr(motion_sensor, constant_name):
+                raise ValueError("requested yaw reference face is unavailable")
+            motion_sensor.set_yaw_face(getattr(motion_sensor, constant_name))
+            _success(request_id, {"state": "updated", "face": face})
         elif name == "P":
             left = command.get("q")
             right = command.get("r")
@@ -2420,7 +2584,8 @@ async def _dispatch(command):
                 raise ValueError("motor pair is not configured")
             steering = _integer(command.get("e"), "steering", -100, 100)
             velocity = _integer(command.get("v"), "velocity", -MAX_VELOCITY, MAX_VELOCITY)
-            motor_pair.move(motor_pair.PAIR_1, steering, velocity=velocity)
+            acceleration = _ramp(command.get("A", 1000), "acceleration")
+            motor_pair.move(motor_pair.PAIR_1, steering, velocity=velocity, acceleration=acceleration)
             _pair_active = True
             _success(request_id, {"state": "started"})
         elif name == "G":
@@ -2430,9 +2595,11 @@ async def _dispatch(command):
             steering = _integer(command.get("e"), "steering", -100, 100)
             velocity = _integer(command.get("v"), "velocity", 1, MAX_VELOCITY)
             stop_mode = _mode(command.get("n", "brake"))
+            acceleration = _ramp(command.get("A", 1000), "acceleration")
+            deceleration = _ramp(command.get("B", acceleration), "deceleration")
             _pair_active = True
             _queue_job(request_id, motor_pair.move_for_degrees(
-                motor_pair.PAIR_1, degrees, steering, velocity=velocity, stop=stop_mode),
+                motor_pair.PAIR_1, degrees, steering, velocity=velocity, stop=stop_mode, acceleration=acceleration, deceleration=deceleration),
                 "pair", {})
         elif name == "T":
             if not _pair_configured:
@@ -2441,16 +2608,19 @@ async def _dispatch(command):
             steering = _integer(command.get("e"), "steering", -100, 100)
             velocity = _integer(command.get("v"), "velocity", 1, MAX_VELOCITY)
             stop_mode = _mode(command.get("n", "brake"))
+            acceleration = _ramp(command.get("A", 1000), "acceleration")
+            deceleration = _ramp(command.get("B", acceleration), "deceleration")
             _pair_active = True
             _queue_job(request_id, motor_pair.move_for_time(
-                motor_pair.PAIR_1, duration, steering, velocity=velocity, stop=stop_mode),
+                motor_pair.PAIR_1, duration, steering, velocity=velocity, stop=stop_mode, acceleration=acceleration, deceleration=deceleration),
                 "pair", {})
         elif name == "K":
             if not _pair_configured:
                 raise ValueError("motor pair is not configured")
             left_velocity = _integer(command.get("j"), "left velocity", -MAX_VELOCITY, MAX_VELOCITY)
             right_velocity = _integer(command.get("k"), "right velocity", -MAX_VELOCITY, MAX_VELOCITY)
-            motor_pair.move_tank(motor_pair.PAIR_1, left_velocity, right_velocity)
+            acceleration = _ramp(command.get("A", 1000), "acceleration")
+            motor_pair.move_tank(motor_pair.PAIR_1, left_velocity, right_velocity, acceleration=acceleration)
             _pair_active = True
             _success(request_id, {"state": "started"})
         elif name == "L":
@@ -2459,18 +2629,24 @@ async def _dispatch(command):
             degrees = _integer(command.get("d"), "degrees", -36000, 36000)
             left_velocity = _integer(command.get("j"), "left velocity", -MAX_VELOCITY, MAX_VELOCITY)
             right_velocity = _integer(command.get("k"), "right velocity", -MAX_VELOCITY, MAX_VELOCITY)
+            acceleration = _ramp(command.get("A", 1000), "acceleration")
+            deceleration = _ramp(command.get("B", acceleration), "deceleration")
             _pair_active = True
             _queue_job(request_id, motor_pair.move_tank_for_degrees(
-                motor_pair.PAIR_1, degrees, left_velocity, right_velocity), "pair", {})
+                motor_pair.PAIR_1, degrees, left_velocity, right_velocity,
+                stop=_mode(command.get("n", "brake")), acceleration=acceleration, deceleration=deceleration), "pair", {})
         elif name == "Y":
             if not _pair_configured:
                 raise ValueError("motor pair is not configured")
             duration = _integer(command.get("t"), "duration_ms", 1, 60000)
             left_velocity = _integer(command.get("j"), "left velocity", -MAX_VELOCITY, MAX_VELOCITY)
             right_velocity = _integer(command.get("k"), "right velocity", -MAX_VELOCITY, MAX_VELOCITY)
+            acceleration = _ramp(command.get("A", 1000), "acceleration")
+            deceleration = _ramp(command.get("B", acceleration), "deceleration")
             _pair_active = True
             _queue_job(request_id, motor_pair.move_tank_for_time(
-                motor_pair.PAIR_1, duration, left_velocity, right_velocity), "pair", {})
+                motor_pair.PAIR_1, duration, left_velocity, right_velocity,
+                stop=_mode(command.get("n", "brake")), acceleration=acceleration, deceleration=deceleration), "pair", {})
         elif name == "Z":
             if _pair_configured:
                 motor_pair.stop(motor_pair.PAIR_1, stop=_mode(command.get("n", "brake")))
@@ -3719,6 +3895,7 @@ runloop.run(main())
       this._speed = 75;
       this._stopMode = SpikeMotorStopMode.brake;
       this._stallDetection = true;
+      this._acceleration = "medium";
     }
     get speed() {
       return this._speed;
@@ -3738,6 +3915,14 @@ runloop.run(main())
     set stallDetection(value) {
       this._stallDetection = value;
     }
+    get acceleration() {
+      return this._acceleration;
+    }
+    set acceleration(value) {
+      if (Object.prototype.hasOwnProperty.call(PRIME_ACCELERATION, value)) {
+        this._acceleration = value;
+      }
+    }
   }
 
   // ============================================================================
@@ -3754,17 +3939,17 @@ runloop.run(main())
       this._hardwareVariant = null;
 
       this._sensors = {
-        buttons: [0, 0, 0, 0],
-        angle: { pitch: 0, roll: 0, yaw: 0 },
-        acceleration: { x: 0, y: 0, z: 0 },
-        accelerationFiltered: { x: 0, y: 0, z: 0 },
-        gyro: { x: 0, y: 0, z: 0 },
-        gyroFiltered: { x: 0, y: 0, z: 0 },
-        orientation: SpikeOrientation.front,
-        battery: 100,
-        temperature: 25,
-        hubTemp: 25,
-        power: { current: 0, voltage: 0 },
+        buttons: [null, null, null, null],
+        angle: { pitch: null, roll: null, yaw: null },
+        acceleration: { x: null, y: null, z: null },
+        accelerationFiltered: { x: null, y: null, z: null },
+        gyro: { x: null, y: null, z: null },
+        gyroFiltered: { x: null, y: null, z: null },
+        orientation: null,
+        battery: null,
+        temperature: null,
+        hubTemp: null,
+        power: { current: null, voltage: null },
         gestures: {
           tapped: false,
           doubletapped: false,
@@ -3942,17 +4127,17 @@ runloop.run(main())
       this._firmware = null;
       this._hardwareVariant = null;
       this._sensors = {
-        buttons: [0, 0, 0, 0],
-        angle: { pitch: 0, roll: 0, yaw: 0 },
-        acceleration: { x: 0, y: 0, z: 0 },
-        accelerationFiltered: { x: 0, y: 0, z: 0 },
-        gyro: { x: 0, y: 0, z: 0 },
-        gyroFiltered: { x: 0, y: 0, z: 0 },
-        orientation: SpikeOrientation.front,
-        battery: 100,
-        temperature: 25,
-        hubTemp: 25,
-        power: { current: 0, voltage: 0 },
+        buttons: [null, null, null, null],
+        angle: { pitch: null, roll: null, yaw: null },
+        acceleration: { x: null, y: null, z: null },
+        accelerationFiltered: { x: null, y: null, z: null },
+        gyro: { x: null, y: null, z: null },
+        gyroFiltered: { x: null, y: null, z: null },
+        orientation: null,
+        battery: null,
+        temperature: null,
+        hubTemp: null,
+        power: { current: null, voltage: null },
         gestures: {
           tapped: false,
           doubletapped: false,
@@ -6068,6 +6253,27 @@ continuous_sensor_loop()
       } catch (error) {
         return Promise.reject(error);
       }
+      const controllerVersion = Number(
+        String(this._controllerVersion || "").split("/").pop()
+      );
+      const acceleration = Number(p.acceleration ?? 1000);
+      const deceleration = Number(p.deceleration ?? acceleration);
+      if (![acceleration, deceleration].every((value) =>
+        Number.isInteger(value) && value >= 1 && value <= 10000
+      )) {
+        return Promise.reject(this._unsupportedError("motor ramps must be integers from 1 to 10000"));
+      }
+      const rampFields = controllerVersion >= 3
+        ? {acceleration, deceleration}
+        : {};
+      const requireControllerV3 = (feature) => {
+        if (controllerVersion >= 3) return null;
+        const error = Object.assign(
+          new Error(`${feature} requires Brickwright SPIKE controller version 3`),
+          {code: "ERR_CONTROLLER_UPDATE_REQUIRED"}
+        );
+        return error;
+      };
 
       switch (method) {
         case "scratch.motor_start":
@@ -6077,6 +6283,7 @@ continuous_sensor_loop()
             port,
             velocity: velocity(p.speed, port),
             stop_mode: stopMode,
+            ...(controllerVersion >= 3 ? {acceleration} : {}),
           });
         case "scratch.motor_stop":
           return this._sendTunnelJSON({
@@ -6105,6 +6312,7 @@ continuous_sensor_loop()
             ),
             velocity: velocity(p.speed),
             stop_mode: stopMode,
+            ...rampFields,
           });
         case "scratch.motor_run_timed":
           return this._sendTunnelJSON({
@@ -6116,18 +6324,71 @@ continuous_sensor_loop()
             ),
             velocity: velocity(p.speed),
             stop_mode: stopMode,
+            ...rampFields,
           });
-        case "scratch.motor_run_to_position":
+        case "scratch.motor_run_to_position": {
+          const path = p.path ?? "shortest";
+          const requestedPosition = Number(p.position);
+          if (!MOTOR_ANGLE_PATHS.has(path)) {
+            return Promise.reject(
+              this._unsupportedError(`motor angle path ${path}`)
+            );
+          }
+          if (!Number.isFinite(requestedPosition)) {
+            return Promise.reject(
+              this._unsupportedError("motor target position must be numeric")
+            );
+          }
+          if (
+            this._controllerVersion === "brickwright-spike-controller/1" &&
+            path !== "shortest"
+          ) {
+            return Promise.reject(
+              Object.assign(
+                new Error(
+                  "This SPIKE controller supports only the shortest motor path. Update the Brickwright controller to use another path."
+                ),
+                { code: "ERR_CONTROLLER_UPDATE_REQUIRED" }
+              )
+            );
+          }
+          const controllerVersion = Number(
+            String(this._controllerVersion || "").split("/").pop()
+          );
+          if (![1, 2, 3].includes(controllerVersion)) {
+            return Promise.reject(
+              Object.assign(
+                new Error("SPIKE controller version is not verified"),
+                { code: "ERR_CONTROLLER_VERSION_UNVERIFIED" }
+              )
+            );
+          }
           return this._sendTunnelJSON({
             cmd: "motor.run_to_position",
             port,
-            position: Math.max(
-              -36000,
-              Math.min(36000, Math.trunc(Number(p.position) || 0))
-            ),
+            position: ((Math.trunc(requestedPosition) % 360) + 360) % 360,
             velocity: Math.max(1, Math.abs(velocity(p.speed, port))),
             stop_mode: stopMode,
+            path,
+            ...rampFields,
           });
+        }
+        case "scratch.motor_run_relative_position": {
+          const error = requireControllerV3("Relative motor position");
+          if (error) return Promise.reject(error);
+          const position = Number(p.position);
+          if (!Number.isFinite(position)) {
+            return Promise.reject(this._unsupportedError("relative target position must be numeric"));
+          }
+          return this._sendTunnelJSON({
+            cmd: "motor.run_relative_target",
+            port,
+            position: Math.max(-36000, Math.min(36000, Math.trunc(position))),
+            velocity: velocity(p.speed),
+            stop_mode: stopMode,
+            ...rampFields,
+          });
+        }
         case "scratch.display_set_pixel":
           return this._sendTunnelJSON({
             cmd: "matrix.pixel",
@@ -6224,6 +6485,15 @@ continuous_sensor_loop()
               Math.min(3600, Math.trunc(Number(p.angle) || 0))
             ),
           });
+        case "scratch.motion_set_yaw_face": {
+          const error = requireControllerV3("Changing the yaw reference face");
+          if (error) return Promise.reject(error);
+          const face = String(p.face || "").toLowerCase();
+          if (!["top", "front", "right", "bottom", "back", "left"].includes(face)) {
+            return Promise.reject(this._unsupportedError(`unsupported yaw reference face ${face}`));
+          }
+          return this._sendTunnelJSON({cmd: "motion.set_yaw_face", face});
+        }
         case "scratch.motor_pair_configure":
           return this._sendTunnelJSON({
             cmd: "motor_pair.configure",
@@ -6238,6 +6508,7 @@ continuous_sensor_loop()
               Math.min(100, Math.round(Number(p.steering) || 0))
             ),
             velocity: this._pairVelocityForPercent(p.speed),
+            ...(controllerVersion >= 3 ? {acceleration} : {}),
           });
         case "scratch.motor_pair_move_degrees":
           return this._sendTunnelJSON({
@@ -6249,6 +6520,7 @@ continuous_sensor_loop()
             ),
             velocity: Math.abs(this._pairVelocityForPercent(p.speed)),
             stop_mode: stopMode,
+            ...rampFields,
           });
         case "scratch.motor_pair_move_time":
           return this._sendTunnelJSON({
@@ -6260,12 +6532,14 @@ continuous_sensor_loop()
             ),
             velocity: Math.abs(this._pairVelocityForPercent(p.speed)),
             stop_mode: stopMode,
+            ...rampFields,
           });
         case "scratch.motor_pair_move_tank":
           return this._sendTunnelJSON({
             cmd: "motor_pair.move_tank",
             left_velocity: velocity(p.left_speed, this._movementMotors[0]),
             right_velocity: velocity(p.right_speed, this._movementMotors[1]),
+            ...(controllerVersion >= 3 ? {acceleration} : {}),
           });
         case "scratch.motor_pair_move_tank_degrees":
           return this._sendTunnelJSON({
@@ -6273,6 +6547,8 @@ continuous_sensor_loop()
             degrees: Math.trunc(Number(p.degrees)),
             left_velocity: velocity(p.left_speed, this._movementMotors[0]),
             right_velocity: velocity(p.right_speed, this._movementMotors[1]),
+            stop_mode: stopMode,
+            ...rampFields,
           });
         case "scratch.motor_pair_move_tank_time":
           return this._sendTunnelJSON({
@@ -6280,6 +6556,8 @@ continuous_sensor_loop()
             duration_ms: Math.trunc(Number(p.duration_ms)),
             left_velocity: velocity(p.left_speed, this._movementMotors[0]),
             right_velocity: velocity(p.right_speed, this._movementMotors[1]),
+            stop_mode: stopMode,
+            ...rampFields,
           });
         case "scratch.motor_pair_stop":
           return this._sendTunnelJSON({
@@ -6550,9 +6828,11 @@ continuous_sensor_loop()
         "motor.run_degrees": "d",
         "motor.run_time": "t",
         "motor.run_to_position": "a",
+        "motor.run_relative_target": "J",
         "motor.reset_position": "j",
         "motor.set_stop_action": "k",
         "motion.reset_yaw": "N",
+        "motion.set_yaw_face": "U",
         "motor_pair.configure": "P",
         "motor_pair.move": "M",
         "motor_pair.move_degrees": "G",
@@ -6590,6 +6870,12 @@ continuous_sensor_loop()
         degrees: "d",
         duration_ms: "t",
         position: "g",
+        path: "h",
+        // `c` is the command discriminator in the compact wire format. Use
+        // separate uppercase keys so a ramp value cannot replace the command.
+        acceleration: "A",
+        deceleration: "B",
+        face: "H",
         power: "u",
         stop_mode: "n",
         x: "x",
@@ -6616,9 +6902,48 @@ continuous_sensor_loop()
         throw this._unsupportedError(
           `unsupported controller command ${commandName}`
         );
+      const controllerVersion = Number(
+        String(this._controllerVersion || "").split("/").pop()
+      );
+      if (
+        ["motor.run_relative_target", "motion.set_yaw_face"].includes(commandName) &&
+        controllerVersion < 3
+      ) {
+        throw Object.assign(
+          new Error(`${commandName} requires Brickwright SPIKE controller version 3`),
+          {code: "ERR_CONTROLLER_UPDATE_REQUIRED"}
+        );
+      }
       const encoded = { i: requestId, c: code };
       for (const [key, value] of Object.entries(fields)) {
         if (key === "cmd") continue;
+        if (key === "path") {
+          if (commandName !== "motor.run_to_position") {
+            throw this._unsupportedError(
+              "motor path outside absolute position command"
+            );
+          }
+          if (controllerVersion === 1) {
+            if (value !== "shortest") {
+              throw Object.assign(
+                new Error(
+                  "This SPIKE controller supports only the shortest motor path. Update the Brickwright controller to use another path."
+                ),
+                { code: "ERR_CONTROLLER_UPDATE_REQUIRED" }
+              );
+            }
+            continue;
+          }
+          if (![2, 3].includes(controllerVersion) || !MOTOR_ANGLE_PATHS.has(value)) {
+            throw this._unsupportedError(`unsupported motor path ${value}`);
+          }
+        }
+        if (["acceleration", "deceleration", "face"].includes(key) && controllerVersion < 3) {
+          throw Object.assign(
+            new Error(`${key} requires Brickwright SPIKE controller version 3`),
+            {code: "ERR_CONTROLLER_UPDATE_REQUIRED"}
+          );
+        }
         const fieldCode = fieldCodes[key];
         if (!fieldCode)
           throw this._unsupportedError(`unsupported controller field ${key}`);
@@ -7049,14 +7374,19 @@ continuous_sensor_loop()
         return;
       }
       const result =
-        response.result === "bw-spike-1" &&
+        (response.result === "bw-spike-1" ||
+          response.result === "bw-spike-2" ||
+          response.result === "bw-spike-3") &&
         pending.commandName === "controller.hello"
-          ? { protocol: "brickwright-spike-controller", version: 1 }
+          ? {
+              protocol: "brickwright-spike-controller",
+              version: Number(response.result.slice("bw-spike-".length)),
+            }
           : response.result || {};
       if (
         pending.commandName === "controller.hello" &&
         result.protocol === "brickwright-spike-controller" &&
-        result.version === 1
+        [1, 2, 3].includes(result.version)
       ) {
         this._controllerReady = true;
         this._controllerVersion = `${result.protocol}/${result.version}`;
@@ -7411,7 +7741,7 @@ continuous_sensor_loop()
       if (this._controllerReady) {
         return Promise.resolve({
           protocol: "brickwright-spike-controller",
-          version: 1,
+          version: Number(String(this._controllerVersion || "").split("/").pop()),
         });
       }
       const evidence = bootEvidence || this._getCurrentControllerBootEvidence();
@@ -7441,7 +7771,7 @@ continuous_sensor_loop()
         .then((result) => {
           if (
             result.protocol !== "brickwright-spike-controller" ||
-            result.version !== 1
+            ![1, 2, 3].includes(result.version)
           ) {
             throw new Error("Hub controller returned an incompatible version");
           }
@@ -7472,7 +7802,7 @@ continuous_sensor_loop()
       if (this._controllerReady) {
         return Promise.resolve({
           protocol: "brickwright-spike-controller",
-          version: 1,
+          version: Number(String(this._controllerVersion || "").split("/").pop()),
         });
       }
 
@@ -9927,6 +10257,13 @@ continuous_sensor_loop()
       this._portInfoRequests = {};
       this._nextPortAttachmentId = 1;
       this._portValues = {};
+      this._absolutePositionSequences = {};
+      this._absolutePositionWaiters = {};
+      this._relativePositionSequences = {};
+      this._relativePositionWaiters = {};
+      this._outputFeedbackWaiters = {};
+      this._motorAngleQueues = {};
+      this._motorAngleGenerations = {};
       this._sensorEdges = new Set();
       this._recentProtocolFrames = [];
       this._lastCommunicationError = null;
@@ -9935,7 +10272,9 @@ continuous_sensor_loop()
       this._motorSettings = Object.fromEntries(
         SpikePorts.map((port) => [port, new SpikeMotorSetting()])
       );
+      this._rampProfiles = {};
       this._movementMotors = ["A", "B"];
+      this._movementAcceleration = "medium";
       this._pixelBrightness = 100;
       this._volume = 100;
       this._timer = { start: Date.now(), current: 0 };
@@ -10328,6 +10667,7 @@ continuous_sensor_loop()
     }
 
     async _onConnect() {
+      this._cancelAllMotorAngleOperations("SPIKE Essential connection changed");
       this._frame = [];
       this._systemType = null;
       this._detectedHubModel = null;
@@ -10341,6 +10681,10 @@ continuous_sensor_loop()
       this._portInfoRequests = {};
       this._inputFormats = {};
       this._portValues = {};
+      this._absolutePositionSequences = {};
+      this._absolutePositionWaiters = {};
+      this._outputFeedbackWaiters = {};
+      this._motorAngleQueues = {};
       this._sensorEdges.clear();
       this._lastUnsupportedOperation = null;
       this._lastDeviceError = null;
@@ -10475,6 +10819,8 @@ continuous_sensor_loop()
         this._handlePortValueCombined(message);
       } else if (type === LWP3.PORT_INPUT_FORMAT_COMBINED) {
         this._handlePortInputFormatCombined(message);
+      } else if (type === LWP3.PORT_OUTPUT_COMMAND_FEEDBACK) {
+        this._handleOutputCommandFeedback(message);
       }
     }
 
@@ -10508,7 +10854,14 @@ continuous_sensor_loop()
       if (!port) return;
       const event = message[4];
       if (event === LWP3.DETACHED) {
+        this._cancelMotorAnglePort(
+          port,
+          "Motor detached during absolute angle move"
+        );
         this._clearPortAttachmentTimers(port);
+        delete this._relativePositionSequences[port];
+        delete this._relativePositionWaiters[port];
+        delete this._rampProfiles[port];
         delete this._devices[port];
         delete this._portModes[port];
         delete this._modeInfoRequests[port];
@@ -10530,7 +10883,14 @@ continuous_sensor_loop()
         return;
       }
       if (event !== LWP3.ATTACHED) return;
+      this._cancelMotorAnglePort(
+        port,
+        "Motor attachment changed during absolute angle move"
+      );
       this._clearPortAttachmentTimers(port);
+      delete this._relativePositionSequences[port];
+      delete this._relativePositionWaiters[port];
+      delete this._rampProfiles[port];
       if (message.length < 7) {
         this._recordCommunicationError(
           "truncated LWP3 attached-device message"
@@ -11621,6 +11981,22 @@ continuous_sensor_loop()
       if (!changed || offset !== message.length) return;
       next.receivedAt = now;
       this._portValues[port] = next;
+      if ((pointer & 0x01) !== 0 && Number.isFinite(next.absolutePosition)) {
+        this._recordAposSample(
+          port,
+          next.absolutePosition,
+          "apos-pos-combined",
+          next.absolutePositionReceivedAt
+        );
+      }
+      if ((pointer & 0x02) !== 0 && Number.isFinite(next.relativePosition)) {
+        this._recordRelativePositionSample(
+          port,
+          next.relativePosition,
+          "apos-pos-combined",
+          next.relativePositionReceivedAt
+        );
+      }
       this._updateMotorPositionDiagnostics(port, state);
     }
 
@@ -11657,11 +12033,11 @@ continuous_sensor_loop()
         (positionFormatVerified || canUseKnownPositionFormat) &&
         message.length === 8
       ) {
-        const position =
-          message[4] |
-          (message[5] << 8) |
-          (message[6] << 16) |
-          (message[7] << 24);
+        const position = new DataView(
+          message.buffer,
+          message.byteOffset + 4,
+          4
+        ).getInt32(0, true);
         const elapsed =
           typeof previous.receivedAt === "number"
             ? now - previous.receivedAt
@@ -11807,6 +12183,14 @@ continuous_sensor_loop()
         receivedAt: now,
       };
       if (device.type === "motor" && mode === 3) {
+        if (Number.isFinite(next.absolutePosition)) {
+          this._recordAposSample(
+            port,
+            next.absolutePosition,
+            "apos-single",
+            next.absolutePositionReceivedAt
+          );
+        }
         const state = this._motorPositionModes[port];
         if (state) {
           this._updateMotorPositionDiagnostics(port, state);
@@ -11814,6 +12198,18 @@ continuous_sensor_loop()
             this._maybeConfigureCombinedPositionMode(port, state);
           }
         }
+      }
+      if (
+        device.type === "motor" &&
+        mode === 2 &&
+        Number.isFinite(next.relativePosition)
+      ) {
+        this._recordRelativePositionSample(
+          port,
+          next.relativePosition,
+          "pos-single",
+          next.relativePositionReceivedAt
+        );
       }
     }
 
@@ -11897,6 +12293,10 @@ continuous_sensor_loop()
 
     _stopMotor(port, stopMode = "brake") {
       const mode = this._stopMode(stopMode);
+      this._cancelMotorAnglePort(
+        port,
+        "Absolute angle move cancelled by motor stop"
+      );
       if (mode === "hold")
         return this._output(port, LWP3Output.START_SPEED, [0, 100, 0]);
       return this._output(port, LWP3Output.WRITE_DIRECT_MODE_DATA, [
@@ -11905,60 +12305,650 @@ continuous_sensor_loop()
       ]);
     }
 
+    _motorAngleCancelledError(message) {
+      return Object.assign(new Error(message), {
+        code: "ERR_MOTOR_ANGLE_CANCELLED",
+      });
+    }
+
+    _cancelMotorAnglePort(port, reason) {
+      if (!SpikePorts.includes(port)) return;
+      this._motorAngleGenerations[port] =
+        (this._motorAngleGenerations[port] || 0) + 1;
+      const error = this._motorAngleCancelledError(reason);
+      this._absolutePositionWaiters[port]?.reject(error);
+      this._relativePositionWaiters[port]?.reject(error);
+      this._outputFeedbackWaiters[port]?.reject(error);
+    }
+
+    _cancelAllMotorAngleOperations(reason) {
+      for (const port of ["A", "B"]) this._cancelMotorAnglePort(port, reason);
+    }
+
+    _queueMotorAngleOperation(port, operation) {
+      const generation = this._motorAngleGenerations[port] || 0;
+      const previous = this._motorAngleQueues[port] || Promise.resolve();
+      const current = previous.catch(() => {}).then(() => {
+        if (generation !== (this._motorAngleGenerations[port] || 0)) {
+          throw this._motorAngleCancelledError(
+            "Absolute angle move cancelled before it started"
+          );
+        }
+        return operation(generation);
+      });
+      this._motorAngleQueues[port] = current.catch(() => {});
+      return current;
+    }
+
+    async _requestFreshApos(port, attachmentId, generation) {
+      const device = this._devices[port];
+      const state = this._motorPositionModes[port];
+      if (!device || device.attachmentId !== attachmentId || !state ||
+          state.attachmentId !== attachmentId) {
+        throw this._motorAngleCancelledError(
+          "Motor attachment changed before APOS read"
+        );
+      }
+      let streamMode = null;
+      if (
+        state.positionStreamMode === "apos-single" &&
+        this._portModes[port] === 3 &&
+        this._inputFormats[port]?.mode === 3 &&
+        this._inputFormats[port]?.status === "acknowledged"
+      ) {
+        streamMode = "apos-single";
+      } else if (
+        state.positionStreamMode === "apos-pos-combined" &&
+        state.combinedStatus === "ready"
+      ) {
+        streamMode = "apos-pos-combined";
+      }
+      if (!streamMode) {
+        throw Object.assign(
+          new Error(`APOS input mode is not ready on motor port ${port}`),
+          { code: "ERR_APOS_MODE_UNAVAILABLE" }
+        );
+      }
+      if (generation !== (this._motorAngleGenerations[port] || 0)) {
+        throw this._motorAngleCancelledError(
+          "Absolute angle move cancelled before APOS read"
+        );
+      }
+
+      const baselineSequence = this._absolutePositionSequences[port] || 0;
+      const requestedAt = Date.now();
+      let waiter;
+      const samplePromise = new Promise((resolve, reject) => {
+        waiter = {
+          attachmentId,
+          baselineSequence,
+          generation,
+          requestedAt,
+          streamMode,
+          resolve: (sample) => {
+            if (waiter.timer) clearTimeout(waiter.timer);
+            if (this._absolutePositionWaiters[port] === waiter) {
+              delete this._absolutePositionWaiters[port];
+            }
+            resolve(sample);
+          },
+          reject: (error) => {
+            if (waiter.timer) clearTimeout(waiter.timer);
+            if (this._absolutePositionWaiters[port] === waiter) {
+              delete this._absolutePositionWaiters[port];
+            }
+            reject(error);
+          },
+          timer: null,
+        };
+        waiter.timer = setTimeout(() => {
+          waiter.reject(
+            Object.assign(
+              new Error(`Fresh APOS reading timed out on motor port ${port}`),
+              { code: "ERR_APOS_READ_TIMEOUT" }
+            )
+          );
+        }, 1000);
+        this._absolutePositionWaiters[port] = waiter;
+      });
+      samplePromise.catch(() => {});
+
+      try {
+        // LWP3 §3.15, information type 0 requests the current port value.
+        // Register first because the hub can emit the reply before write() resolves.
+        await this._send([
+          5,
+          0,
+          LWP3.PORT_INFORMATION_REQUEST,
+          port === "A" ? 0 : 1,
+          0,
+        ]);
+      } catch (error) {
+        waiter.reject(error);
+        throw error;
+      }
+      return samplePromise;
+    }
+
+    async _requestFreshRelativePosition(port, attachmentId, generation) {
+      const device = this._devices[port];
+      const state = this._motorPositionModes[port];
+      if (
+        !device ||
+        device.attachmentId !== attachmentId ||
+        !state ||
+        state.attachmentId !== attachmentId
+      ) {
+        throw this._motorAngleCancelledError(
+          "Motor attachment changed before POS read"
+        );
+      }
+      let streamMode = null;
+      if (
+        state.positionStreamMode === "pos-single" &&
+        this._portModes[port] === 2 &&
+        this._inputFormats[port]?.mode === 2 &&
+        this._inputFormats[port]?.status === "acknowledged"
+      ) {
+        streamMode = "pos-single";
+      } else if (
+        state.positionStreamMode === "apos-pos-combined" &&
+        state.combinedStatus === "ready"
+      ) {
+        streamMode = "apos-pos-combined";
+      }
+      if (!streamMode) {
+        throw Object.assign(
+          new Error(`POS input mode is not ready on motor port ${port}`),
+          {code: "ERR_POS_MODE_UNAVAILABLE"}
+        );
+      }
+      if (generation !== (this._motorAngleGenerations[port] || 0)) {
+        throw this._motorAngleCancelledError(
+          "Relative position move cancelled before POS read"
+        );
+      }
+
+      const baselineSequence = this._relativePositionSequences[port] || 0;
+      const requestedAt = Date.now();
+      let waiter;
+      const samplePromise = new Promise((resolve, reject) => {
+        waiter = {
+          attachmentId,
+          baselineSequence,
+          generation,
+          requestedAt,
+          streamMode,
+          resolve: (sample) => {
+            if (waiter.timer) clearTimeout(waiter.timer);
+            if (this._relativePositionWaiters[port] === waiter) {
+              delete this._relativePositionWaiters[port];
+            }
+            resolve(sample);
+          },
+          reject: (error) => {
+            if (waiter.timer) clearTimeout(waiter.timer);
+            if (this._relativePositionWaiters[port] === waiter) {
+              delete this._relativePositionWaiters[port];
+            }
+            reject(error);
+          },
+          timer: null,
+        };
+        waiter.timer = setTimeout(() => {
+          waiter.reject(
+            Object.assign(
+              new Error(`Fresh POS reading timed out on motor port ${port}`),
+              {code: "ERR_POS_READ_TIMEOUT"}
+            )
+          );
+        }, 1000);
+        this._relativePositionWaiters[port] = waiter;
+      });
+      samplePromise.catch(() => {});
+
+      try {
+        // LWP3 §3.15: request the current port value. Install the waiter first
+        // because a fast PortValue may arrive before the BLE write resolves.
+        await this._send([
+          5,
+          0,
+          LWP3.PORT_INFORMATION_REQUEST,
+          port === "A" ? 0 : 1,
+          0,
+        ]);
+      } catch (error) {
+        waiter.reject(error);
+        throw error;
+      }
+      return samplePromise;
+    }
+
+    _recordAposSample(port, value, source, receivedAt) {
+      const sequence = (this._absolutePositionSequences[port] || 0) + 1;
+      this._absolutePositionSequences[port] = sequence;
+      const waiter = this._absolutePositionWaiters[port];
+      if (
+        !waiter ||
+        waiter.attachmentId !== this._devices[port]?.attachmentId ||
+        waiter.generation !== (this._motorAngleGenerations[port] || 0) ||
+        waiter.baselineSequence >= sequence ||
+        receivedAt < waiter.requestedAt ||
+        !Number.isFinite(value)
+      ) return;
+      const sourceMatches =
+        (waiter.streamMode === "apos-single" && source === "apos-single") ||
+        (waiter.streamMode === "apos-pos-combined" &&
+          source === "apos-pos-combined");
+      if (sourceMatches) {
+        waiter.resolve({ value, receivedAt, sequence });
+      }
+    }
+
+    _recordRelativePositionSample(port, value, source, receivedAt) {
+      const sequence = (this._relativePositionSequences[port] || 0) + 1;
+      this._relativePositionSequences[port] = sequence;
+      const waiter = this._relativePositionWaiters[port];
+      if (
+        !waiter ||
+        waiter.attachmentId !== this._devices[port]?.attachmentId ||
+        waiter.generation !== (this._motorAngleGenerations[port] || 0) ||
+        waiter.baselineSequence >= sequence ||
+        receivedAt < waiter.requestedAt ||
+        !Number.isFinite(value)
+      ) return;
+      const sourceMatches =
+        (waiter.streamMode === "pos-single" && source === "pos-single") ||
+        (waiter.streamMode === "apos-pos-combined" &&
+          source === "apos-pos-combined");
+      if (sourceMatches) waiter.resolve({value, receivedAt, sequence});
+    }
+
+    _waitForMotorOutputFeedback(port, attachmentId, generation, timeoutMs) {
+      if (this._outputFeedbackWaiters[port]) {
+        return Promise.reject(
+          new Error(`A motor command is already awaiting feedback on port ${port}`)
+        );
+      }
+      return new Promise((resolve, reject) => {
+        let waiter;
+        const settle = (fn, value) => {
+          if (waiter.timer) clearTimeout(waiter.timer);
+          if (this._outputFeedbackWaiters[port] === waiter) {
+            delete this._outputFeedbackWaiters[port];
+          }
+          fn(value);
+        };
+        waiter = {
+          attachmentId,
+          generation,
+          sawProgress: false,
+          resolve: (value) => settle(resolve, value),
+          reject: (error) => settle(reject, error),
+          timer: setTimeout(() => {
+            waiter.reject(
+              Object.assign(
+                new Error(`Motor command feedback timed out on port ${port}`),
+                { code: "ERR_MOTOR_COMMAND_FEEDBACK_TIMEOUT" }
+              )
+            );
+          }, timeoutMs),
+        };
+        this._outputFeedbackWaiters[port] = waiter;
+      });
+    }
+
+    _handleOutputCommandFeedback(message) {
+      if (message.length < 5 || (message.length - 3) % 2 !== 0) {
+        this._recordCommunicationError(
+          "malformed LWP3 Port Output Command Feedback"
+        );
+        return;
+      }
+      for (let offset = 3; offset < message.length; offset += 2) {
+        const port = message[offset] === 0
+          ? "A"
+          : message[offset] === 1
+            ? "B"
+            : null;
+        if (!port) continue;
+        const status = message[offset + 1];
+        const waiter = this._outputFeedbackWaiters[port];
+        if (!waiter) continue;
+        if (
+          waiter.attachmentId !== this._devices[port]?.attachmentId ||
+          waiter.generation !== (this._motorAngleGenerations[port] || 0)
+        ) {
+          waiter.reject(
+            this._motorAngleCancelledError(
+              "Motor changed before output feedback arrived"
+            )
+          );
+          continue;
+        }
+        if (status & 0x04) {
+          waiter.reject(
+            Object.assign(
+              new Error(`Motor command was discarded on port ${port}`),
+              { code: "ERR_MOTOR_COMMAND_DISCARDED" }
+            )
+          );
+          continue;
+        }
+        if (status & 0x10) {
+          waiter.reject(
+            Object.assign(
+              new Error(`Motor command buffer is busy on port ${port}`),
+              { code: "ERR_MOTOR_COMMAND_BUSY" }
+            )
+          );
+          continue;
+        }
+        if (status & 0x01) waiter.sawProgress = true;
+        // 0x82 carries only port/status, not a command ID. Require evidence
+        // that this waiter's own output entered progress before accepting a
+        // completion bit; otherwise a delayed completion from a cancelled
+        // command could settle a newer move on the same port.
+        if ((status & 0x02) && waiter.sawProgress) {
+          waiter.resolve({ status, receivedAt: Date.now() });
+        }
+        // 0x08 (idle) alone is not proof that this requested command completed.
+      }
+    }
+
     // LWP3 GotoAbsolutePosition targets a cumulative encoder position and
     // has NO direction parameter. Using it for magnetic APOS (0-359 degrees)
     // causes wrong/long moves. A fresh APOS reading plus StartSpeedForDegrees
     // reproduces the three SPIKE app path choices without a position reset.
     async _runMotorToAbsoluteAngle(port, params, speed, stopMode) {
       this._requireMotor(port);
-      const attachmentId = this._devices[port]?.attachmentId;
-      const readFresh = () => {
-        const reading = this._portValues[port];
-        return reading &&
-          reading.absolutePositionAvailable !== false &&
-          Number.isFinite(reading.absolutePosition) &&
-          Number.isFinite(reading.absolutePositionReceivedAt) &&
-          Date.now() - reading.absolutePositionReceivedAt <= 1000
-          ? reading.absolutePosition : null;
-      };
-      let measured = readFresh();
-      if (measured === null) {
-        // Ask for a fresh value instead of guessing from stale telemetry.
-        const requestedAt = Date.now();
-        await this._send([
-          5, 0, LWP3.PORT_INFORMATION_REQUEST, port === "A" ? 0 : 1, 0
-        ]);
-        for (let attempt = 0; attempt < 20; attempt++) {
-          const reading = this._portValues[port];
-          if (reading &&
-              reading.absolutePositionAvailable !== false &&
-              Number.isFinite(reading.absolutePosition) &&
-              Number.isFinite(reading.absolutePositionReceivedAt) &&
-              reading.absolutePositionReceivedAt >= requestedAt) {
-            measured = reading.absolutePosition;
-            break;
-          }
-          await new Promise((resolve) => setTimeout(resolve, 50));
-        }
-      }
+      return this._queueMotorAngleOperation(port, (generation) =>
+        this._runMotorToAbsoluteAngleNow(
+          port,
+          params,
+          speed,
+          stopMode,
+          generation
+        )
+      );
+    }
+
+    async _runMotorToAbsoluteAngleNow(
+      port,
+      params,
+      speed,
+      stopMode,
+      generation
+    ) {
       this._requireModel();
       this._requireMotor(port);
-      if (this._devices[port]?.attachmentId !== attachmentId)
-        throw new Error("Motor changed while reading its absolute angle");
-      if (measured === null)
-        throw new Error("Fresh Essential APOS reading is unavailable; motor was not moved");
-      const delta = motorAngleDelta(measured, Number(params.position), params.path || "shortest");
+      const attachmentId = this._devices[port]?.attachmentId;
+      const speedPercent = Math.trunc(Math.abs(Number(speed)));
+      if (!Number.isFinite(speedPercent) || speedPercent === 0) {
+        throw Object.assign(
+          new Error("Motor speed must be greater than zero for an angle move"),
+          { code: "ERR_MOTOR_SPEED_ZERO" }
+        );
+      }
+      const requestedPosition = Number(params.position);
+      if (!Number.isFinite(requestedPosition)) {
+        throw this._unsupportedError("motor target position must be numeric");
+      }
+      const target = ((Math.trunc(requestedPosition) % 360) + 360) % 360;
+      const initial = await this._requestFreshApos(
+        port,
+        attachmentId,
+        generation
+      );
+      this._requireModel();
+      this._requireMotor(port);
+      if (
+        this._devices[port]?.attachmentId !== attachmentId ||
+        generation !== (this._motorAngleGenerations[port] || 0)
+      ) {
+        throw this._motorAngleCancelledError(
+          "Motor changed while reading its absolute angle"
+        );
+      }
+      const path = params.path ?? "shortest";
+      const delta = motorAngleDelta(initial.value, target, path);
       const degrees = Math.round(Math.abs(delta));
       if (degrees === 0) return;
-      const directedSpeed =
-        Math.max(1, Math.min(100, Math.abs(speed))) * (delta > 0 ? 1 : -1);
-      return this._output(port, LWP3Output.START_SPEED_FOR_DEGREES, [
-        ...this._int32(degrees),
-        directedSpeed & 0xff,
-        100,
-        stopMode === "coast" ? 0 : stopMode === "hold" ? 126 : 127,
-        0,
-      ]);
+
+      const acceleration = this._rampPreset(
+        params.acceleration_profile ?? this._motorSettings[port]?.acceleration
+      );
+      const deceleration = this._rampPreset(
+        params.deceleration_profile ?? acceleration
+      );
+      await this._configureRampProfile(port, acceleration, deceleration);
+      const directedSpeed = Math.min(100, speedPercent) * (delta > 0 ? 1 : -1);
+      const estimatedMotionMs =
+        (degrees / (Math.max(1, speedPercent) * 3.6)) * 1000;
+      const completionTimeoutMs = Math.min(
+        120000,
+        Math.max(5000, Math.ceil(estimatedMotionMs * 4 + 5000))
+      );
+      const feedback = this._waitForMotorOutputFeedback(
+        port,
+        attachmentId,
+        generation,
+        completionTimeoutMs
+      );
+      feedback.catch(() => {});
+      try {
+        await Promise.all([
+          this._output(port, LWP3Output.START_SPEED_FOR_DEGREES, [
+            ...this._int32(degrees),
+            directedSpeed & 0xff,
+            100,
+            stopMode === "coast" ? 0 : stopMode === "hold" ? 126 : 127,
+            0x11,
+          ]),
+          feedback,
+        ]);
+      } catch (error) {
+        this._outputFeedbackWaiters[port]?.reject(error);
+        throw error;
+      }
+      if (
+        this._devices[port]?.attachmentId !== attachmentId ||
+        generation !== (this._motorAngleGenerations[port] || 0)
+      ) {
+        throw this._motorAngleCancelledError(
+          "Motor changed before absolute angle verification"
+        );
+      }
+      const final = await this._requestFreshApos(port, attachmentId, generation);
+      const actual = ((final.value % 360) + 360) % 360;
+      const error = Math.min(
+        (actual - target + 360) % 360,
+        (target - actual + 360) % 360
+      );
+      if (error > 5) {
+        throw Object.assign(
+          new Error(
+            `Motor stopped ${error.toFixed(1)} degrees from target on port ${port}`
+          ),
+          { code: "ERR_MOTOR_ANGLE_NOT_REACHED" }
+        );
+      }
+    }
+
+    _rampPreset(value, fallback = "medium") {
+      const preset = String(value ?? fallback).trim().toLowerCase();
+      if (!Object.prototype.hasOwnProperty.call(ESSENTIAL_PROFILE_MS, preset)) {
+        throw this._unsupportedError(`motor ramp preset ${preset}`);
+      }
+      return preset;
+    }
+
+    async _configureRampProfile(port, acceleration, deceleration = acceleration) {
+      this._requireMotor(port);
+      const device = this._devices[port];
+      const attachmentId = device.attachmentId;
+      const accelerationPreset = this._rampPreset(acceleration);
+      const decelerationPreset = this._rampPreset(deceleration);
+      const accelerationMs = ESSENTIAL_PROFILE_MS[accelerationPreset];
+      const decelerationMs = ESSENTIAL_PROFILE_MS[decelerationPreset];
+      const cached = this._rampProfiles[port];
+      if (
+        cached?.attachmentId === attachmentId &&
+        cached.accelerationMs === accelerationMs &&
+        cached.decelerationMs === decelerationMs
+      ) return 0x11;
+
+      const profileNo = 1;
+      const encodeTime = (time) => [time & 0xff, (time >> 8) & 0xff, profileNo];
+      // LWP3 output subcommands 0x05/0x06 configure acceleration/deceleration
+      // time profiles. UseProfile 0x11 below selects profile 1 for both ramps.
+      await this._output(
+        port,
+        LWP3Output.SET_ACCELERATION_TIME,
+        encodeTime(accelerationMs),
+        false
+      );
+      await this._output(
+        port,
+        LWP3Output.SET_DECELERATION_TIME,
+        encodeTime(decelerationMs),
+        false
+      );
+      if (this._devices[port]?.attachmentId !== attachmentId) {
+        throw this._motorAngleCancelledError(
+          "Motor attachment changed while setting its ramp profile"
+        );
+      }
+      this._rampProfiles[port] = {
+        attachmentId,
+        accelerationMs,
+        decelerationMs,
+        profileNo,
+      };
+      return 0x11;
+    }
+
+    async _configureRampProfiles(ports, acceleration, deceleration = acceleration) {
+      const uniquePorts = [...new Set(ports)].filter(
+        (port) => this._devices[port]?.type === "motor"
+      );
+      await Promise.all(
+        uniquePorts.map((port) =>
+          this._configureRampProfile(port, acceleration, deceleration)
+        )
+      );
+    }
+
+    async _runMotorToRelativePosition(port, params, speed, stopMode) {
+      this._requireMotor(port);
+      return this._queueMotorAngleOperation(port, (generation) =>
+        this._runMotorToRelativePositionNow(
+          port,
+          params,
+          speed,
+          stopMode,
+          generation
+        )
+      );
+    }
+
+    async _runMotorToRelativePositionNow(
+      port,
+      params,
+      speed,
+      stopMode,
+      generation
+    ) {
+      this._requireModel();
+      this._requireMotor(port);
+      const attachmentId = this._devices[port]?.attachmentId;
+      const speedPercent = Math.trunc(Math.abs(Number(speed)));
+      const target = Number(params.position);
+      if (!Number.isFinite(speedPercent) || speedPercent === 0) {
+        throw Object.assign(
+          new Error("Motor speed must be greater than zero for a position move"),
+          {code: "ERR_MOTOR_SPEED_ZERO"}
+        );
+      }
+      if (!Number.isFinite(target) || Math.abs(target) > 2147483647) {
+        throw this._unsupportedError("relative target position must be a 32-bit number");
+      }
+      const initial = await this._requestFreshRelativePosition(
+        port,
+        attachmentId,
+        generation
+      );
+      if (
+        this._devices[port]?.attachmentId !== attachmentId ||
+        generation !== (this._motorAngleGenerations[port] || 0)
+      ) {
+        throw this._motorAngleCancelledError(
+          "Motor changed while reading its relative position"
+        );
+      }
+      const delta = Math.trunc(target) - Math.trunc(initial.value);
+      if (delta === 0) return;
+      const degrees = Math.abs(delta);
+      const acceleration = this._rampPreset(
+        params.acceleration_profile ?? this._motorSettings[port]?.acceleration
+      );
+      const deceleration = this._rampPreset(
+        params.deceleration_profile ?? acceleration
+      );
+      const useProfile = await this._configureRampProfile(
+        port,
+        acceleration,
+        deceleration
+      );
+      const estimatedMotionMs =
+        (degrees / (Math.max(1, speedPercent) * 3.6)) * 1000;
+      const completionTimeoutMs = Math.min(
+        120000,
+        Math.max(5000, Math.ceil(estimatedMotionMs * 4 + 5000))
+      );
+      const feedback = this._waitForMotorOutputFeedback(
+        port,
+        attachmentId,
+        generation,
+        completionTimeoutMs
+      );
+      feedback.catch(() => {});
+      try {
+        await Promise.all([
+          this._output(port, LWP3Output.START_SPEED_FOR_DEGREES, [
+            ...this._int32(degrees),
+            (Math.min(100, speedPercent) * (delta > 0 ? 1 : -1)) & 0xff,
+            100,
+            stopMode === "coast" ? 0 : stopMode === "hold" ? 126 : 127,
+            useProfile,
+          ]),
+          feedback,
+        ]);
+      } catch (error) {
+        this._outputFeedbackWaiters[port]?.reject(error);
+        throw error;
+      }
+      if (
+        this._devices[port]?.attachmentId !== attachmentId ||
+        generation !== (this._motorAngleGenerations[port] || 0)
+      ) {
+        throw this._motorAngleCancelledError(
+          "Motor changed before relative target verification"
+        );
+      }
+      const final = await this._requestFreshRelativePosition(
+        port,
+        attachmentId,
+        generation
+      );
+      if (Math.abs(final.value - target) > 5) {
+        throw Object.assign(
+          new Error(
+            `Motor stopped ${Math.abs(final.value - target).toFixed(1)} degrees from relative target on port ${port}`
+          ),
+          {code: "ERR_MOTOR_RELATIVE_TARGET_NOT_REACHED"}
+        );
+      }
     }
 
     sendCommand(method, params = {}) {
@@ -11977,13 +12967,19 @@ continuous_sensor_loop()
         );
         switch (method) {
           case "scratch.motor_start":
-          case "scratch.motor_set_speed":
+          case "scratch.motor_set_speed": {
             this._requireMotor(port);
-            return this._output(port, LWP3Output.START_SPEED, [
-              speed & 0xff,
-              100,
-              0,
-            ]);
+            const acceleration = this._rampPreset(
+              p.acceleration_profile ?? this._motorSettings[port].acceleration
+            );
+            return this._configureRampProfile(port, acceleration).then((profile) =>
+              this._output(port, LWP3Output.START_SPEED, [
+                speed & 0xff,
+                100,
+                profile,
+              ])
+            );
+          }
           case "scratch.motor_power":
             this._requireMotor(port);
             return this._output(port, LWP3Output.WRITE_DIRECT_MODE_DATA, [
@@ -12001,13 +12997,21 @@ continuous_sensor_loop()
               Math.min(36000, Math.trunc(Number(p.degrees) || 0))
             );
             const direction = Math.sign(degrees) || 1;
-            return this._output(port, LWP3Output.START_SPEED_FOR_DEGREES, [
-              ...this._int32(Math.abs(degrees)),
-              (Math.abs(speed) * direction) & 0xff,
-              100,
-              stopMode === "coast" ? 0 : stopMode === "hold" ? 126 : 127,
-              0,
-            ]);
+            const acceleration = this._rampPreset(
+              p.acceleration_profile ?? this._motorSettings[port].acceleration
+            );
+            const deceleration = this._rampPreset(
+              p.deceleration_profile ?? acceleration
+            );
+            return this._configureRampProfile(port, acceleration, deceleration).then((profile) =>
+              this._output(port, LWP3Output.START_SPEED_FOR_DEGREES, [
+                ...this._int32(Math.abs(degrees)),
+                (Math.abs(speed) * direction) & 0xff,
+                100,
+                stopMode === "coast" ? 0 : stopMode === "hold" ? 126 : 127,
+                profile,
+              ])
+            );
           }
           case "scratch.motor_run_timed": {
             this._requireMotor(port);
@@ -12016,17 +13020,27 @@ continuous_sensor_loop()
               Math.min(60000, Math.trunc(Number(p.time) || 10))
             );
             const units = Math.ceil(ms / 10);
-            return this._output(port, LWP3Output.START_SPEED_FOR_TIME, [
-              units & 0xff,
-              (units >> 8) & 0xff,
-              speed & 0xff,
-              100,
-              stopMode === "coast" ? 0 : stopMode === "hold" ? 126 : 127,
-              0,
-            ]);
+            const acceleration = this._rampPreset(
+              p.acceleration_profile ?? this._motorSettings[port].acceleration
+            );
+            const deceleration = this._rampPreset(
+              p.deceleration_profile ?? acceleration
+            );
+            return this._configureRampProfile(port, acceleration, deceleration).then((profile) =>
+              this._output(port, LWP3Output.START_SPEED_FOR_TIME, [
+                units & 0xff,
+                (units >> 8) & 0xff,
+                speed & 0xff,
+                100,
+                stopMode === "coast" ? 0 : stopMode === "hold" ? 126 : 127,
+                profile,
+              ])
+            );
           }
           case "scratch.motor_run_to_position":
             return this._runMotorToAbsoluteAngle(port, p, speed, stopMode);
+          case "scratch.motor_run_relative_position":
+            return this._runMotorToRelativePosition(port, p, speed, stopMode);
           case "scratch.motor_reset_position":
             this._requireMotor(port);
             {
@@ -12113,6 +13127,14 @@ continuous_sensor_loop()
               hold: 2,
             }[stopMode];
             return Promise.resolve();
+          case "scratch.motor_set_acceleration": {
+            const preset = this._rampPreset(p.acceleration_profile);
+            if (port) this._motorSettings[port].acceleration = preset;
+            if (port && this._devices[port]?.type === "motor") {
+              return this._configureRampProfile(port, preset, preset);
+            }
+            return Promise.resolve();
+          }
           case "scratch.motor_pair_configure": {
             const left = this._requirePort(p.left_port);
             const right = this._requirePort(p.right_port);
@@ -12136,12 +13158,14 @@ continuous_sensor_loop()
               ),
               Math.round(
                 (Number(p.speed) || 0) * (1 + Number(p.steering || 0) / 100)
-              )
+              ),
+              p.acceleration_profile ?? this._movementAcceleration
             );
           case "scratch.motor_pair_move_tank":
             return this._pairSpeeds(
               Number(p.left_speed) || 0,
-              Number(p.right_speed) || 0
+              Number(p.right_speed) || 0,
+              p.acceleration_profile ?? this._movementAcceleration
             );
           case "scratch.motor_pair_move_degrees":
             return this._pairDegrees(p, stopMode);
@@ -12169,6 +13193,15 @@ continuous_sensor_loop()
               },
               stopMode
             );
+          case "scratch.motor_pair_set_acceleration": {
+            const preset = this._rampPreset(p.acceleration_profile);
+            this._movementAcceleration = preset;
+            return this._configureRampProfiles(
+              this._movementMotors,
+              preset,
+              preset
+            );
+          }
           case "scratch.matrix3_show":
             return this._matrixWrite(port, p.pixels);
           case "scratch.matrix3_clear":
@@ -12213,25 +13246,26 @@ continuous_sensor_loop()
         throw this._deviceUnsupportedError(port, device);
     }
 
-    _pairSpeeds(leftSpeed, rightSpeed) {
+    async _pairSpeeds(leftSpeed, rightSpeed, acceleration = this._movementAcceleration) {
       const [left, right] = this._movementMotors;
       this._requireMotor(left);
       this._requireMotor(right);
+      await this._configureRampProfiles([left, right], acceleration, acceleration);
       return Promise.all([
         this._output(left, LWP3Output.START_SPEED, [
           Math.max(-100, Math.min(100, Math.round(leftSpeed))) & 0xff,
           100,
-          0,
+          0x11,
         ]),
         this._output(right, LWP3Output.START_SPEED, [
           Math.max(-100, Math.min(100, Math.round(rightSpeed))) & 0xff,
           100,
-          0,
+          0x11,
         ]),
       ]);
     }
 
-    _pairDegrees(p, stopMode) {
+    async _pairDegrees(p, stopMode) {
       const [left, right] = this._movementMotors;
       this._requireMotor(left);
       this._requireMotor(right);
@@ -12244,6 +13278,13 @@ continuous_sensor_loop()
       const rightSpeed = p.tank
         ? Number(p.right_speed) || 0
         : base * (1 + steering / 100);
+      const acceleration = this._rampPreset(
+        p.acceleration_profile ?? this._movementAcceleration
+      );
+      const deceleration = this._rampPreset(
+        p.deceleration_profile ?? acceleration
+      );
+      await this._configureRampProfiles([left, right], acceleration, deceleration);
       const endState =
         stopMode === "coast" ? 0 : stopMode === "hold" ? 126 : 127;
       return Promise.all([
@@ -12255,7 +13296,7 @@ continuous_sensor_loop()
             0xff,
           100,
           endState,
-          0,
+          0x11,
         ]),
         this._output(right, LWP3Output.START_SPEED_FOR_DEGREES, [
           ...this._int32(Math.abs(degrees)),
@@ -12265,12 +13306,12 @@ continuous_sensor_loop()
             0xff,
           100,
           endState,
-          0,
+          0x11,
         ]),
       ]);
     }
 
-    _pairTime(p, stopMode) {
+    async _pairTime(p, stopMode) {
       const duration = Math.max(
         10,
         Math.min(60000, Math.trunc(Number(p.duration_ms) || 10))
@@ -12287,6 +13328,13 @@ continuous_sensor_loop()
       const rightSpeed = p.tank
         ? Number(p.right_speed) || 0
         : base * (1 + steering / 100);
+      const acceleration = this._rampPreset(
+        p.acceleration_profile ?? this._movementAcceleration
+      );
+      const deceleration = this._rampPreset(
+        p.deceleration_profile ?? acceleration
+      );
+      await this._configureRampProfiles([left, right], acceleration, deceleration);
       const endState =
         stopMode === "coast" ? 0 : stopMode === "hold" ? 126 : 127;
       const command = (speed) => [
@@ -12295,7 +13343,7 @@ continuous_sensor_loop()
         Math.round(speed) & 0xff,
         100,
         endState,
-        0,
+        0x11,
       ];
       return Promise.all([
         this._output(left, LWP3Output.START_SPEED_FOR_TIME, command(leftSpeed)),
@@ -12361,7 +13409,12 @@ continuous_sensor_loop()
       return this.stopAllMotors();
     }
     stopAllMotors() {
-      if (!this.isConnected()) return Promise.resolve();
+      if (!this.isConnected()) {
+        this._cancelAllMotorAngleOperations(
+          "SPIKE Essential disconnected during absolute angle move"
+        );
+        return Promise.resolve();
+      }
       const ports = Object.entries(this._devices)
         .filter(
           ([, device]) => lwp3DeviceType(device.deviceType)?.type === "motor"
@@ -12371,6 +13424,9 @@ continuous_sensor_loop()
     }
 
     reset({ origin = "user-requested", error = null } = {}) {
+      this._cancelAllMotorAngleOperations(
+        "SPIKE Essential disconnected during absolute angle move"
+      );
       if (error) this._recordCommunicationError(error);
       this._frame = [];
       this._devices = {};
@@ -12379,6 +13435,10 @@ continuous_sensor_loop()
       this._modeValueFormats = {};
       this._inputFormats = {};
       this._portValues = {};
+      this._absolutePositionSequences = {};
+      this._absolutePositionWaiters = {};
+      this._outputFeedbackWaiters = {};
+      this._motorAngleQueues = {};
       this._sensorEdges.clear();
       this._lastUnsupportedOperation = null;
       this._lastDeviceError = null;
@@ -12499,6 +13559,7 @@ continuous_sensor_loop()
       this._candidates = [];
       this._bridgeURL = "localhost:8081";
       this._selectedHubModel = "auto";
+      this._movementSettings = {stopMode: "brake", acceleration: "medium"};
 
       this._repl = new SpikePrime(this._runtime, extensionId);
       this._spike3 = new Spike3Hub(this._runtime, extensionId);
@@ -12938,6 +13999,9 @@ continuous_sensor_loop()
     get motorSettings() {
       return this.active.motorSettings;
     }
+    get movementSettings() {
+      return this._movementSettings;
+    }
     get acceleration() {
       return this.active.acceleration;
     }
@@ -13014,40 +14078,6 @@ continuous_sensor_loop()
     }
 
     sendCommand(method, params, needsResponse = false) {
-      if (method === "scratch.motor_run_to_position" &&
-          this._activeProtocol === "spike3" &&
-          params?.path && params.path !== "shortest") {
-        const path = params.path;
-        if (!MOTOR_ANGLE_PATHS.has(path))
-          return Promise.reject(new Error(`Unsupported motor angle path: ${path}`));
-        const port = String(params.port || "").trim().toUpperCase();
-        const sample = this._spike3.portValues?.[port];
-        if (!Number.isFinite(sample?.absolutePosition) ||
-            !Number.isFinite(sample?.receivedAt) ||
-            Date.now() - sample.receivedAt > 1500) {
-          return Promise.reject(new Error(
-            `Fresh Prime motor absolute angle is unavailable on port ${port}; motor was not moved`
-          ));
-        }
-        let delta;
-        try {
-          delta = motorAngleDelta(sample.absolutePosition, Number(params.position), path);
-        } catch (error) {
-          return Promise.reject(error);
-        }
-        const degrees = Math.round(Math.abs(delta));
-        if (degrees === 0) return Promise.resolve();
-        const configuredSpeed = Number(params.speed);
-        const directedSpeed = (delta > 0 ? 1 : -1) *
-          Math.max(1, Math.abs(Number.isFinite(configuredSpeed) ? configuredSpeed : 30));
-        // Reuse the acknowledged controller's existing run_degrees command;
-        // no automatic controller replacement or slot overwrite is needed.
-        return this._spike3.sendCommand(
-          "scratch.motor_run_for_degrees",
-          {...params, degrees, speed: directedSpeed},
-          needsResponse
-        );
-      }
       return this.active.sendCommand(method, params, needsResponse);
     }
     sendPythonCommand(code) {
@@ -13495,8 +14525,13 @@ continuous_sensor_loop()
       this.addLine("movement_pair_configured = False");
       this.addLine("movement_speed = 75  # Default speed");
       this.addLine("movement_wheel_circumference_cm = None");
+      this.addLine("movement_stop_mode = motor.BRAKE");
+      this.addLine("movement_acceleration = 1000");
+      this.addLine("movement_deceleration = 1000");
       this.addLine("motor_stop_modes = {}");
       this.addLine("motor_speeds = {name: 75 for name in 'ABCDEF'}");
+      this.addLine("motor_accelerations = {name: 1000 for name in 'ABCDEF'}");
+      this.addLine("motor_decelerations = {name: 1000 for name in 'ABCDEF'}");
       this.addLine("timer_start = time.ticks_ms()  # Timer start time");
       this.addLine("");
 
@@ -13574,20 +14609,20 @@ continuous_sensor_loop()
       this.addLine("def start(self, percent=None):");
       this.indentLevel++;
       this.addLine("if percent is None: percent = motor_speeds[self.name]");
-      this.addLine("motor.run(self.port, motor_velocity(self.port, percent))");
+      this.addLine("motor.run(self.port, motor_velocity(self.port, percent), acceleration=motor_accelerations[self.name])");
       this.indentLevel--;
       this.addLine("async def run_for_degrees(self, degrees, percent=None):");
       this.indentLevel++;
       this.addLine("if percent is None: percent = motor_speeds[self.name]");
       this.addLine(
-        "return await motor.run_for_degrees(self.port, int(degrees), motor_velocity(self.port, percent), stop=motor_stop_modes.get(self.name, motor.BRAKE))"
+        "return await motor.run_for_degrees(self.port, int(degrees), motor_velocity(self.port, percent), stop=motor_stop_modes.get(self.name, motor.BRAKE), acceleration=motor_accelerations[self.name], deceleration=motor_decelerations[self.name])"
       );
       this.indentLevel--;
       this.addLine("async def run_for_time(self, duration, percent=None):");
       this.indentLevel++;
       this.addLine("if percent is None: percent = motor_speeds[self.name]");
       this.addLine(
-        "return await motor.run_for_time(self.port, int(duration), motor_velocity(self.port, percent), stop=motor_stop_modes.get(self.name, motor.BRAKE))"
+        "return await motor.run_for_time(self.port, int(duration), motor_velocity(self.port, percent), stop=motor_stop_modes.get(self.name, motor.BRAKE), acceleration=motor_accelerations[self.name], deceleration=motor_decelerations[self.name])"
       );
       this.indentLevel--;
       this.addLine("async def run_to_position(self, position, percent=None, path='shortest'):");
@@ -13596,8 +14631,14 @@ continuous_sensor_loop()
       this.addLine("directions = {'shortest': motor.SHORTEST_PATH, 'clockwise': motor.CLOCKWISE, 'counterclockwise': motor.COUNTERCLOCKWISE}");
       this.addLine("if path not in directions: raise ValueError('unsupported motor angle path')");
       this.addLine(
-        "return await motor.run_to_absolute_position(self.port, int(position), abs(motor_velocity(self.port, percent)), direction=directions[path], stop=motor_stop_modes.get(self.name, motor.BRAKE))"
+        "return await motor.run_to_absolute_position(self.port, int(position), abs(motor_velocity(self.port, percent)), direction=directions[path], stop=motor_stop_modes.get(self.name, motor.BRAKE), acceleration=motor_accelerations[self.name], deceleration=motor_decelerations[self.name])"
       );
+      this.indentLevel--;
+      this.addLine("async def run_to_relative_position(self, position, percent=None):");
+      this.indentLevel++;
+      this.addLine("if percent is None: percent = motor_speeds[self.name]");
+      this.addLine("if int(percent) == 0: raise ValueError('relative motor speed must not be zero')");
+      this.addLine("return await motor.run_to_relative_position(self.port, int(position), abs(motor_velocity(self.port, percent)), stop=motor_stop_modes.get(self.name, motor.BRAKE), acceleration=motor_accelerations[self.name], deceleration=motor_decelerations[self.name])");
       this.indentLevel--;
       this.addLine("def pwm(self, percent):");
       this.indentLevel++;
@@ -13639,6 +14680,35 @@ continuous_sensor_loop()
         "if action not in modes: raise ValueError('invalid motor stop action')"
       );
       this.addLine("motor_stop_modes[str(name).upper()] = modes[action]");
+      this.indentLevel--;
+      this.addLine("");
+
+      this.addLine("def set_motor_acceleration(name, preset):");
+      this.indentLevel++;
+      this.addLine("preset = str(preset).lower()");
+      this.addLine("values = {'low': 300, 'medium': 1000, 'high': 3000}");
+      this.addLine("if preset not in values: raise ValueError('invalid motor acceleration preset')");
+      this.addLine("motor_accelerations[str(name).upper()] = values[preset]");
+      this.addLine("motor_decelerations[str(name).upper()] = values[preset]");
+      this.indentLevel--;
+      this.addLine("");
+
+      this.addLine("def set_movement_stop_action(action):");
+      this.indentLevel++;
+      this.addLine("global movement_stop_mode");
+      this.addLine("modes = {'coast': motor.COAST, 'brake': motor.BRAKE, 'hold': motor.HOLD}");
+      this.addLine("if action not in modes: raise ValueError('invalid movement stop action')");
+      this.addLine("movement_stop_mode = modes[action]");
+      this.indentLevel--;
+      this.addLine("");
+
+      this.addLine("def set_movement_acceleration(preset):");
+      this.indentLevel++;
+      this.addLine("global movement_acceleration, movement_deceleration");
+      this.addLine("values = {'low': 300, 'medium': 1000, 'high': 3000}");
+      this.addLine("if preset not in values: raise ValueError('invalid movement acceleration preset')");
+      this.addLine("movement_acceleration = values[preset]");
+      this.addLine("movement_deceleration = values[preset]");
       this.indentLevel--;
       this.addLine("");
 
@@ -13702,6 +14772,57 @@ continuous_sensor_loop()
       this.indentLevel--;
       this.addLine("");
 
+      this.addLine("def distance_value(name, unit):");
+      this.indentLevel++;
+      this.addLine("cm = distance_cm(name)");
+      this.addLine("if unit == 'mm': return cm * 10");
+      this.addLine("if unit == 'in': return cm / 2.54");
+      this.addLine("if unit == '%': return max(0, min(100, cm / 200 * 100))");
+      this.addLine("return cm");
+      this.indentLevel--;
+      this.addLine("");
+
+      this.addLine("def compare_number(value, operator, threshold):");
+      this.indentLevel++;
+      this.addLine("if value is None: return False");
+      this.addLine("if operator == '<': return value < threshold");
+      this.addLine("if operator == '=': return value == threshold");
+      this.addLine("if operator == '>': return value > threshold");
+      this.addLine("raise ValueError('unsupported comparison operator')");
+      this.indentLevel--;
+      this.addLine("");
+
+      this.addLine("def force_value(name, unit='%'):");
+      this.indentLevel++;
+      this.addLine("value = force_sensor.force(require_device(name))");
+      this.addLine("if value is None: raise RuntimeError('force measurement is unavailable')");
+      this.addLine("return value / 10 if str(unit).lower() == 'n' else value");
+      this.indentLevel--;
+      this.addLine("");
+
+      this.addLine("def force_state(name, state):");
+      this.indentLevel++;
+      this.addLine("target = require_device(name)");
+      this.addLine("force = force_sensor.force(target)");
+      this.addLine("if force is None: raise RuntimeError('force measurement is unavailable')");
+      this.addLine("pressed = force_sensor.pressed(target)");
+      this.addLine("if state == 'pressed': return pressed");
+      this.addLine("if state == 'released': return not pressed");
+      this.addLine("if state == 'hard pressed': return force > 8");
+      this.addLine("raise ValueError('unsupported force state')");
+      this.indentLevel--;
+      this.addLine("");
+
+      this.addLine("def color_rgb_255(name, channel):");
+      this.indentLevel++;
+      this.addLine("indices = {'red': 0, 'green': 1, 'blue': 2}");
+      this.addLine("if channel not in indices: raise ValueError('unsupported color channel')");
+      this.addLine("raw = color_sensor.rgbi(require_device(name))[indices[channel]]");
+      this.addLine("if raw is None: raise RuntimeError('raw color reading is unavailable')");
+      this.addLine("return int(max(0, min(255, round(max(0, min(1023, raw)) * 255 / 1023))))");
+      this.indentLevel--;
+      this.addLine("");
+
       this.addLine("def unsupported_reporter(name):");
       this.indentLevel++;
       this.addLine(
@@ -13751,6 +14872,28 @@ continuous_sensor_loop()
       );
       this.indentLevel--;
       this.addLine("return 'unknown'");
+      this.indentLevel--;
+      this.addLine("");
+
+      this.addLine("def hub_gesture_name():");
+      this.indentLevel++;
+      this.addLine("value = motion_sensor.gesture()");
+      this.addLine("names = {'TAPPED': 'tapped', 'DOUBLE_TAPPED': 'doubletapped', 'SHAKEN': 'shake', 'FALLING': 'freefall'}");
+      this.addLine("for constant, label in names.items():");
+      this.indentLevel++;
+      this.addLine("if getattr(motion_sensor, constant, object()) == value: return label");
+      this.indentLevel--;
+      this.addLine("return 'none'");
+      this.indentLevel--;
+      this.addLine("");
+
+      this.addLine("def set_yaw_reference_face(name):");
+      this.indentLevel++;
+      this.addLine("name = str(name).upper()");
+      this.addLine("if name not in ('TOP', 'FRONT', 'RIGHT', 'BOTTOM', 'BACK', 'LEFT'): raise ValueError('invalid yaw reference face')");
+      this.addLine("face = getattr(motion_sensor, name, None)");
+      this.addLine("if face is None: raise NotImplementedError('yaw reference face is unavailable')");
+      this.addLine("if not motion_sensor.set_yaw_face(face): raise RuntimeError('hub rejected yaw reference face')");
       this.indentLevel--;
       this.addLine("");
 
@@ -14167,16 +15310,16 @@ continuous_sensor_loop()
             `distance_degrees = int((${centimeters} / movement_wheel_circumference_cm) * 360 * ${dirMult})`
           );
           this.addLine(
-            "await motor_pair.move_for_degrees(motor_pair.PAIR_1, distance_degrees, 0, velocity=abs(pair_velocity(movement_speed)))"
+            "await motor_pair.move_for_degrees(motor_pair.PAIR_1, distance_degrees, 0, velocity=abs(pair_velocity(movement_speed)), stop=movement_stop_mode, acceleration=movement_acceleration, deceleration=movement_deceleration)"
           );
         } else if (unit === "rotations" || unit === "degrees") {
           const amount = unit === "rotations" ? `(${value} * 360)` : value;
           this.addLine(
-            `await motor_pair.move_for_degrees(motor_pair.PAIR_1, int(${amount} * ${dirMult}), 0, velocity=abs(pair_velocity(movement_speed)))`
+            `await motor_pair.move_for_degrees(motor_pair.PAIR_1, int(${amount} * ${dirMult}), 0, velocity=abs(pair_velocity(movement_speed)), stop=movement_stop_mode, acceleration=movement_acceleration, deceleration=movement_deceleration)`
           );
         } else if (unit === "seconds") {
           this.addLine(
-            `await motor_pair.move_for_time(motor_pair.PAIR_1, max(1, int(${value} * 1000)), 0, velocity=pair_velocity(movement_speed) * ${dirMult})`
+            `await motor_pair.move_for_time(motor_pair.PAIR_1, max(1, int(${value} * 1000)), 0, velocity=pair_velocity(movement_speed) * ${dirMult}, stop=movement_stop_mode, acceleration=movement_acceleration, deceleration=movement_deceleration)`
           );
         } else {
           this.addLine(`raise ValueError("unsupported move unit: ${unit}")`);
@@ -14185,21 +15328,21 @@ continuous_sensor_loop()
         const steering = this.getInputValue(block, "STEERING", blocks);
         this.addLine("ensure_movement_pair()");
         this.addLine(
-          `motor_pair.move(motor_pair.PAIR_1, max(-100, min(100, int(${steering}))), velocity=pair_velocity(movement_speed))`
+          `motor_pair.move(motor_pair.PAIR_1, max(-100, min(100, int(${steering}))), velocity=pair_velocity(movement_speed), acceleration=movement_acceleration)`
         );
       } else if (opcode === "spikeprime_motorPairMove") {
         const steering = this.getInputValue(block, "STEERING", blocks);
         const speed = this.getInputValue(block, "SPEED", blocks);
         this.addLine("ensure_movement_pair()");
         this.addLine(
-          `motor_pair.move(motor_pair.PAIR_1, max(-100, min(100, int(${steering}))), velocity=pair_velocity(${speed}))`
+          `motor_pair.move(motor_pair.PAIR_1, max(-100, min(100, int(${steering}))), velocity=pair_velocity(${speed}), acceleration=movement_acceleration)`
         );
       } else if (opcode === "spikeprime_startTank") {
         const leftSpeed = this.getInputValue(block, "LEFT_SPEED", blocks);
         const rightSpeed = this.getInputValue(block, "RIGHT_SPEED", blocks);
         this.addLine("ensure_movement_pair()");
         this.addLine(
-          `motor_pair.move_tank(motor_pair.PAIR_1, motor_velocity(require_device(movement_motors[0]), ${leftSpeed}), motor_velocity(require_device(movement_motors[1]), ${rightSpeed}))`
+          `motor_pair.move_tank(motor_pair.PAIR_1, motor_velocity(require_device(movement_motors[0]), ${leftSpeed}), motor_velocity(require_device(movement_motors[1]), ${rightSpeed}), acceleration=movement_acceleration)`
         );
       } else if (opcode === "spikeprime_setMovementSpeed") {
         const speed = this.getInputValue(block, "SPEED", blocks);
@@ -14207,7 +15350,16 @@ continuous_sensor_loop()
         this.addLine(`movement_speed = max(-100, min(100, int(${speed})))`);
       } else if (opcode === "spikeprime_stopMovement") {
         this.addLine("ensure_movement_pair()");
-        this.addLine("motor_pair.stop(motor_pair.PAIR_1, stop=motor.BRAKE)");
+        this.addLine("motor_pair.stop(motor_pair.PAIR_1, stop=movement_stop_mode)");
+      } else if (opcode === "spikeprime_setMovementStopAction") {
+        const action = this.getInputValue(block, "ACTION", blocks).replace(/\"/g, "");
+        this.addLine(`set_movement_stop_action(${pyStringLiteral(action)})`);
+      } else if (opcode === "spikeprime_setMovementAcceleration") {
+        const preset = this.getInputValue(block, "ACCELERATION", blocks).replace(/\"/g, "");
+        this.addLine(`set_movement_acceleration(${pyStringLiteral(preset)})`);
+      } else if (opcode === "spikeprime_setYawFace") {
+        const face = this.getInputValue(block, "FACE", blocks).replace(/\"/g, "");
+        this.addLine(`set_yaw_reference_face(${pyStringLiteral(face)})`);
       }
 
       // SPIKE-specific motor blocks
@@ -14293,6 +15445,19 @@ continuous_sensor_loop()
           `await motor.run_to_position(${position}, motor_speeds["${port}"], ${pyStringLiteral(path)})`
         );
         this.indentLevel--;
+      } else if (opcode === "spikeprime_motorRunToRelativePosition") {
+        const port = this.getInputValue(block, "PORT", blocks).replace(/\"/g, "");
+        const speed = this.getInputValue(block, "SPEED", blocks);
+        const position = this.getInputValue(block, "POSITION", blocks);
+        this.usedMotors.add(port);
+        this.addLine(`motor = get_motor(${pyStringLiteral(port)})`);
+        this.addLine(`await motor.run_to_relative_position(int(${position}), max(1, min(100, int(abs(${speed})))) )`);
+      } else if (opcode === "spikeprime_setMotorAcceleration") {
+        const port = this.getInputValue(block, "PORT", blocks).replace(/\"/g, "");
+        const preset = this.getInputValue(block, "ACCELERATION", blocks).replace(/\"/g, "");
+        for (const name of port.split("+")) {
+          if (/^[A-F]$/.test(name)) this.addLine(`set_motor_acceleration(${pyStringLiteral(name)}, ${pyStringLiteral(preset)})`);
+        }
       } else if (opcode === "spikeprime_motorStart") {
         const port = this.getInputValue(block, "PORT", blocks).replace(
           /"/g,
@@ -15078,7 +16243,7 @@ continuous_sensor_loop()
           ""
         );
         this.usedSensors.add(port);
-        return `require_reading(motor.relative_position(require_device("${port}")), "motor position")`;
+        return `((require_reading(motor.absolute_position(require_device("${port}")), "absolute motor position") % 360) + 360) % 360`;
       } else if (block.opcode === "spikeprime_getRelativePosition") {
         const port = this.getInputValue(block, "PORT", blocks).replace(
           /"/g,
@@ -15158,12 +16323,16 @@ continuous_sensor_loop()
           /"/g,
           ""
         );
-        const centimeters = `distance_cm("${port}")`;
-        if (unit === "mm") return `(${centimeters} * 10)`;
-        if (unit === "in") return `(${centimeters} / 2.54)`;
-        if (unit === "%")
-          return `max(0, min(100, (${centimeters} / 200) * 100))`;
-        return centimeters;
+        return `distance_value(${pyStringLiteral(port)}, ${pyStringLiteral(unit)})`;
+      } else if (block.opcode === "spikeprime_isDistanceCompared") {
+        const port = this.getInputValue(block, "PORT", blocks).replace(/\"/g, "");
+        const threshold = this.getInputValue(block, "DISTANCE", blocks);
+        const unit = this.getInputValue(block, "UNIT", blocks).replace(/\"/g, "");
+        const relation = this.getInputValue(block, "RELATION", blocks).replace(/\"/g, "").toLowerCase();
+        if (!["near", "far"].includes(relation)) throw new Error(`Unsupported distance relation: ${relation}`);
+        this.usedSensors.add(port);
+        const operator = relation === "near" ? "<" : ">";
+        return `compare_number(distance_value(${pyStringLiteral(port)}, ${pyStringLiteral(unit)}), ${pyStringLiteral(operator)}, float(${threshold}))`;
       } else if (block.opcode === "spikeprime_readLogFile") {
         const filename = this.getInputValue(block, "FILENAME", blocks);
         return `read_log(${filename})`;
@@ -15194,6 +16363,13 @@ continuous_sensor_loop()
         );
         this.usedSensors.add(port);
         return `color_sensor.reflection(require_device("${port}"))`;
+      } else if (block.opcode === "spikeprime_isReflectionCompared") {
+        const port = this.getInputValue(block, "PORT", blocks).replace(/\"/g, "");
+        const operator = this.getInputValue(block, "OPERATOR", blocks).replace(/\"/g, "");
+        const threshold = this.getInputValue(block, "THRESHOLD", blocks);
+        if (!["<", "=", ">"].includes(operator)) throw new Error(`Unsupported comparison operator: ${operator}`);
+        this.usedSensors.add(port);
+        return `compare_number(color_sensor.reflection(require_device(${pyStringLiteral(port)})), ${pyStringLiteral(operator)}, float(${threshold}))`;
       } else if (block.opcode === "spikeprime_getAmbientLight") {
         return `unsupported_reporter("ambient light")`;
       } else if (block.opcode === "spikeprime_getColorRGB") {
@@ -15208,19 +16384,30 @@ continuous_sensor_loop()
         const idx = { red: 0, green: 1, blue: 2 }[channel] ?? 0;
         this.usedSensors.add(port);
         return `color_sensor.rgbi(require_device("${port}"))[${idx}]`;
+      } else if (block.opcode === "spikeprime_getRawColor255") {
+        const port = this.getInputValue(block, "PORT", blocks).replace(/\"/g, "");
+        const channel = this.getInputValue(block, "CHANNEL", blocks).replace(/\"/g, "").toLowerCase();
+        if (!["red", "green", "blue"].includes(channel)) throw new Error(`Unsupported raw color channel: ${channel}`);
+        this.usedSensors.add(port);
+        return `color_rgb_255(${pyStringLiteral(port)}, ${pyStringLiteral(channel)})`;
       } else if (block.opcode === "spikeprime_getForce") {
         const port = this.getInputValue(block, "PORT", blocks).replace(
           /"/g,
           ""
         );
         this.usedSensors.add(port);
-        return `force_sensor.force(require_device("${port}"))`;
+        const unit = this.getInputValue(block, "UNIT", blocks).replace(/\"/g, "").toLowerCase();
+        if (!["%", "n"].includes(unit)) throw new Error(`Unsupported force unit: ${unit}`);
+        return `force_value(${pyStringLiteral(port)}, ${pyStringLiteral(unit)})`;
       } else if (block.opcode === "spikeprime_isForceSensorPressed") {
         const port = this.getInputValue(block, "PORT", blocks).replace(
           /"/g,
           ""
         );
-        return `force_sensor.pressed(require_device("${port}"))`;
+        const state = this.getInputValue(block, "STATE", blocks).replace(/\"/g, "").toLowerCase();
+        if (!["pressed", "released", "hard pressed"].includes(state)) throw new Error(`Unsupported force state: ${state}`);
+        this.usedSensors.add(port);
+        return `force_state(${pyStringLiteral(port)}, ${pyStringLiteral(state)})`;
       } else if (block.opcode === "spikeprime_isGesture") {
         const gesture = this.getInputValue(block, "GESTURE", blocks).replace(
           /"/g,
@@ -15232,12 +16419,25 @@ continuous_sensor_loop()
         block.opcode === "spikeprime_getFaceUp"
       ) {
         return "face_up_name()";
+      } else if (
+        block.opcode === "spikeprime_isHubOrientation" ||
+        block.opcode === "spikeprime_isOrientation"
+      ) {
+        const face = this.getInputValue(block, "FACE", blocks).replace(/\"/g, "").toLowerCase();
+        if (!["top", "front", "right", "bottom", "back", "left"].includes(face)) throw new Error(`Unsupported hub face: ${face}`);
+        return `(face_up_name() == ${pyStringLiteral(face)})`;
+      } else if (block.opcode === "spikeprime_getGesture") {
+        return "hub_gesture_name()";
       } else if (block.opcode === "spikeprime_isButtonPressed") {
         const name = this.getInputValue(block, "BUTTON", blocks).replace(
           /"/g,
           ""
         );
         return `hub_button_pressed("${name}")`;
+      } else if (block.opcode === "spikeprime_getMotorPower") {
+        const port = this.getInputValue(block, "PORT", blocks).replace(/\"/g, "");
+        this.usedMotors.add(port);
+        return `require_reading(motor.get_duty_cycle(require_device(${pyStringLiteral(port)})), "motor duty cycle") / 100`;
       } else if (
         block.opcode === "spikeprime_isConnected" ||
         block.opcode === "spikeprime_getHubType" ||
@@ -15703,7 +16903,11 @@ continuous_sensor_loop()
           hub._runningControllerSession === sessionId
             ? hub._runningControllerSlot
             : null;
-        if (hub._controllerReady && runningSlot === 0) {
+        if (
+          hub._controllerReady &&
+          runningSlot === 0 &&
+          hub._controllerVersion === "brickwright-spike-controller/3"
+        ) {
           this._writeControllerSlot(0, deviceId || undefined);
           hub._recordDiagnosticEvent("internal-controller-reused", {
             slot: 0,
@@ -15714,7 +16918,7 @@ continuous_sensor_loop()
             slot: 0,
             alreadyRunning: true,
             protocol: "brickwright-spike-controller",
-            version: 1,
+            version: Number(String(hub._controllerVersion || "").split("/").pop()),
           };
         }
 
@@ -15743,7 +16947,11 @@ continuous_sensor_loop()
             source,
           });
         }
-        if (savedSlot === 0 && (runningSlot === null || runningSlot === 0)) {
+        if (
+          savedSlot === 0 &&
+          (runningSlot === null || runningSlot === 0) &&
+          !hub._controllerReady
+        ) {
           try {
             const result = await this.startSavedControllerFromControlCenter(0);
             assertCurrent();
@@ -15751,6 +16959,12 @@ continuous_sensor_loop()
               throw Object.assign(new Error(t("controllerNotReady")), {
                 code: "ERR_CONTROLLER_NOT_READY",
               });
+            }
+            if (hub._controllerVersion !== "brickwright-spike-controller/3") {
+              throw Object.assign(
+                new Error("The saved Brickwright controller must be updated"),
+                { code: "ERR_CONTROLLER_UPDATE_REQUIRED" }
+              );
             }
             if (
               hub._runningControllerSession !== sessionId ||
@@ -15783,6 +16997,18 @@ continuous_sensor_loop()
         }
 
         assertCurrent();
+        if (
+          hub._controllerReady &&
+          hub._controllerVersion !== "brickwright-spike-controller/3" &&
+          savedSlot === 0 &&
+          runningSlot === null
+        ) {
+          // A successful hello plus this device's saved internal-slot record
+          // identifies the older controller so the normal installer can stop
+          // and replace only slot 0.
+          hub._runningControllerSession = sessionId;
+          hub._runningControllerSlot = 0;
+        }
         // Slot zero is Brickwright's fixed internal slot. Its replacement is
         // user-authorized. The installer stops an identified running program
         // first, clears only slot zero, then requires start notification and
@@ -16548,7 +17774,7 @@ continuous_sensor_loop()
         name: t("extensionName"),
         blockIconURI: iconURI,
         showStatusButton: true,
-        blocks: [
+        blocks: addLongLabelTooltips([
           // Connection Section
           //
           // These are what the four other SPIKE extensions each offered in
@@ -16855,6 +18081,22 @@ continuous_sensor_loop()
             text: t("stopMovement"),
             blockType: BlockType.COMMAND,
           },
+          {
+            opcode: "setMovementStopAction",
+            text: t("setMovementStopAction"),
+            blockType: BlockType.COMMAND,
+            arguments: {
+              ACTION: {type: ArgumentType.STRING, menu: "STOP_ACTION", defaultValue: "brake"},
+            },
+          },
+          {
+            opcode: "setMovementAcceleration",
+            text: t("setMovementAcceleration"),
+            blockType: BlockType.COMMAND,
+            arguments: {
+              ACCELERATION: {type: ArgumentType.STRING, menu: "ACCELERATION", defaultValue: "medium"},
+            },
+          },
           "---",
           // Motors
           {
@@ -16896,6 +18138,16 @@ continuous_sensor_loop()
                 menu: "MOTOR_PATH",
                 defaultValue: "shortest",
               },
+            },
+          },
+          {
+            opcode: "motorRunToRelativePosition",
+            text: t("motorRunToRelativePosition"),
+            blockType: BlockType.COMMAND,
+            arguments: {
+              PORT: {type: ArgumentType.STRING, menu: "PORT", defaultValue: "A"},
+              SPEED: {type: ArgumentType.NUMBER, defaultValue: 100},
+              POSITION: {type: ArgumentType.NUMBER, defaultValue: 0},
             },
           },
           {
@@ -17008,6 +18260,23 @@ continuous_sensor_loop()
                 menu: "STOP_ACTION",
                 defaultValue: "brake",
               },
+            },
+          },
+          {
+            opcode: "setMotorAcceleration",
+            text: t("setMotorAcceleration"),
+            blockType: BlockType.COMMAND,
+            arguments: {
+              PORT: {type: ArgumentType.STRING, menu: "PORT", defaultValue: "A"},
+              ACCELERATION: {type: ArgumentType.STRING, menu: "ACCELERATION", defaultValue: "medium"},
+            },
+          },
+          {
+            opcode: "getMotorPower",
+            text: t("getMotorPower"),
+            blockType: BlockType.REPORTER,
+            arguments: {
+              PORT: {type: ArgumentType.STRING, menu: "PORT", defaultValue: "A"},
             },
           },
           {
@@ -17389,6 +18658,35 @@ continuous_sensor_loop()
             blockType: BlockType.REPORTER,
           },
           {
+            opcode: "isOrientation",
+            text: t("isOrientation"),
+            blockType: BlockType.BOOLEAN,
+            arguments: {
+              FACE: {type: ArgumentType.STRING, menu: "HUB_FACE", defaultValue: "top"},
+            },
+          },
+          {
+            opcode: "isHubOrientation",
+            text: t("isHubOrientation"),
+            blockType: BlockType.BOOLEAN,
+            arguments: {
+              FACE: {type: ArgumentType.STRING, menu: "HUB_FACE", defaultValue: "top"},
+            },
+          },
+          {
+            opcode: "getGesture",
+            text: t("getGesture"),
+            blockType: BlockType.REPORTER,
+          },
+          {
+            opcode: "setYawFace",
+            text: t("setYawFace"),
+            blockType: BlockType.COMMAND,
+            arguments: {
+              FACE: {type: ArgumentType.STRING, menu: "YAW_FACE", defaultValue: "front"},
+            },
+          },
+          {
             // Which face is up, as a name. Distinct from getOrientation, which
             // reports the hub's orientation state, and from getAngle, which
             // reports a number.
@@ -17531,6 +18829,17 @@ continuous_sensor_loop()
             },
           },
           {
+            opcode: "isDistanceCompared",
+            text: t("isDistanceCompared"),
+            blockType: BlockType.BOOLEAN,
+            arguments: {
+              PORT: {type: ArgumentType.STRING, menu: "PORT", defaultValue: "A"},
+              DISTANCE: {type: ArgumentType.NUMBER, defaultValue: 15},
+              UNIT: {type: ArgumentType.STRING, menu: "DISTANCE_UNIT", defaultValue: "%"},
+              RELATION: {type: ArgumentType.STRING, menu: "DISTANCE_RELATION", defaultValue: "near"},
+            },
+          },
+          {
             opcode: "setDistanceLights",
             text: t("setDistanceLights"),
             blockType: BlockType.COMMAND,
@@ -17571,6 +18880,16 @@ continuous_sensor_loop()
             },
           },
           {
+            opcode: "isReflectionCompared",
+            text: t("isReflectionCompared"),
+            blockType: BlockType.BOOLEAN,
+            arguments: {
+              PORT: {type: ArgumentType.STRING, menu: "PORT", defaultValue: "A"},
+              OPERATOR: {type: ArgumentType.STRING, menu: "COMPARISON", defaultValue: "<"},
+              THRESHOLD: {type: ArgumentType.NUMBER, defaultValue: 50},
+            },
+          },
+          {
             opcode: "getAmbientLight",
             text: t("getAmbientLight"),
             blockType: BlockType.REPORTER,
@@ -17583,7 +18902,7 @@ continuous_sensor_loop()
             },
           },
           {
-            // One raw channel of the colour sensor, 0-1024, as the hub sends
+            // One raw channel of the colour sensor, 0-1023, as the hub sends
             // it: both firmware generations carry red, green and blue in the
             // colour record (SPIKE 3 Python's color_sensor.rgbi() items 0-2).
             opcode: "getColorRGB",
@@ -17603,6 +18922,15 @@ continuous_sensor_loop()
             },
           },
           {
+            opcode: "getRawColor255",
+            text: t("getRawColor255"),
+            blockType: BlockType.REPORTER,
+            arguments: {
+              PORT: {type: ArgumentType.STRING, menu: "PORT", defaultValue: "A"},
+              CHANNEL: {type: ArgumentType.STRING, menu: "RGB_CHANNEL", defaultValue: "red"},
+            },
+          },
+          {
             opcode: "getForce",
             text: t("getForce"),
             blockType: BlockType.REPORTER,
@@ -17612,6 +18940,7 @@ continuous_sensor_loop()
                 menu: "PORT",
                 defaultValue: "A",
               },
+              UNIT: {type: ArgumentType.STRING, menu: "FORCE_UNIT", defaultValue: "%"},
             },
           },
           {
@@ -17624,6 +18953,7 @@ continuous_sensor_loop()
                 menu: "PORT",
                 defaultValue: "A",
               },
+              STATE: {type: ArgumentType.STRING, menu: "FORCE_STATE", defaultValue: "pressed"},
             },
           },
           {
@@ -17689,6 +19019,7 @@ continuous_sensor_loop()
                 menu: "BUTTON",
                 defaultValue: "center",
               },
+              STATE: {type: ArgumentType.STRING, menu: "BUTTON_STATE", defaultValue: "pressed"},
             },
           },
           {
@@ -17792,7 +19123,7 @@ continuous_sensor_loop()
             text: t("exitScript"),
             blockType: BlockType.COMMAND,
           },
-        ],
+        ]),
         menus: {
           PORT: { acceptReporters: true, items: "getPortMenu" },
           ...(isStartupProbeDeveloperMode()
@@ -17820,7 +19151,12 @@ continuous_sensor_loop()
           },
           DISTANCE_UNIT: {
             acceptReporters: true,
-            items: ["cm", "mm", "in", "%"],
+            items: [
+              menuItem("unit.cm", "cm"),
+              menuItem("unit.mm", "mm"),
+              menuItem("unit.inches", "in"),
+              menuItem("unit.percent", "%"),
+            ],
           },
           MULTIPLE_PORT: {
             acceptReporters: true,
@@ -17840,10 +19176,32 @@ continuous_sensor_loop()
           MOTOR_PATH: {
             acceptReporters: false,
             items: [
-              menuItem("motorPath.shortest", "shortest"),
-              menuItem("motorPath.clockwise", "clockwise"),
-              menuItem("motorPath.counterclockwise", "counterclockwise"),
+              {text: t("motorPath.shortest"), value: "shortest"},
+              {text: t("motorPath.clockwise"), value: "clockwise"},
+              {text: t("motorPath.counterclockwise"), value: "counterclockwise"},
             ],
+          },
+          COMPARISON: {acceptReporters: false, items: ["<", "=", ">"]},
+          DISTANCE_RELATION: {
+            acceptReporters: false,
+            items: [menuItem("relation.near", "near"), menuItem("relation.far", "far")],
+          },
+          FORCE_UNIT: {acceptReporters: false, items: ["%", "N"]},
+          ACCELERATION: {
+            acceptReporters: false,
+            items: ["low", "medium", "high"].map(value => menuItem(`acceleration.${value}`, value)),
+          },
+          HUB_FACE: {
+            acceptReporters: false,
+            items: ["top", "front", "right", "bottom", "back", "left"].map(value => menuItem(`face.${value}`, value)),
+          },
+          YAW_FACE: {
+            acceptReporters: false,
+            items: ["top", "front", "right", "bottom", "back", "left"].map(value => menuItem(`face.${value}`, value)),
+          },
+          BUTTON_STATE: {
+            acceptReporters: false,
+            items: [menuItem("state.pressed", "pressed"), menuItem("state.released", "released")],
           },
           MOTOR_UNIT: {
             acceptReporters: false,
@@ -17853,7 +19211,14 @@ continuous_sensor_loop()
               menuItem("unit.seconds", "seconds"),
             ],
           },
-          AXIS: { acceptReporters: false, items: ["pitch", "roll", "yaw"] },
+          AXIS: {
+            acceptReporters: false,
+            items: [
+              menuItem("axis.pitch", "pitch"),
+              menuItem("axis.roll", "roll"),
+              menuItem("axis.yaw", "yaw"),
+            ],
+          },
           AXIS_XYZ: { acceptReporters: false, items: ["x", "y", "z"] },
           RGB_CHANNEL: {
             acceptReporters: false,
@@ -18441,6 +19806,15 @@ continuous_sensor_loop()
       const ports = this._peripheral.movementMotors;
       const speed = this._peripheral.motorSettings[ports[0]].speed;
       const dirMultiplier = direction === "forward" ? 1 : -1;
+      const movement = this._peripheral.movementSettings || {};
+      const accelerationPreset = movement.acceleration || "medium";
+      const movementOptions = {
+        stop_mode: movement.stopMode || "brake",
+        acceleration: PRIME_ACCELERATION[accelerationPreset],
+        deceleration: PRIME_ACCELERATION[accelerationPreset],
+        acceleration_profile: accelerationPreset,
+        deceleration_profile: accelerationPreset,
+      };
       if (this._peripheral.protocol === "spike3") {
         const circumference = this._peripheral._movementWheelCircumferenceCm;
         if (unit === "seconds") {
@@ -18448,6 +19822,7 @@ continuous_sensor_loop()
             duration_ms: Math.round(Math.max(0, value) * 1000),
             steering: 0,
             speed: speed * dirMultiplier,
+            ...movementOptions,
           });
         }
         let degrees;
@@ -18469,6 +19844,7 @@ continuous_sensor_loop()
           degrees: Math.round(degrees * dirMultiplier),
           steering: 0,
           speed,
+          ...movementOptions,
         });
       }
       let amount = value;
@@ -18514,9 +19890,13 @@ continuous_sensor_loop()
       const [portA] = this._peripheral.movementMotors;
       const speed = this._peripheral.motorSettings[portA].speed;
       if (this._peripheral.protocol === "spike3") {
+        const movement = this._peripheral.movementSettings || {};
+        const accelerationPreset = movement.acceleration || "medium";
         return this._peripheral.sendCommand("scratch.motor_pair_move", {
           steering,
           speed,
+          acceleration: PRIME_ACCELERATION[accelerationPreset],
+          acceleration_profile: accelerationPreset,
         });
       }
       return this._sendMotorPairCommand(
@@ -18527,10 +19907,15 @@ continuous_sensor_loop()
     startTank(args) {
       const leftSpeed = Cast.toNumber(args.LEFT_SPEED);
       const rightSpeed = Cast.toNumber(args.RIGHT_SPEED);
+      const movement = this._peripheral.movementSettings;
+      const accelerationPreset = movement?.acceleration || "medium";
       if (this._peripheral.protocol === "spike3") {
         return this._peripheral.sendCommand("scratch.motor_pair_move_tank", {
           left_speed: leftSpeed,
           right_speed: rightSpeed,
+          acceleration: PRIME_ACCELERATION[accelerationPreset],
+          acceleration_profile: accelerationPreset,
+          stop_mode: movement?.stopMode || "brake",
         });
       }
       return this._sendMotorPairCommand(
@@ -18548,12 +19933,34 @@ continuous_sensor_loop()
     }
 
     stopMovement() {
+      const stopMode = this._peripheral.movementSettings?.stopMode || "brake";
       if (this._peripheral.protocol === "spike3") {
         return this._peripheral.sendCommand("scratch.motor_pair_stop", {
-          stop: "brake",
+          stop: stopMode,
         });
       }
       return this._sendMotorPairCommand("motors.stop()");
+    }
+
+    setMovementStopAction(args) {
+      const action = Cast.toString(args.ACTION).trim().toLowerCase();
+      if (!Object.prototype.hasOwnProperty.call(STOP_MODE_VALUES, action)) {
+        return this._rejectOperation(new Error(t("controllerInvalidStopMode")));
+      }
+      this._peripheral.movementSettings.stopMode = action;
+    }
+
+    setMovementAcceleration(args) {
+      const acceleration = Cast.toString(args.ACCELERATION).trim().toLowerCase();
+      if (!Object.prototype.hasOwnProperty.call(PRIME_ACCELERATION, acceleration)) {
+        return this._rejectOperation(new Error(`Unsupported acceleration: ${acceleration}`));
+      }
+      this._peripheral.movementSettings.acceleration = acceleration;
+      if (this._peripheral._activeProtocol === "essential") {
+        return this._peripheral.sendCommand("scratch.motor_pair_set_acceleration", {
+          acceleration_profile: acceleration,
+        });
+      }
     }
 
     // Motor implementations
@@ -18586,6 +19993,8 @@ continuous_sensor_loop()
                 speed: setting.speed * direction,
                 degrees: Math.trunc(degrees),
                 stop_mode: setting.stopMode,
+                acceleration: PRIME_ACCELERATION[setting.acceleration || "medium"],
+                acceleration_profile: setting.acceleration || "medium",
               }
             );
           })
@@ -18629,6 +20038,10 @@ continuous_sensor_loop()
           path,
           speed,
           stop_mode: this._peripheral.motorSettings[port].stopMode,
+          acceleration: PRIME_ACCELERATION[this._peripheral.motorSettings[port].acceleration || "medium"],
+          deceleration: PRIME_ACCELERATION[this._peripheral.motorSettings[port].acceleration || "medium"],
+          acceleration_profile: this._peripheral.motorSettings[port].acceleration || "medium",
+          deceleration_profile: this._peripheral.motorSettings[port].acceleration || "medium",
         });
       }
       // Legacy SPIKE 2.x Python accepts a string 'direction' parameter.
@@ -18648,6 +20061,10 @@ continuous_sensor_loop()
             speed: setting.speed * direction,
             degrees: Math.floor(degrees),
             stop_mode: setting.stopMode,
+            acceleration: PRIME_ACCELERATION[setting.acceleration || "medium"],
+            deceleration: PRIME_ACCELERATION[setting.acceleration || "medium"],
+            acceleration_profile: setting.acceleration || "medium",
+            deceleration_profile: setting.acceleration || "medium",
           }
         );
         if (this._peripheral.protocol === "spike3") return standardCommand;
@@ -18672,6 +20089,10 @@ continuous_sensor_loop()
             speed: setting.speed * direction,
             time: Math.floor(seconds * 1000),
             stop_mode: setting.stopMode,
+            acceleration: PRIME_ACCELERATION[setting.acceleration || "medium"],
+            deceleration: PRIME_ACCELERATION[setting.acceleration || "medium"],
+            acceleration_profile: setting.acceleration || "medium",
+            deceleration_profile: setting.acceleration || "medium",
           }
         );
         if (this._peripheral.protocol === "spike3") return standardCommand;
@@ -18698,6 +20119,10 @@ continuous_sensor_loop()
             port: port,
             speed: setting.speed * direction,
             stop_mode: setting.stopMode,
+            acceleration: PRIME_ACCELERATION[setting.acceleration || "medium"],
+            deceleration: PRIME_ACCELERATION[setting.acceleration || "medium"],
+            acceleration_profile: setting.acceleration || "medium",
+            deceleration_profile: setting.acceleration || "medium",
           }
         );
         if (this._peripheral.protocol === "spike3") return standardCommand;
@@ -18758,6 +20183,67 @@ continuous_sensor_loop()
       return this._peripheral.sendPythonCommand(
         `hub.port.${port}.motor.set_stop_action('${action}')`
       );
+    }
+
+    motorRunToRelativePosition(args) {
+      const port = this._validatePort(args.PORT);
+      if (!port) return;
+      const position = Number(args.POSITION);
+      const speed = Math.abs(Number(args.SPEED));
+      if (!Number.isFinite(position) || !Number.isFinite(speed) || speed <= 0) {
+        return this._rejectOperation(
+          new Error("Relative target and speed must be finite; speed must be positive")
+        );
+      }
+      if (!["spike3", "essential"].includes(this._peripheral._activeProtocol)) {
+        return this._rejectOperation(
+          new Error("Relative-position target moves are unavailable on this hub connection")
+        );
+      }
+      const setting = this._peripheral.motorSettings[port];
+      const accelerationPreset = setting.acceleration || "medium";
+      const acceleration = PRIME_ACCELERATION[accelerationPreset];
+      return this._peripheral.sendCommand("scratch.motor_run_relative_position", {
+        port,
+        position: Math.trunc(position),
+        speed,
+        stop_mode: setting.stopMode,
+        acceleration,
+        deceleration: acceleration,
+        acceleration_profile: accelerationPreset,
+        deceleration_profile: accelerationPreset,
+      });
+    }
+
+    setMotorAcceleration(args) {
+      const port = this._validatePort(args.PORT);
+      if (!port) return;
+      const preset = Cast.toString(args.ACCELERATION).trim().toLowerCase();
+      if (!Object.prototype.hasOwnProperty.call(PRIME_ACCELERATION, preset)) {
+        return this._rejectOperation(new Error(`Unsupported acceleration: ${preset}`));
+      }
+      this._peripheral.motorSettings[port].acceleration = preset;
+      if (this._peripheral._activeProtocol === "essential") {
+        return this._peripheral.sendCommand("scratch.motor_set_acceleration", {
+          port,
+          acceleration_profile: preset,
+        });
+      }
+      return Promise.resolve();
+    }
+
+    getMotorPower(args) {
+      const port = Cast.toString(args.PORT).trim().toUpperCase();
+      if (this._peripheral._activeProtocol !== "spike3") return "";
+      const reading = this._peripheral.portValues[port];
+      if (
+        reading?.type !== "motor" ||
+        !this._hasFreshPortReading(reading) ||
+        !Number.isFinite(reading.power) ||
+        reading.power < -10000 ||
+        reading.power > 10000
+      ) return "";
+      return reading.power / 100;
     }
 
     getPosition(args) {
@@ -18991,7 +20477,25 @@ continuous_sensor_loop()
     }
 
     // IMU & Gyro
+    _hasFreshPrimeImuReading() {
+      if (this._peripheral._activeProtocol !== "spike3") return true;
+      const receivedAt =
+        this._peripheral.active?._diagnostics?.lastImuReceivedAt;
+      return this._hasFreshSensorTimestamp(receivedAt);
+    }
+    _hasFreshPrimeControllerReading() {
+      if (this._peripheral._activeProtocol !== "spike3") return true;
+      const receivedAt =
+        this._peripheral.active?._lastControllerSensorReceivedAt;
+      return this._hasFreshSensorTimestamp(receivedAt);
+    }
+    _hasFreshSensorTimestamp(receivedAt) {
+      if (!Number.isFinite(receivedAt)) return false;
+      const age = Date.now() - receivedAt;
+      return age >= 0 && age <= SPIKE_SENSOR_STALE_AFTER_MS;
+    }
     getAngle(args) {
+      if (!this._hasFreshPrimeImuReading()) return "";
       const axis = Cast.toString(args.AXIS);
       const value = this._peripheral.angle[axis];
       return typeof value === "number" && Number.isFinite(value) ? value : "";
@@ -19006,19 +20510,23 @@ continuous_sensor_loop()
       return { yaw: "z", pitch: "y", roll: "x" }[name] || name;
     }
     getGyroRate(args) {
+      if (!this._hasFreshPrimeImuReading()) return "";
       const value = this._peripheral.gyro[this._gyroAxis(args.AXIS)];
       return typeof value === "number" && Number.isFinite(value) ? value : "";
     }
     getFilteredGyroRate(args) {
+      if (!this._hasFreshPrimeControllerReading()) return "";
       const value = this._peripheral.gyroFiltered[this._gyroAxis(args.AXIS)];
       return typeof value === "number" && Number.isFinite(value) ? value : "";
     }
     getAcceleration(args) {
+      if (!this._hasFreshPrimeImuReading()) return "";
       const axis = Cast.toString(args.AXIS);
       const value = this._peripheral.acceleration[axis];
       return typeof value === "number" && Number.isFinite(value) ? value : "";
     }
     getFilteredAcceleration(args) {
+      if (!this._hasFreshPrimeControllerReading()) return "";
       const axis = Cast.toString(args.AXIS);
       const value = this._peripheral.accelerationFiltered[axis];
       return typeof value === "number" && Number.isFinite(value) ? value : "";
@@ -19168,12 +20676,70 @@ continuous_sensor_loop()
       return this.isGesture(args);
     }
     isGesture(args) {
+      if (!this._hasFreshPrimeControllerReading()) return false;
       const gesture = Cast.toString(args.GESTURE);
       return this._peripheral.gestures[gesture] || false;
     }
     getOrientation() {
-      const orientationNames = ["up", "front", "right", "down", "back", "left"];
-      return orientationNames[this._peripheral.orientation] || "unknown";
+      if (!this._hasFreshPrimeImuReading()) return "";
+      const faceUp = this._peripheral.faceUp;
+      if (typeof faceUp === "string" && faceUp) return faceUp;
+      const orientationNames = {
+        [SpikeOrientation.front]: "front",
+        [SpikeOrientation.back]: "back",
+        [SpikeOrientation.up]: "top",
+        [SpikeOrientation.down]: "bottom",
+        [SpikeOrientation.rightside]: "right",
+        [SpikeOrientation.leftside]: "left",
+      };
+      return orientationNames[this._peripheral.orientation] || "";
+    }
+    isHubOrientation(args) {
+      const requested = Cast.toString(args.FACE).trim().toLowerCase();
+      const actual = this.getOrientation();
+      return Boolean(actual && actual === requested);
+    }
+    // Keep the pre-existing opcode callable by saved Scratch projects.
+    isOrientation(args) {
+      return this.isHubOrientation(args);
+    }
+    getGesture() {
+      const active = this._peripheral.active;
+      if (this._peripheral._activeProtocol === "essential") return "";
+      const receivedAt = active?._lastControllerSensorReceivedAt;
+      if (
+        Number.isFinite(receivedAt) &&
+        Date.now() - receivedAt <= SPIKE_SENSOR_STALE_AFTER_MS
+      ) {
+        return active._lastControllerGesture || "none";
+      }
+      const states = this._peripheral.gestures || {};
+      const name = ["tapped", "doubletapped", "shake", "freefall"].find(
+        (gesture) => states[gesture] === true
+      );
+      return name || "";
+    }
+    setYawFace(args) {
+      const face = Cast.toString(args.FACE).trim().toLowerCase();
+      if (!["top", "front", "right", "bottom", "back", "left"].includes(face)) {
+        return this._rejectOperation(new Error(`Unsupported yaw reference face: ${face}`));
+      }
+      if (this._peripheral._activeProtocol === "essential") {
+        return this._rejectOperation(
+          new Error("SPIKE Essential does not provide the SPIKE Prime yaw-face API")
+        );
+      }
+      if (this._peripheral._activeProtocol === "spike3") {
+        return this._peripheral
+          .sendCommand("scratch.motion_set_yaw_face", {face})
+          .then((result) => {
+            this._peripheral.active._sensors.angle.yaw = null;
+            return result;
+          });
+      }
+      return this._rejectOperation(
+        new Error("Changing the yaw reference face is unavailable on this hub connection")
+      );
     }
 
     // Sound
@@ -19299,16 +20865,56 @@ continuous_sensor_loop()
     }
 
     // Sensors
+    _hasFreshPortReading(portData) {
+      return this._hasFreshSensorTimestamp(portData?.receivedAt);
+    }
+    _forceSensorValue(portData) {
+      if (
+        portData?.type !== "force" ||
+        !this._hasFreshPortReading(portData) ||
+        !Number.isFinite(portData.force) ||
+        portData.force < 0 ||
+        portData.force > 100
+      ) return null;
+      return portData.force;
+    }
+    _compareNumber(actual, operator, threshold) {
+      if (!Number.isFinite(actual) || !Number.isFinite(threshold)) return false;
+      switch (operator) {
+        case "<": return actual < threshold;
+        case "=": return actual === threshold;
+        case ">": return actual > threshold;
+        default: return false;
+      }
+    }
     getDistance(args) {
       const port = Cast.toString(args.PORT).trim().toUpperCase();
       const portData = this._peripheral.portValues[port];
       if (
         portData?.type === "distance" &&
-        typeof portData.distance === "number"
+        typeof portData.distance === "number" &&
+        this._hasFreshPortReading(portData)
       ) {
         return portData.distance;
       }
       return "";
+    }
+    isDistanceCompared(args) {
+      const port = Cast.toString(args.PORT).trim().toUpperCase();
+      const reading = this._peripheral.portValues[port];
+      if (
+        reading?.type !== "distance" ||
+        !this._hasFreshPortReading(reading) ||
+        !Number.isFinite(reading.distance) ||
+        reading.distance < 0
+      ) return false;
+      const actual = this.getDistanceIn({PORT: port, UNIT: args.UNIT});
+      const threshold = Cast.toNumber(args.DISTANCE);
+      const relation = Cast.toString(args.RELATION).toLowerCase();
+      if (!Number.isFinite(actual) || !Number.isFinite(threshold)) return false;
+      if (relation === "near") return actual < threshold;
+      if (relation === "far") return actual > threshold;
+      return false;
     }
     setDistanceLights(args) {
       const port = Cast.toString(args.PORT).trim().toUpperCase();
@@ -19331,7 +20937,7 @@ continuous_sensor_loop()
     getColor(args) {
       const port = Cast.toString(args.PORT).trim().toUpperCase();
       const portData = this._peripheral.portValues[port];
-      if (portData && portData.type === "color") {
+      if (portData?.type === "color" && this._hasFreshPortReading(portData)) {
         const colorNames = [
           "black",
           "magenta",
@@ -19347,39 +20953,69 @@ continuous_sensor_loop()
         ];
         return colorNames[portData.color] || "none";
       }
-      return "none";
+      return "";
     }
     getReflection(args) {
       if (!this._needs("reflection")) return "";
       const port = Cast.toString(args.PORT).trim().toUpperCase();
       const portData = this._peripheral.portValues[port];
-      return typeof portData?.reflection === "number"
+      return this._hasFreshPortReading(portData) && typeof portData?.reflection === "number"
         ? portData.reflection
         : "";
+    }
+    isReflectionCompared(args) {
+      const actual = this.getReflection(args);
+      if (actual === "") return false;
+      return this._compareNumber(
+        actual,
+        Cast.toString(args.OPERATOR),
+        Number(args.THRESHOLD)
+      );
     }
     getAmbientLight(args) {
       if (!this._needs("ambient")) return "";
       const port = Cast.toString(args.PORT).trim().toUpperCase();
       const portData = this._peripheral.portValues[port];
-      return typeof portData?.ambient === "number" ? portData.ambient : "";
+      return this._hasFreshPortReading(portData) &&
+        typeof portData?.ambient === "number"
+        ? portData.ambient
+        : "";
     }
     getColorRGB(args) {
       const port = Cast.toString(args.PORT).trim().toUpperCase();
       const channel = Cast.toString(args.CHANNEL).toLowerCase();
       if (!["red", "green", "blue"].includes(channel)) return "";
       const portData = this._peripheral.portValues[port];
-      return typeof portData?.[channel] === "number" ? portData[channel] : "";
+      return this._hasFreshPortReading(portData) && typeof portData?.[channel] === "number"
+        ? portData[channel]
+        : "";
+    }
+    getRawColor255(args) {
+      const raw = this.getColorRGB(args);
+      if (raw === "" || !Number.isFinite(Number(raw))) return "";
+      return rawColorTo255(Number(raw));
     }
     getForce(args) {
       const port = Cast.toString(args.PORT).trim().toUpperCase();
       const portData = this._peripheral.portValues[port];
-      return typeof portData?.force === "number" ? portData.force : "";
+      const raw = this._forceSensorValue(portData);
+      if (raw === null) return "";
+      return Cast.toString(args.UNIT || "%").trim().toLowerCase() === "n"
+        ? raw / 10
+        : raw;
     }
     isForceSensorPressed(args) {
       const port = Cast.toString(args.PORT).trim().toUpperCase();
       const portData = this._peripheral.portValues[port];
-      if (portData && portData.type === "force")
-        return portData.pressed || false;
+      const force = this._forceSensorValue(portData);
+      if (force === null) return false;
+      const state = Cast.toString(args.STATE || "pressed").trim().toLowerCase();
+      const pressed = typeof portData.pressed === "boolean"
+        ? portData.pressed
+        : force > 0;
+      if (state === "pressed") return pressed;
+      if (state === "released") return !pressed;
+      if (state === "hard pressed") return force > 8;
       return false;
     }
     whenColor(args) {
@@ -19392,7 +21028,7 @@ continuous_sensor_loop()
       const port = Cast.toString(args.PORT).trim().toUpperCase();
       const color = Cast.toString(args.COLOR).toLowerCase();
       const portData = this._peripheral.portValues[port];
-      if (portData && portData.type === "color") {
+      if (portData?.type === "color" && this._hasFreshPortReading(portData)) {
         const colorNames = [
           "black",
           "magenta",
@@ -19434,11 +21070,16 @@ continuous_sensor_loop()
 
     // Buttons
     isButtonPressed(args) {
+      if (!this._hasFreshPrimeControllerReading()) return false;
       const button = Cast.toString(args.BUTTON).toLowerCase();
       const buttonIndex = { left: 0, center: 1, right: 2 }[button];
       if (buttonIndex !== undefined) {
         const value = this._peripheral._sensors.buttons[buttonIndex];
-        return typeof value === "number" ? value === 1 : "";
+        if (value !== 0 && value !== 1) return false;
+        const state = Cast.toString(args.STATE || "pressed").toLowerCase();
+        if (state === "pressed") return value === 1;
+        if (state === "released") return value === 0;
+        return false;
       }
       return false;
     }
@@ -20316,6 +21957,7 @@ continuous_sensor_loop()
       // orientation state instead, which getOrientation gives; answering
       // "top" here would be inventing one.
       if (!this._needs("face-up")) return "";
+      if (!this._hasFreshPrimeImuReading()) return "";
       return this._peripheral.faceUp;
     }
 
@@ -20332,7 +21974,8 @@ continuous_sensor_loop()
       if (
         !portData ||
         portData.type !== "distance" ||
-        typeof portData.distance !== "number"
+        typeof portData.distance !== "number" ||
+        !this._hasFreshPortReading(portData)
       )
         return "";
       const cm = portData.distance;

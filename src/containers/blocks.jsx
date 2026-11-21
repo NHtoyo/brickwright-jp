@@ -48,7 +48,9 @@ import {gentlyRequestPersistentStorage} from '../lib/tw-persistent-storage.js';
 import {
     getSpikePaletteModel,
     setSpikePaletteModel,
-    isPaletteMode
+    isPaletteMode,
+    getPaletteVisibility,
+    updatePaletteMode
 } from '../lib/palette-mode';
 import {getSpikeBlockColors} from '../lib/spike-toolbox-categories';
 import {
@@ -86,18 +88,13 @@ const messages = defineMessages({
     },
     PALETTE_SCRATCH: {
         defaultMessage: 'Scratch',
-        description: 'Show only Scratch categories in the block palette',
+        description: 'Show Scratch categories in the block palette',
         id: 'gui.blocks.paletteScratch'
     },
     PALETTE_SPIKE: {
         defaultMessage: 'SPIKE',
-        description: 'Show only SPIKE categories in the block palette',
+        description: 'Show SPIKE categories in the block palette',
         id: 'gui.blocks.paletteSpike'
-    },
-    PALETTE_BOTH: {
-        defaultMessage: 'Both',
-        description: 'Show Scratch and SPIKE categories in separate sections',
-        id: 'gui.blocks.paletteBoth'
     },
     PALETTE_MODE_LABEL: {
         defaultMessage: 'Block palette',
@@ -157,10 +154,6 @@ const paletteOptions = [
     {
         id: 'spike',
         label: messages.PALETTE_SPIKE
-    },
-    {
-        id: 'both',
-        label: messages.PALETTE_BOTH
     }
 ];
 
@@ -908,7 +901,8 @@ class Blocks extends React.Component {
         this.requestToolboxUpdate();
     }
     handlePaletteModeChange (event) {
-        const mode = event.currentTarget.value;
+        const {value: palette, checked} = event.currentTarget;
+        const mode = updatePaletteMode(this.state.paletteMode, palette, checked);
         if (!isPaletteMode(mode)) return;
         if (mode === this.state.paletteMode) return;
         const target = this.props.vm.editingTarget || this.props.vm.runtime.getTargetForStage();
@@ -967,7 +961,7 @@ class Blocks extends React.Component {
                 <div className={paletteStyles.blocksContainer}>
                     <div
                         className={paletteStyles.paletteModeControl}
-                        role="radiogroup"
+                        role="group"
                         aria-label={intl.formatMessage(messages.PALETTE_MODE_LABEL)}
                     >
                         {paletteOptions.map(({id, label}) => (
@@ -976,10 +970,9 @@ class Blocks extends React.Component {
                                 className={paletteStyles.paletteToggle}
                             >
                                 <input
-                                    type="radio"
-                                    name="brickwright-palette-mode"
+                                    type="checkbox"
                                     value={id}
-                                    checked={this.state.paletteMode === id}
+                                    checked={getPaletteVisibility(this.state.paletteMode)[id]}
                                     aria-label={intl.formatMessage(label)}
                                     onChange={this.handlePaletteModeChange}
                                 />

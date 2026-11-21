@@ -1862,7 +1862,6 @@
         "tw.blocks.PROCEDURES_DOCS": "～を返すの使い方",
         "gui.blocks.paletteScratch": "Scratch",
         "gui.blocks.paletteSpike": "SPIKE",
-        "gui.blocks.paletteBoth": "両方",
         "gui.blocks.paletteModeLabel": "表示するブロックカテゴリ",
         "gui.blocks.spikePaletteLabel": "SPIKEブロック",
         "gui.blocks.spikePaletteAuto": "自動",

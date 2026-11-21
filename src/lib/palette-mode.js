@@ -1,16 +1,19 @@
-export const isPaletteMode = mode => ['scratch', 'spike', 'both'].includes(mode);
+export const isPaletteMode = mode => ['scratch', 'spike', 'both', 'none'].includes(mode);
 
-export const getPaletteVisibility = mode => ({
-    scratch: mode !== 'spike',
-    spike: mode !== 'scratch'
-});
+export const getPaletteVisibility = mode => {
+    if (mode === 'none') return {scratch: false, spike: false};
+    if (mode === 'scratch') return {scratch: true, spike: false};
+    if (mode === 'spike') return {scratch: false, spike: true};
+    // `both` remains a persisted legacy value for existing projects.
+    return {scratch: true, spike: true};
+};
 
 export const updatePaletteMode = (mode, palette, checked) => {
     if (palette !== 'scratch' && palette !== 'spike') return mode;
     const visibility = getPaletteVisibility(mode);
     visibility[palette] = Boolean(checked);
-    if (!visibility.scratch && !visibility.spike) return mode;
     if (visibility.scratch && visibility.spike) return 'both';
+    if (!visibility.scratch && !visibility.spike) return 'none';
     return visibility.scratch ? 'scratch' : 'spike';
 };
 

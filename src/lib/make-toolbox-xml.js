@@ -43,6 +43,9 @@ const categoryLabelsDefault = {
     events: 'Events',
     control: 'Control',
     sensors: 'Sensors',
+    sensorExtensions: 'Sensor Extensions',
+    motorExtensions: 'Motor Extensions',
+    movementExtensions: 'Movement Extensions',
     operators: 'Operators',
     variables: 'Variables',
     myBlocks: 'My Blocks',
@@ -78,8 +81,8 @@ const reorganizeToolboxCategories = ({
     supportedOpcodes,
     categoryLabels = categoryLabelsDefault
 }) => {
-    const showScratch = paletteMode !== 'spike';
-    const showSpike = paletteMode !== 'scratch';
+    const showScratch = paletteMode === 'scratch' || paletteMode === 'both';
+    const showSpike = paletteMode === 'spike' || paletteMode === 'both';
     const scratchCategories = showScratch ? [
         ...standardXML.map(category => category.xml),
         ...otherCategories.map(category => category.xml)
@@ -125,6 +128,9 @@ const reorganizeToolboxCategories = ({
         // A second category status action would rely on the old extension id.
         control: {id: 'bw-spike-prime-control', name: localizedLabels.control},
         sensors: {id: 'bw-spike-prime-sensors', name: localizedLabels.sensors},
+        sensorExtensions: {id: 'bw-spike-prime-sensor-extensions', name: localizedLabels.sensorExtensions},
+        motorExtensions: {id: 'bw-spike-prime-motor-extensions', name: localizedLabels.motorExtensions},
+        movementExtensions: {id: 'bw-spike-prime-movement-extensions', name: localizedLabels.movementExtensions},
         operators: {id: 'bw-spike-prime-operators', name: localizedLabels.operators},
         variables: {id: 'bw-spike-prime-variables', name: localizedLabels.variables},
         myBlocks: {id: 'bw-spike-prime-my-blocks', name: localizedLabels.myBlocks},
@@ -913,7 +919,8 @@ const xmlClose = '</xml>';
  * @param {?string} backdropName - The name of the default selected backdrop dropdown.
  * @param {?string} soundName -  The name of the default selected sound dropdown.
  * @param {?object} colors - The colors for the theme.
- * @param {'both'|'scratch'|'spike'} paletteMode - Which built-in palettes to show.
+ * @param {'both'|'scratch'|'spike'|'none'} paletteMode - Which palettes to show;
+ * `both` remains supported for saved-project compatibility.
  * @param {(Array.<string>|null)} supportedSpikeBlockOpcodes - Optional list of supported SPIKE block opcodes.
  * @param {?object} categoryLabels - Optional localized labels for built-in SPIKE categories.
  * @returns {string} - a ScratchBlocks-style XML document for the contents of the toolbox.

@@ -362,6 +362,7 @@ function motorRecord({
   port = 0,
   motorType = 0x31,
   absolute = -37,
+  power = -500,
   speed = -12,
   position = -123456,
 } = {}) {
@@ -371,7 +372,7 @@ function motorRecord({
   bytes[2] = motorType;
   const view = new DataView(bytes.buffer);
   view.setInt16(3, absolute, true);
-  view.setInt16(5, -500, true);
+  view.setInt16(5, power, true);
   bytes[7] = speed & 0xff;
   view.setInt32(8, position, true);
   return bytes;
@@ -741,6 +742,7 @@ function attachFakeControllerHub(
     helloResponseDelayMs = 0,
     suppressReadyMarker = false,
     ignoreFirstHellos = 0,
+    controllerVersion = 3,
     failProgramFlowStart = false,
     failClearSlots = [],
   } = {}
@@ -753,6 +755,7 @@ function attachFakeControllerHub(
     slots,
     actions: [],
     receivedCommands: [],
+    receivedRequests: [],
     events: [],
     currentUpload: null,
     running: false,
@@ -767,6 +770,7 @@ function attachFakeControllerHub(
     rejectCommands: new Set(),
     helloCount: 0,
     helloResponseDelayMs,
+    controllerVersion,
     suppressStopNotification,
     failProgramFlowStop,
     failProgramFlowStart,
@@ -953,6 +957,10 @@ function attachFakeControllerHub(
         }
         controller.running = true;
         controller.programSource = sourceText;
+        if (isControllerProgram) {
+          const version = sourceText.match(/CONTROLLER_VERSION\s*=\s*(\d+)/);
+          if (version) controller.controllerVersion = Number(version[1]);
+        }
         controller.startCount++;
         status(0x1f, true);
         if (disconnectAfterProgramFlowResponse) {
@@ -1013,6 +1021,8 @@ function attachFakeControllerHub(
           d: "motor.run_degrees",
           t: "motor.run_time",
           a: "motor.run_to_position",
+          J: "motor.run_relative_target",
+          U: "motion.set_yaw_face",
           l: "matrix.pixel",
           m: "matrix.pattern",
           w: "matrix.text",
@@ -1034,9 +1044,14 @@ function attachFakeControllerHub(
           z: "pixels",
           f: "frequency",
           n: "stop_mode",
+          h: "path",
+          A: "acceleration",
+          B: "deceleration",
+          H: "face",
         };
         const action = { cmd: names[request.c] };
         controller.receivedCommands.push(action.cmd);
+        controller.receivedRequests.push({...request});
         for (const [key, value] of Object.entries(request)) {
           if (key in fieldNames) action[fieldNames[key]] = value;
         }
@@ -1050,7 +1065,7 @@ function attachFakeControllerHub(
           break;
         }
         if (request.c === "p") {
-          emitTunnel({ c: "o", version: 1 });
+          emitTunnel({ c: "o", version: controller.controllerVersion });
           break;
         }
         if (request.c === "h") {
@@ -1070,7 +1085,11 @@ function attachFakeControllerHub(
           }
           if (controller.helloCount <= ignoreFirstHellos) break;
           const acknowledge = () =>
-            emitTunnel({ i: request.i, ok: true, result: "bw-spike-1" });
+            emitTunnel({
+              i: request.i,
+              ok: true,
+              result: `bw-spike-${controller.controllerVersion}`,
+            });
           if (helloResponseDelayMs > 0) {
             state.clock.setTimeout(acknowledge, helloResponseDelayMs);
           } else {
@@ -1083,7 +1102,7 @@ function attachFakeControllerHub(
             i: request.i,
             ok: false,
             error: "unsupported",
-            detail: "unsupported command",
+            detail: `unsupported command ${request.c}`,
           });
           break;
         }
@@ -1385,6 +1404,65 @@ test("Prime getPosition uses signed APOS while speed remains a hub percentage", 
   assert.equal(state.ext.getPosition({ PORT: "A" }), 323);
   assert.equal(state.ext.getRelativePosition({ PORT: "A" }), -123456);
   assert.equal(state.ext.getSpeed({ PORT: "A" }), -126);
+});
+
+test("Prime SPIKE reporters preserve measured zero, units, and sensor freshness", async () => {
+  const state = setup();
+  await connect(state);
+  const ext = state.ext;
+  assert.equal(ext.getRawColor255({PORT: "A", CHANNEL: "red"}), "");
+  assert.equal(ext.getDistanceIn({PORT: "B", UNIT: "cm"}), "");
+  assert.equal(ext.getForce({PORT: "C", UNIT: "N"}), "");
+  assert.equal(ext.getMotorPower({PORT: "D"}), "");
+  assert.equal(ext.getAngle({AXIS: "yaw"}), "");
+  const color = Uint8Array.from([
+    0x0c, 0, 0, 0, 2, 0xff, 3, 0, 0,
+  ]);
+  const distance = Uint8Array.from([0x0d, 1, 0xe8, 0x03]); // 1000 mm
+  const force = Uint8Array.from([0x0b, 2, 50, 1]);
+  const motor = motorRecord({port: 3, absolute: 0, power: 5000, speed: 0, position: 0});
+  state.device.tx.emit(packMessage(notification(bytes(
+    imuRecord({accelerationZ: -303}), color, distance, force, motor
+  ))));
+  assert.equal(ext.getRawColor255({PORT: "A", CHANNEL: "red"}), 128);
+  assert.equal(ext.getRawColor255({PORT: "A", CHANNEL: "green"}), 255);
+  assert.equal(ext.getRawColor255({PORT: "A", CHANNEL: "blue"}), 0);
+  assert.equal(ext.getDistanceIn({PORT: "B", UNIT: "cm"}), 100);
+  assert.equal(ext.getDistanceIn({PORT: "B", UNIT: "%"}), 50);
+  assert.ok(Math.abs(ext.getDistanceIn({PORT: "B", UNIT: "in"}) - 100 / 2.54) < 1e-9);
+  assert.equal(ext.isDistanceCompared({PORT: "B", UNIT: "%", DISTANCE: 60, RELATION: "near"}), true);
+  assert.equal(ext.isDistanceCompared({PORT: "B", UNIT: "%", DISTANCE: 40, RELATION: "far"}), true);
+  assert.equal(ext.getForce({PORT: "C", UNIT: "%"}), 50);
+  assert.equal(ext.getForce({PORT: "C", UNIT: "N"}), 5);
+  assert.equal(ext.isForceSensorPressed({PORT: "C", STATE: "pressed"}), true);
+  assert.equal(ext.isForceSensorPressed({PORT: "C", STATE: "released"}), false);
+  assert.equal(ext.getMotorPower({PORT: "D"}), 50);
+  assert.equal(ext.getAcceleration({AXIS: "z"}), -303);
+  assert.equal(ext.getAngle({AXIS: "yaw"}), 0, "a measured zero angle is not missing data");
+  assert.equal(ext.getOrientation(), "top");
+
+  state.device.tx.emit(packMessage(notification(Uint8Array.from([0x0d, 1, 0, 0]))));
+  state.device.tx.emit(packMessage(notification(Uint8Array.from([0x0b, 2, 0, 0]))));
+  assert.equal(ext.getDistanceIn({PORT: "B", UNIT: "%"}), 0);
+  assert.equal(ext.isDistanceCompared({PORT: "B", UNIT: "%", DISTANCE: 1, RELATION: "near"}), true);
+  assert.equal(ext.getForce({PORT: "C", UNIT: "N"}), 0);
+  assert.equal(ext.isForceSensorPressed({PORT: "C", STATE: "released"}), true);
+  assert.equal(ext.isForceSensorPressed({PORT: "C", STATE: "pressed"}), false);
+
+  state.ext._peripheral._spike3._diagnostics.lastImuReceivedAt = Date.now() - 3000;
+  state.ext._peripheral.portValues.B.receivedAt = Date.now() - 3000;
+  state.ext._peripheral.portValues.C.receivedAt = Date.now() - 3000;
+  state.ext._peripheral.portValues.A.receivedAt = Date.now() - 3000;
+  state.ext._peripheral.portValues.D.receivedAt = Date.now() - 3000;
+  assert.equal(ext.getAcceleration({AXIS: "z"}), "");
+  assert.equal(ext.getAngle({AXIS: "yaw"}), "");
+  assert.equal(ext.getOrientation(), "");
+  assert.equal(ext.getRawColor255({PORT: "A", CHANNEL: "red"}), "");
+  assert.equal(ext.getDistanceIn({PORT: "B", UNIT: "cm"}), "");
+  assert.equal(ext.isDistanceCompared({PORT: "B", UNIT: "cm", DISTANCE: 150, RELATION: "near"}), false);
+  assert.equal(ext.getForce({PORT: "C", UNIT: "%"}), "");
+  assert.equal(ext.isForceSensorPressed({PORT: "C", STATE: "released"}), false);
+  assert.equal(ext.getMotorPower({PORT: "D"}), "");
 });
 
 test("truncated motor records are rejected without replacing the last angle", async () => {
@@ -2028,7 +2106,7 @@ test("controller installation is non-modal, CRC-checked, transferred, started, a
   const original = Buffer.from(fakeHub.slots.get(19));
   const result = await state.ext.installHubController({ SLOT: 19 });
   assert.equal(result.protocol, "brickwright-spike-controller");
-  assert.equal(result.version, 1);
+  assert.equal(result.version, 3);
   assert.deepEqual(state.confirmationCalls, []);
   assert.deepEqual(state.alertCalls, []);
   assert.equal(fakeHub.running, true);
@@ -2093,7 +2171,7 @@ test("controller installation is non-modal, CRC-checked, transferred, started, a
   );
   const diagnostics = JSON.parse(state.ext.getCommunicationDiagnostics());
   assert.equal(diagnostics.controllerStatus, "ready");
-  assert.equal(diagnostics.controllerVersion, "brickwright-spike-controller/1");
+  assert.equal(diagnostics.controllerVersion, "brickwright-spike-controller/3");
   assert.equal(diagnostics.controllerInstallAttempt.outcome, "ready");
   assert.equal(
     diagnostics.controllerInstallAttempt.lastSuccessfulStage,
@@ -2739,7 +2817,7 @@ test("control center exposes an explicit read-only controller verification actio
 
   const result = await api.verifyController();
 
-  assert.equal(result.version, 1);
+  assert.equal(result.version, 3);
   assert.equal(fakeHub.helloCount, 1);
   assert.equal(
     JSON.parse(state.ext.getCommunicationDiagnostics()).lastWrite
@@ -2780,7 +2858,7 @@ test("control center explicitly restarts only the current hub's saved controller
   state.clock.advance(100);
   const result = await firstStart;
 
-  assert.equal(result.version, 1);
+  assert.equal(result.version, 3);
   assert.equal(result.slot, 19);
   assert.equal(fakeHub.running, true);
   assert.equal(
@@ -2877,7 +2955,7 @@ test("legacy explicit slot recovery registers only after a fresh start and hello
 
   const result = await api.recoverControllerSlot(6);
 
-  assert.equal(result.version, 1);
+  assert.equal(result.version, 3);
   assert.equal(result.registeredSlot, 6);
   assert.equal(fakeHub.startCount, startsBeforeRecovery + 1);
   assert.equal(api.getState().controllerSlot, 6);
@@ -3011,7 +3089,7 @@ test("control center installs to slot 0 by default without a migration", async (
   const result =
     await state.runtime.brickwrightSpikePrimeControl.installController();
 
-  assert.equal(result.version, 1);
+  assert.equal(result.version, 3);
   assert.equal(fakeHub.currentUpload.slot, 0);
   assert.equal(fakeHub.running, true);
   assert.equal(
@@ -3152,7 +3230,7 @@ test("reinstall stops the running controller before clearing and replacing the s
   assert.ok(clearMessageIndex < startMessageIndex);
   assert.equal(fakeHub.events[stopIndex].slot, 6);
   assert.ok(fakeHub.receivedCommands.includes("controller.stop_all"));
-  assert.equal(result.version, 1);
+  assert.equal(result.version, 3);
   assert.equal(fakeHub.running, true);
   assert.equal(hub._runningControllerSlot, 6);
   await state.ext.setPixel({ X: 1, Y: 1, BRIGHTNESS: 100 });
@@ -3435,6 +3513,134 @@ test("standalone value conversion reports the unsupported opcode structurally", 
       return true;
     }
   );
+});
+
+test("official SPIKE extension blocks expose correct shapes, handlers, menus and Python code", () => {
+  const state = setup({locale: "ja"});
+  const ext = state.ext;
+  const info = ext.getInfo();
+  const byOpcode = new Map(info.blocks.filter((block) => typeof block === "object").map((block) => [block.opcode, block]));
+  const expected = {
+    isColor: "BOOLEAN",
+    getColor: "REPORTER",
+    getReflection: "REPORTER",
+    isReflectionCompared: "BOOLEAN",
+    getForce: "REPORTER",
+    isForceSensorPressed: "BOOLEAN",
+    getDistanceIn: "REPORTER",
+    isDistanceCompared: "BOOLEAN",
+    isHubOrientation: "BOOLEAN",
+    isOrientation: "BOOLEAN",
+    getOrientation: "REPORTER",
+    isGesture: "BOOLEAN",
+    getAngle: "REPORTER",
+    resetYaw: "COMMAND",
+    isButtonPressed: "BOOLEAN",
+    getTimer: "REPORTER",
+    resetTimer: "COMMAND",
+    whenColor: "HAT",
+    whenForceSensor: "HAT",
+    whenGesture: "HAT",
+    whenButtonPressed: "HAT",
+    getColorRGB: "REPORTER",
+    getAcceleration: "REPORTER",
+    getGyroRate: "REPORTER",
+    getGesture: "REPORTER",
+    getRawColor255: "REPORTER",
+    motorRunToRelativePosition: "COMMAND",
+    getMotorPower: "REPORTER",
+    setMotorAcceleration: "COMMAND",
+    setMovementStopAction: "COMMAND",
+    setMovementAcceleration: "COMMAND",
+  };
+  for (const [opcode, shape] of Object.entries(expected)) {
+    assert.equal(byOpcode.get(opcode)?.blockType, shape, opcode);
+    assert.equal(typeof ext[opcode], "function", `${opcode} has a browser handler`);
+  }
+  assert.equal(byOpcode.get("isColor").text, "[PORT] 色が [COLOR]");
+  assert.equal(byOpcode.get("getAngle").text, "[AXIS] 角");
+  assert.equal(byOpcode.get("getOrientation").text, "向き");
+  assert.equal(byOpcode.get("getDistanceIn").text, "[PORT] 距離 [UNIT]");
+  assert.equal(byOpcode.get("getForce").text, "[PORT] 圧力 [UNIT]");
+  assert.equal(byOpcode.get("motorStartPower").text, "[PORT] モーターを [POWER] のパワーで動かす");
+  assert.equal(byOpcode.get("motorSetStopAction").text, "[PORT] モーターを停止時 [ACTION] に設定");
+  assert.equal(byOpcode.get("startTank").text, "[LEFT_SPEED] [RIGHT_SPEED] %のスピードで移動開始する");
+  assert.equal(
+    byOpcode.get("motorRunToRelativePosition").tooltip,
+    byOpcode.get("motorRunToRelativePosition").text,
+    "long SPIKE labels expose their complete text in the flyout tooltip"
+  );
+  assert.equal(byOpcode.get("getTimer").tooltip, undefined, "short labels do not add redundant tooltips");
+  assert.deepEqual(
+    Array.from(info.menus.MOTOR_PATH.items, (item) => [item.text, item.value]),
+    [["最短経路", "shortest"], ["時計回り", "clockwise"], ["反時計回り", "counterclockwise"]]
+  );
+  assert.deepEqual(
+    Array.from(info.menus.AXIS.items, item => [item.text, item.value]),
+    [["ピッチ", "pitch"], ["ロール", "roll"], ["ヨー", "yaw"]]
+  );
+  assert.deepEqual(
+    Array.from(info.menus.DISTANCE_UNIT.items, item => [item.text, item.value]),
+    [["cm", "cm"], ["mm", "mm"], ["インチ", "in"], ["%", "%"]]
+  );
+  assert.deepEqual(
+    Array.from(info.menus.GESTURE.items, item => [item.text, item.value]),
+    [["タップ", "tapped"], ["ダブルタップ", "doubletapped"], ["シェイク", "shake"], ["自由落下", "freefall"]]
+  );
+  for (const locale of ["en", "ja", "de"]) {
+    const localized = setup({locale}).ext.getInfo();
+    assert.deepEqual(
+      Array.from(localized.menus.MOTOR_PATH.items, item => item.value),
+      ["shortest", "clockwise", "counterclockwise"],
+      `${locale} labels do not change saved path values`
+    );
+    for (const item of Object.values(localized.menus).flatMap((menu) => menu.items || [])) {
+      if (typeof item === "object") {
+        assert.doesNotMatch(item.text, /^(motorPath|state|face|acceleration|relation|color)\./, `${locale} menu has no raw translation key`);
+      }
+    }
+  }
+
+  const transpiler = ext._transpiler;
+  const blocks = {_blocks: {}};
+  const input = (value) => [1, [typeof value === "number" ? 4 : 10, value]];
+  const expression = (opcode, fields) => transpiler.evaluateBlock(
+    {opcode: `spikeprime_${opcode}`, fields: {}, inputs: Object.fromEntries(Object.entries(fields).map(([key, value]) => [key, input(value)]))},
+    blocks
+  );
+  assert.match(expression("getPosition", {PORT: "A"}), /motor\.absolute_position/);
+  assert.match(expression("getRelativePosition", {PORT: "A"}), /motor\.relative_position/);
+  assert.match(expression("getRawColor255", {PORT: "A", CHANNEL: "red"}), /color_rgb_255/);
+  assert.match(expression("isReflectionCompared", {PORT: "A", OPERATOR: "<", THRESHOLD: 50}), /compare_number/);
+  assert.match(expression("isDistanceCompared", {PORT: "B", DISTANCE: 15, UNIT: "%", RELATION: "near"}), /distance_value/);
+  assert.match(expression("getForce", {PORT: "B", UNIT: "N"}), /force_value/);
+  assert.match(expression("isForceSensorPressed", {PORT: "B", STATE: "hard pressed"}), /force_state/);
+  assert.match(expression("getMotorPower", {PORT: "A"}), /motor\.get_duty_cycle/);
+  assert.match(expression("getGesture", {}), /hub_gesture_name/);
+  assert.match(expression("isHubOrientation", {FACE: "front"}), /face_up_name\(\)/);
+
+  const emit = (opcode, values) => {
+    transpiler.pythonCode = "";
+    transpiler.indentLevel = 0;
+    transpiler.processBlock(
+      {opcode: `spikeprime_${opcode}`, fields: {}, inputs: Object.fromEntries(Object.entries(values).map(([key, value]) => [key, input(value)]))},
+      blocks
+    );
+    return transpiler.pythonCode;
+  };
+  assert.match(emit("motorRunToRelativePosition", {PORT: "A", SPEED: 60, POSITION: 0}), /await motor\.run_to_relative_position\(int\(0\)/);
+  assert.match(emit("setMotorAcceleration", {PORT: "A", ACCELERATION: "high"}), /set_motor_acceleration\("A", "high"\)/);
+  assert.match(emit("setMovementStopAction", {ACTION: "hold"}), /set_movement_stop_action\("hold"\)/);
+  assert.match(emit("setMovementAcceleration", {ACCELERATION: "medium"}), /set_movement_acceleration\("medium"\)/);
+  assert.match(emit("setYawFace", {FACE: "front"}), /set_yaw_reference_face\("front"\)/);
+
+  transpiler.pythonCode = "";
+  transpiler.indentLevel = 0;
+  transpiler.generateHelperFunctions();
+  assert.match(transpiler.pythonCode, /motor\.run_to_relative_position/);
+  assert.match(transpiler.pythonCode, /distance_value\(name, unit\)/);
+  assert.match(transpiler.pythonCode, /color_rgb_255\(name, channel\)/);
+  assert.match(transpiler.pythonCode, /motion_sensor\.set_yaw_face\(face\)/);
 });
 
 test("startup probe block and menu are hidden unless developer mode is opted in", () => {
@@ -4835,10 +5041,11 @@ test("Essential rejects nonexistent ports and executes motor commands on real LW
   assert.equal(ext.getRelativePosition({ PORT: "A" }), 350);
   assert.equal(ext.getSpeed({ PORT: "A" }), router.portValues.A.speed);
   await router.sendCommand("scratch.motor_start", { port: "A", speed: 25 });
-  assert.deepEqual(
-    device.writes.at(-1),
-    [9, 0, 0x81, 0, 0x11, 0x07, 25, 100, 0]
-  );
+  assert.deepEqual(device.writes.slice(writesBeforeInvalidPort).slice(-3), [
+    [9, 0, 0x81, 0, 0x10, 0x05, 0xc2, 0x01, 1],
+    [9, 0, 0x81, 0, 0x10, 0x06, 0xc2, 0x01, 1],
+    [9, 0, 0x81, 0, 0x11, 0x07, 25, 100, 0x11],
+  ]);
   await router.sendCommand("scratch.motor_stop", {
     port: "A",
     stop_mode: "brake",
@@ -4887,10 +5094,11 @@ test("Essential classifies the real Medium Angular Motor ID from AttachedIO", as
 
   const beforeMotorCommand = device.writes.length;
   await router.sendCommand("scratch.motor_start", { port: "A", speed: 25 });
-  assert.deepEqual(
-    device.writes[beforeMotorCommand],
-    [9, 0, 0x81, 0, 0x11, 0x07, 25, 100, 0]
-  );
+  assert.deepEqual(device.writes.slice(beforeMotorCommand), [
+    [9, 0, 0x81, 0, 0x10, 0x05, 0xc2, 0x01, 1],
+    [9, 0, 0x81, 0, 0x10, 0x06, 0xc2, 0x01, 1],
+    [9, 0, 0x81, 0, 0x11, 0x07, 25, 100, 0x11],
+  ]);
   await router.sendCommand("scratch.motor_stop", { port: "A" });
   assert.deepEqual(device.writes.at(-1), [8, 0, 0x81, 0, 0x11, 0x51, 0, 127]);
   await router.stopAllMotors();
@@ -4913,7 +5121,7 @@ test("Essential classifies the real Medium Angular Motor ID from AttachedIO", as
   await ext.motorStart({ PORT: "A", DIRECTION: 1 });
   assert.deepEqual(
     device.writes.at(-1),
-    [9, 0, 0x81, 0, 0x11, 0x07, 20, 100, 0]
+    [9, 0, 0x81, 0, 0x11, 0x07, 20, 100, 0x11]
   );
   await ext.motorStop({ PORT: "A" });
   assert.deepEqual(device.writes.at(-1), [8, 0, 0x81, 0, 0x11, 0x51, 0, 127]);
@@ -5853,7 +6061,70 @@ test("the angle-target block exposes the same three paths for both hub models", 
   );
 });
 
-test("Essential angles use signed APOS, not cumulative POS, for all selected routes to zero", async () => {
+test("Essential relative angle moves use fresh cumulative POS in both directions", async () => {
+  const state = setup({ hubKind: "essential" });
+  await connectEssential(state);
+  const {device, ext} = state;
+  device.emitLWP3([7, 0, 0x04, 0, 0x01, 0x30, 0x00]);
+  await tick();
+  await acknowledgeEssentialMotorPositionMode(state, 0);
+
+  const rawPos = value => {
+    const signed = value | 0;
+    device.emitLWP3([
+      8, 0, 0x45, 0,
+      signed & 0xff,
+      (signed >> 8) & 0xff,
+      (signed >> 16) & 0xff,
+      (signed >> 24) & 0xff,
+    ]);
+  };
+  const positionReads = () => device.writes.filter(message =>
+    message[2] === 0x21 && message[3] === 0 && message[4] === 0
+  ).length;
+  const degreeCommands = () => device.writes.filter(message =>
+    message[2] === 0x81 && message[5] === 0x0b
+  );
+
+  for (const [current, target, expectedDegrees, positive] of [
+    [100, 250, 150, true],
+    [250, 100, 150, false],
+  ]) {
+    const readsBefore = positionReads();
+    const commandsBefore = degreeCommands().length;
+    const move = ext._peripheral.sendCommand(
+      "scratch.motor_run_relative_position",
+      {port: "A", position: target, speed: 50, stop_mode: "brake"}
+    );
+    await waitUntil(() => positionReads() > readsBefore, "fresh POS poll before relative move");
+    rawPos(current);
+    await waitUntil(() => degreeCommands().length === commandsBefore + 1, "relative 0x0B motor command");
+    const packet = degreeCommands().at(-1);
+    const requestedDegrees = packet[6] | (packet[7] << 8) | (packet[8] << 16) | (packet[9] << 24);
+    assert.equal(requestedDegrees, expectedDegrees);
+    assert.equal(packet[10] < 128, positive, "POS delta controls direction");
+    assert.equal(packet.at(-1), 0x11, "configured acceleration/deceleration profile is selected");
+
+    device.emitLWP3([5, 0, 0x82, 0, 0x01]);
+    device.emitLWP3([5, 0, 0x82, 0, 0x02]);
+    await waitUntil(() => positionReads() > readsBefore + 1, "fresh POS verification after movement");
+    rawPos(target);
+    await move;
+  }
+
+  const readsBeforeZero = positionReads();
+  const commandsBeforeZero = degreeCommands().length;
+  const zeroMove = ext._peripheral.sendCommand(
+    "scratch.motor_run_relative_position",
+    {port: "A", position: 100, speed: 50, stop_mode: "brake"}
+  );
+  await waitUntil(() => positionReads() > readsBeforeZero, "fresh POS poll for zero delta");
+  rawPos(100);
+  await zeroMove;
+  assert.equal(degreeCommands().length, commandsBeforeZero, "zero delta sends no motor output");
+});
+
+test("Essential absolute angle moves read fresh APOS, await 0x82, and verify the target", async () => {
   const state = setup({ hubKind: "essential" });
   await connectEssential(state);
   const { device, ext } = state;
@@ -5861,60 +6132,272 @@ test("Essential angles use signed APOS, not cumulative POS, for all selected rou
   await tick();
   await advertiseEssentialApos(state, 0);
   await acknowledgeEssentialApos(state, 0);
-  device.emitLWP3([6, 0, 0x45, 0, 90, 0]);
+  const rawApos = angle => {
+    const signed = angle > 180 ? angle - 360 : angle;
+    device.emitLWP3([6, 0, 0x45, 0, signed & 0xff, (signed >> 8) & 0xff]);
+  };
+  const valueReads = () => device.writes.filter(message =>
+    message[2] === 0x21 && message[3] === 0 && message[4] === 0
+  ).length;
+  const degreeCommands = () => device.writes.filter(message =>
+    message[2] === 0x81 && message[5] === 0x0b
+  );
+  // A deliberately stale cached APOS must not start this move.
+  rawApos(90);
   await tick();
-
-  for (const [path, degrees, clockwise] of [
-    ["shortest", 90, false],
-    ["clockwise", 270, true],
-    ["counterclockwise", 90, false],
+  for (const [start, target, path, expectedDegrees, positive] of [
+    [350, 0, "shortest", 10, true],
+    [10, 0, "shortest", 10, false],
+    [0, 350, "shortest", 10, false],
+    [90, 270, "shortest", 180, true],
+    [90, 270, "clockwise", 180, true],
+    [90, 270, "counterclockwise", 180, false],
   ]) {
-    const before = device.writes.length;
-    await ext.motorRunToPosition({ PORT: "A", POSITION: 0, PATH: path });
-    assert.equal(device.writes.length, before + 1);
-    const packet = device.writes.at(-1);
-    assert.equal(packet[5], 0x0b, "must use finite-degree motor command");
-    assert.deepEqual(packet.slice(6, 10), [
-      degrees & 0xff,
-      (degrees >> 8) & 0xff,
-      (degrees >> 16) & 0xff,
-      (degrees >> 24) & 0xff,
-    ]);
-    assert.equal(packet[10] < 128, clockwise, "motor direction comes from the speed sign");
+    const readsBefore = valueReads();
+    const commandsBefore = degreeCommands().length;
+    let settled = false;
+    const move = ext.motorRunToPosition({
+      PORT: "A", POSITION: target, PATH: path, SPEED: 40
+    }).then(value => {
+      settled = true;
+      return value;
+    });
+    await waitUntil(() => valueReads() > readsBefore, "fresh APOS poll before angle command");
+    await tick();
+    assert.equal(degreeCommands().length, commandsBefore, "cached APOS is not used");
+    rawApos(start);
+    await waitUntil(() => degreeCommands().length === commandsBefore + 1, "one 0x0B angle command");
+    const packet = degreeCommands().at(-1);
+    const requestedDegrees = packet[6] | (packet[7] << 8) | (packet[8] << 16) | (packet[9] << 24);
+    assert.equal(requestedDegrees, expectedDegrees);
+    assert.equal(packet[10] < 128, positive, "speed sign encodes the chosen route");
+
+    device.emitLWP3([5, 0, 0x82, 0, 0x01]);
+    await tick();
+    assert.equal(settled, false, "in-progress feedback does not resolve the block");
+    device.emitLWP3([5, 0, 0x82, 0, 0x02]);
+    await waitUntil(() => valueReads() > readsBefore + 1, "post-completion APOS poll");
+    assert.equal(settled, false, "completion feedback still requires target verification");
+    rawApos(target);
+    await move;
+    assert.equal(settled, true);
   }
-  device.emitLWP3([6, 0, 0x45, 0, 0, 0]);
-  await tick();
-  const beforeZero = device.writes.length;
-  await ext.motorRunToPosition({ PORT: "A", POSITION: 0, PATH: "shortest" });
-  assert.equal(device.writes.length, beforeZero, "target zero when already at zero never circles");
+
+  const readsBeforeZero = valueReads();
+  const commandsBeforeZero = degreeCommands().length;
+  const zeroMove = ext.motorRunToPosition({
+    PORT: "A", POSITION: 0, PATH: "shortest", SPEED: 40
+  });
+  await waitUntil(() => valueReads() > readsBeforeZero, "fresh APOS poll for zero delta");
+  rawApos(0);
+  await zeroMove;
+  assert.equal(degreeCommands().length, commandsBeforeZero, "zero delta sends no motor output");
 });
 
-test("Prime directional angle paths reuse the current controller without replacing it", async () => {
-  const state = setup();
-  const { ext } = state;
-  const hub = ext._peripheral._spike3;
-  ext._peripheral._activeProtocol = "spike3";
-  hub._portValues.C = { absolutePosition: 90, receivedAt: Date.now() };
-  const commands = [];
-  hub.sendCommand = (method, params) => {
-    commands.push({ method, params });
-    return Promise.resolve();
+test("Essential serializes same-port angle moves and ignores stale completion feedback", async () => {
+  const state = setup({ hubKind: "essential" });
+  await connectEssential(state);
+  const { device, ext } = state;
+  device.emitLWP3([7, 0, 0x04, 0, 0x01, 0x30, 0x00]);
+  await tick();
+  await advertiseEssentialApos(state, 0);
+  await acknowledgeEssentialApos(state, 0);
+  const rawApos = angle => {
+    const signed = angle > 180 ? angle - 360 : angle;
+    device.emitLWP3([6, 0, 0x45, 0, signed & 0xff, (signed >> 8) & 0xff]);
   };
-  await ext.motorRunToPosition({ PORT: "C", POSITION: 0, PATH: "clockwise" });
-  assert.equal(commands.at(-1).method, "scratch.motor_run_for_degrees");
-  assert.equal(commands.at(-1).params.degrees, 270);
-  assert.ok(commands.at(-1).params.speed > 0);
-  await ext.motorRunToPosition({ PORT: "C", POSITION: 0, PATH: "counterclockwise" });
-  assert.equal(commands.at(-1).params.degrees, 90);
-  assert.ok(commands.at(-1).params.speed < 0);
-
-  delete hub._portValues.C;
-  await ext.motorRunToPosition({ PORT: "C", POSITION: 0 });
-  assert.equal(commands.at(-1).method, "scratch.motor_run_to_position", "old blocks retain default shortest path");
-  await assert.rejects(
-    ext.motorRunToPosition({ PORT: "C", POSITION: 0, PATH: "clockwise" }),
-    /Fresh Prime motor absolute angle is unavailable/
+  const aposReads = () => device.writes.filter(message =>
+    message[2] === 0x21 && message[3] === 0 && message[4] === 0
+  ).length;
+  const degreeCommands = () => device.writes.filter(message =>
+    message[2] === 0x81 && message[5] === 0x0b
   );
+  const readsBeforeMoves = aposReads();
+
+  const first = ext.motorRunToPosition({
+    PORT: "A", POSITION: 20, PATH: "shortest", SPEED: 40
+  });
+  const second = ext.motorRunToPosition({
+    PORT: "A", POSITION: 30, PATH: "shortest", SPEED: 40
+  });
+  await waitUntil(() => aposReads() > readsBeforeMoves, "first move requests a fresh APOS");
+  rawApos(10);
+  await waitUntil(() => degreeCommands().length === 1, "first output command");
+  await tick();
+  assert.equal(aposReads(), readsBeforeMoves + 1, "second move waits for the first to complete");
+
+  device.emitLWP3([5, 0, 0x82, 0, 0x01]);
+  device.emitLWP3([5, 0, 0x82, 0, 0x02]);
+  await waitUntil(() => aposReads() > readsBeforeMoves + 1, "first move requests target verification");
+  rawApos(20);
+  await waitUntil(() => aposReads() > readsBeforeMoves + 2, "second move requests its own fresh APOS");
+  rawApos(20);
+  await waitUntil(() => degreeCommands().length === 2, "second output command");
+  let secondSettled = false;
+  second.then(() => { secondSettled = true; });
+
+  // A late completion from the cancelled/previous command has no request ID.
+  // It must not finish the second move before that move reports progress.
+  device.emitLWP3([5, 0, 0x82, 0, 0x02]);
+  await tick();
+  assert.equal(secondSettled, false);
+
+  // Include unrelated port B and combined completed+idle bits in one report.
+  device.emitLWP3([7, 0, 0x82, 1, 0x0a, 0, 0x0b]);
+  await waitUntil(() => aposReads() > readsBeforeMoves + 3, "second move requests target verification");
+  rawApos(30);
+  await Promise.all([first, second]);
+  assert.equal(degreeCommands().length, 2, "each requested position sends one output");
+});
+
+test("Essential angle move reports APOS/discard failures and cancels safely", async () => {
+  const state = setup({ hubKind: "essential" });
+  await connectEssential(state);
+  const { device, ext } = state;
+  device.emitLWP3([7, 0, 0x04, 0, 0x01, 0x30, 0x00]);
+  await tick();
+  await advertiseEssentialApos(state, 0);
+  await acknowledgeEssentialApos(state, 0);
+  const rawApos = angle => {
+    const signed = angle > 180 ? angle - 360 : angle;
+    device.emitLWP3([6, 0, 0x45, 0, signed & 0xff, (signed >> 8) & 0xff]);
+  };
+  const aposReads = () => device.writes.filter(message =>
+    message[2] === 0x21 && message[3] === 0 && message[4] === 0
+  ).length;
+  const degreeCommands = () => device.writes.filter(message =>
+    message[2] === 0x81 && message[5] === 0x0b
+  );
+  const readsBeforeDiscard = aposReads();
+
+  const discarded = ext.motorRunToPosition({
+    PORT: "A", POSITION: 90, PATH: "shortest", SPEED: 40
+  });
+  await waitUntil(() => aposReads() > readsBeforeDiscard, "discard test reads APOS");
+  rawApos(0);
+  await waitUntil(() => degreeCommands().length === 1, "discard test sends one output");
+  device.emitLWP3([5, 0, 0x82, 0, 0x04]);
+  await assert.rejects(
+    discarded,
+    error => error.code === "ERR_MOTOR_COMMAND_DISCARDED"
+  );
+  assert.equal(degreeCommands().length, 1, "discard does not trigger a retry");
+
+  const noApos = ext.motorRunToPosition({
+    PORT: "A", POSITION: 90, PATH: "shortest", SPEED: 40
+  });
+  await waitUntil(() => aposReads() > readsBeforeDiscard + 1, "missing APOS request");
+  state.clock.advance(1000);
+  await assert.rejects(noApos, error => error.code === "ERR_APOS_READ_TIMEOUT");
+  assert.equal(degreeCommands().length, 1, "missing APOS sends no output");
+
+  const cancelled = ext.motorRunToPosition({
+    PORT: "A", POSITION: 90, PATH: "shortest", SPEED: 40
+  });
+  const cancellationResult = cancelled.then(
+    () => ({error: null}),
+    error => ({error})
+  );
+  await waitUntil(() => aposReads() > readsBeforeDiscard + 2, "stop test APOS request");
+  rawApos(0);
+  await waitUntil(() => degreeCommands().length === 2, "stop test output command");
+  device.emitLWP3([5, 0, 0x82, 0, 0x01]);
+  await ext.motorStop({PORT: "A"});
+  assert.equal(
+    (await cancellationResult).error.code,
+    "ERR_MOTOR_ANGLE_CANCELLED",
+    "a stop block rejects the pending angle move"
+  );
+
+  const resumed = ext.motorRunToPosition({
+    PORT: "A", POSITION: 90, PATH: "shortest", SPEED: 40
+  });
+  let resumedSettled = false;
+  resumed.then(() => { resumedSettled = true; });
+  await waitUntil(() => aposReads() > readsBeforeDiscard + 3, "new move APOS request");
+  rawApos(0);
+  await waitUntil(() => degreeCommands().length === 3, "new move output command");
+  device.emitLWP3([5, 0, 0x82, 0, 0x02]);
+  await tick();
+  assert.equal(resumedSettled, false, "old completion cannot settle the new move");
+  device.emitLWP3([5, 0, 0x82, 0, 0x01]);
+  device.emitLWP3([5, 0, 0x82, 0, 0x0a]);
+  await waitUntil(() => aposReads() > readsBeforeDiscard + 4, "resumed move verification");
+  rawApos(90);
+  await resumed;
+
+  const disconnected = ext.motorRunToPosition({
+    PORT: "A", POSITION: 180, PATH: "shortest", SPEED: 40
+  });
+  await waitUntil(() => aposReads() > readsBeforeDiscard + 5, "disconnect test waits for fresh APOS");
+  device.gatt.disconnect();
+  await assert.rejects(
+    disconnected,
+    error => error.code === "ERR_MOTOR_ANGLE_CANCELLED"
+  );
+  assert.equal(degreeCommands().length, 3, "disconnect sends no speculative motor output");
+});
+
+test("Prime absolute angle paths stay absolute, encode V2 direction, and omit the field for V1", async () => {
+  const state = setup();
+  await connect(state);
+  const fakeHub = attachFakeControllerHub(state);
+  const hub = state.ext._peripheral._spike3;
+  hub._rateLimiter.reserve = () => 0;
+  fakeHub.running = true;
+  hub._controllerReady = true;
+  hub._controllerVersion = "brickwright-spike-controller/2";
+  hub._runningControllerSession = hub._connectionSession;
+  hub._runningControllerSlot = 0;
+  delete hub._portValues.C;
+
+  for (const path of ["shortest", "clockwise", "counterclockwise"]) {
+    await state.ext.motorRunToPosition({
+      PORT: "C", POSITION: -361, PATH: path, SPEED: 40
+    });
+    const request = fakeHub.receivedRequests.at(-1);
+    assert.equal(request.c, "a", "Prime still receives motor.run_to_position");
+    assert.equal(request.g, 359, "target is normalized to 0..359 degrees");
+    assert.equal(request.h, path, "V2 compact command includes the selected path");
+    assert.equal(fakeHub.actions.at(-1).cmd, "motor.run_to_position");
+    assert.equal(fakeHub.actions.at(-1).path, path);
+  }
+  assert.match(source, /"shortest":\s*motor\.SHORTEST_PATH/);
+  assert.match(source, /"clockwise":\s*motor\.CLOCKWISE/);
+  assert.match(source, /"counterclockwise":\s*motor\.COUNTERCLOCKWISE/);
+  assert.deepEqual(
+    JSON.parse(JSON.stringify(hub._encodeControllerCommand(
+      "motor.run_to_position", {position: 0, path: "clockwise"}, 99
+    ))),
+    {i: 99, c: "a", g: 0, h: "clockwise"}
+  );
+
+  hub._controllerVersion = "brickwright-spike-controller/1";
+  assert.deepEqual(
+    JSON.parse(JSON.stringify(hub._encodeControllerCommand(
+      "motor.run_to_position", {position: 0, path: "shortest"}, 100
+    ))),
+    {i: 100, c: "a", g: 0},
+    "V1 receives no V2-only path field"
+  );
+  assert.throws(
+    () => hub._encodeControllerCommand(
+      "motor.run_to_position", {position: 0, path: "clockwise"}, 101
+    ),
+    error => error.code === "ERR_CONTROLLER_UPDATE_REQUIRED"
+  );
+  await state.ext.motorRunToPosition({
+    PORT: "C", POSITION: 10, PATH: "shortest", SPEED: 40
+  });
+  assert.equal("h" in fakeHub.receivedRequests.at(-1), false);
+  const commandCount = fakeHub.receivedRequests.length;
+  await assert.rejects(
+    state.ext.motorRunToPosition({
+      PORT: "C", POSITION: 10, PATH: "clockwise", SPEED: 40
+    }),
+    error => error.code === "ERR_CONTROLLER_UPDATE_REQUIRED"
+  );
+  assert.equal(fakeHub.receivedRequests.length, commandCount);
 });
 
 let failed = 0;
