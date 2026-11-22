@@ -62,10 +62,6 @@ jobs:
         id: source_archive
         if: ${{ always() && !cancelled() && steps.web_build.outcome == 'success' }}
         run: node desktop/scripts/generate-source-archive.mjs
-      - name: Report inherited lint status
-        if: ${{ always() && !cancelled() && steps.web_build.outcome == 'success' }}
-        run: npm run test:lint
-        continue-on-error: true
       - uses: actions/upload-artifact@v4
         if: ${{ always() && !cancelled() && steps.web_build.outcome == 'success' && steps.source_archive.outcome == 'success' }}
         with:
@@ -75,10 +71,13 @@ jobs:
             desktop/dist/source-manifest.json
           if-no-files-found: error
           retention-days: 30
+      - name: Report inherited lint status
+        if: ${{ always() && !cancelled() && steps.web_build.outcome == 'success' }}
+        run: npm run test:lint
+        continue-on-error: true
 
   windows:
-    needs: quality
-    if: ${{ always() && needs.quality.result != 'cancelled' && needs.quality.result != 'skipped' }}
+    if: github.event_name != 'pull_request' || github.event.pull_request.head.ref == 'work/spikeprime-control-center-ui'
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
@@ -131,8 +130,7 @@ jobs:
           retention-days: 30
 
   macos:
-    needs: quality
-    if: ${{ always() && needs.quality.result != 'cancelled' && needs.quality.result != 'skipped' }}
+    if: github.event_name != 'pull_request' || github.event.pull_request.head.ref == 'work/spikeprime-control-center-ui'
     runs-on: macos-latest
     steps:
       - uses: actions/checkout@v4
