@@ -53,14 +53,14 @@ describe('Menu bar settings', () => {
 
     test('Share button should NOT be enabled', async () => {
         await loadUri(uri, {width: 1200});
-        await findByXpath('//div[span[div[span[text()="Share"]]] and @data-tip="tooltip"]');
+        // Brickwright does not enable sharing or show the Scratch coming-soon button.
+        expect(await textExists('Share', scope.menuBar)).toBe(false);
     });
 
-    test('Logo should be clickable', async () => {
+    test('Editor title uses Brickwright branding', async () => {
         await loadUri(uri, {width: 1200});
-        await clickXpath('//img[@alt="Scratch"]');
-        const currentUrl = await driver.getCurrentUrl();
-        await expect(currentUrl).toEqual('https://scratch.mit.edu/');
+        const title = await driver.getTitle();
+        expect(title).toContain('Brickwright');
     });
 
     test('(GH#4064) Project name should be editable', async () => {
@@ -100,7 +100,7 @@ describe('Menu bar settings', () => {
     test('Theme picker shows themes', async () => {
         await loadUri(uri, {width: 1200});
         await clickXpath(SETTINGS_MENU_XPATH);
-        await clickText('Color Mode', scope.menuBar);
+        await clickText('Block Colors', scope.menuBar);
 
         expect(await (await findByText('Original', scope.menuBar)).isDisplayed()).toBe(true);
         expect(await (await findByText('High Contrast', scope.menuBar)).isDisplayed()).toBe(true);
@@ -109,7 +109,7 @@ describe('Menu bar settings', () => {
     test('Theme picker switches to high contrast', async () => {
         await loadUri(uri, {width: 1200});
         await clickXpath(SETTINGS_MENU_XPATH);
-        await clickText('Color Mode', scope.menuBar);
+        await clickText('Block Colors', scope.menuBar);
         await clickText('High Contrast', scope.menuBar);
 
         // There is a tiny delay for the color theme to be applied to the categories.
@@ -134,7 +134,7 @@ describe('Menu bar settings', () => {
         expect(await (await findByText('High Contrast', scope.menuBar)).isDisplayed()).toBe(false);
         expect(await (await findByText('Esperanto', scope.menuBar)).isDisplayed()).toBe(false);
 
-        await clickText('Color Mode', scope.menuBar);
+        await clickText('Block Colors', scope.menuBar);
 
         // Only theme options visible
         expect(await (await findByText('High Contrast', scope.menuBar)).isDisplayed()).toBe(true);
