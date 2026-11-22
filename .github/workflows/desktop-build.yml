@@ -77,7 +77,10 @@ jobs:
         continue-on-error: true
 
   windows:
-    if: github.event_name != 'pull_request' || github.event.pull_request.head.ref == 'work/spikeprime-control-center-ui'
+    needs: app-impact
+    if: >-
+      (github.event_name != 'pull_request' || github.event.pull_request.head.ref == 'work/spikeprime-control-center-ui')
+      && needs.app-impact.outputs.needed == 'true'
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
