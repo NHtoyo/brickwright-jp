@@ -1,0 +1,45 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Brickwrightについて</title>
+  <style>
+    :root { color-scheme: light; font: 14px system-ui, sans-serif; }
+    body { max-width: 720px; margin: 0 auto; padding: 22px; color: #182230; background: #fff; }
+    header { display: flex; align-items: center; gap: 16px; }
+    header img { width: 72px; height: 72px; border-radius: 14px; }
+    h1 { margin: 0; font-size: 22px; }
+    .muted { color: #526071; }
+    .license { max-height: 310px; overflow: auto; white-space: pre-wrap; padding: 12px; border: 1px solid #d6dbe1; border-radius: 6px; background: #f8fafc; font: 12px/1.45 ui-monospace, monospace; }
+    a, button { color: #075da8; }
+    button { margin: 0 8px 8px 0; padding: 7px 10px; }
+  </style>
+</head>
+<body>
+  <header>
+    <img src="/static/images/apple-touch-icon.png" alt="Brickwright robot icon">
+    <div><h1>Brickwrightについて</h1><div id="version" class="muted">バージョン情報を読み込み中…</div></div>
+  </header>
+  <p>Scratchベースの独立したオープンソースプロジェクトです。LEGO Group、Scratch Foundation、TurboWarpによる開発・承認・後援を受けた製品ではありません。</p>
+  <p>LEGOおよびSPIKEはLEGO Groupの商標です。ScratchおよびScratchのロゴ・名称等はScratch Foundationの商標です。各名称は互換性および出典の説明のために使用しています。</p>
+  <p><button id="source" type="button">対応するソースコードを開く</button></p>
+  <h2>ライセンス</h2>
+  <p><a href="/desktop/licenses/GPL-3.0.txt">GNU GPL version 3</a> · <a href="/desktop/licenses/MPL-2.0.txt">Mozilla Public License 2.0</a></p>
+  <p><a href="/desktop/licenses/THIRD_PARTY_LICENSES.txt">第三者ライセンス通知</a> · <a href="/desktop/licenses/THIRD_PARTY_LICENSES.json">ライセンスマニフェスト</a> · <a href="/desktop/licenses/assets-rights.json">素材の権利確認一覧</a></p>
+  <p>第三者ライブラリの通知と、未確認ライセンス一覧：</p>
+  <pre class="license" id="third-party">読み込み中…</pre>
+  <script>
+    (async () => {
+      const info = await window.brickwrightDesktop.getAppInfo();
+      document.getElementById('version').textContent = `${info.version} · ${info.commit.slice(0, 12)} · ${info.buildType}`;
+      document.getElementById('source').addEventListener('click', () => window.brickwrightDesktop.openSource());
+      try {
+        document.getElementById('third-party').textContent = await (await fetch('/desktop/licenses/THIRD_PARTY_LICENSES.txt')).text();
+      } catch (error) {
+        document.getElementById('third-party').textContent = '第三者ライセンス通知を読み込めませんでした。';
+      }
+    })();
+  </script>
+</body>
+</html>

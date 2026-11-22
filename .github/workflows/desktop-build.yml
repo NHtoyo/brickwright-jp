@@ -1,0 +1,172 @@
+name: Brickwright desktop development builds
+
+on:
+  push:
+    branches: [work/spikeprime-control-center-ui]
+  pull_request:
+    types: [opened, synchronize, reopened]
+  workflow_dispatch:
+
+concurrency:
+  group: desktop-build-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  quality:
+    if: github.event_name != 'pull_request' || github.event.pull_request.head.ref == 'work/spikeprime-control-center-ui'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22.23.4
+          cache: npm
+      - name: Install Brickwright dependencies
+        run: npm ci --ignore-scripts --include=dev --no-audit --no-fund
+      - name: Apply the pinned VM patch
+        run: npx patch-package --error-on-fail
+      - name: Stub the optional micro:bit firmware artifact
+        run: mkdir -p src/generated && printf "module.exports = '';\n" > src/generated/microbit-hex-url.cjs
+      - name: Run existing unit and SPIKE tests
+        run: npm run test:unit
+      - name: Build the web editor
+        env:
+          CI: "true"
+          NODE_ENV: production
+          NODE_OPTIONS: --max-old-space-size=8192
+        run: npm run build
+      - name: Install a ChromeDriver matching the runner Chrome
+        run: npm rebuild chromedriver --no-audit --no-fund
+        env:
+          DETECT_CHROMEDRIVER_VERSION: "true"
+      - name: Run integration tests
+        run: npm run test:integration
+      - name: Create the media rights inventory
+        run: npm run desktop:asset-inventory
+      - name: Desktop source and layout checks
+        run: npm run test --prefix desktop
+      - name: Stage the built editor for an exact-commit source archive
+        run: node desktop/scripts/stage-desktop.mjs --build-type development --platform source --build-number ${{ github.run_number }}
+        env:
+          BRICKWRIGHT_BUILD_COMMIT: ${{ github.sha }}
+      - name: Create source archive and manifest
+        run: node desktop/scripts/generate-source-archive.mjs
+      - name: Report inherited lint status
+        run: npm run test:lint
+        continue-on-error: true
+      - uses: actions/upload-artifact@v4
+        with:
+          name: brickwright-source-${{ github.run_number }}-${{ github.sha }}
+          path: |
+            desktop/dist/Brickwright-*-source.tar.gz
+            desktop/dist/source-manifest.json
+          if-no-files-found: error
+          retention-days: 30
+
+  windows:
+    needs: quality
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22.23.4
+          cache: npm
+      - name: Install Brickwright dependencies
+        run: npm ci --ignore-scripts --include=dev --no-audit --no-fund
+      - name: Apply the pinned VM patch
+        run: npx patch-package --error-on-fail
+      - name: Stub the optional micro:bit firmware artifact
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path src/generated | Out-Null
+          Set-Content -NoNewline -Path src/generated/microbit-hex-url.cjs -Value "module.exports = '';`n"
+      - name: Build the web editor
+        env:
+          CI: "true"
+          NODE_ENV: production
+          NODE_OPTIONS: --max-old-space-size=8192
+        run: npm run build
+      - name: Generate rights inventory and stage app
+        run: |
+          npm run desktop:asset-inventory
+          node desktop/scripts/stage-desktop.mjs --build-type development --platform win32 --build-number ${{ github.run_number }}
+      - name: Install pinned Electron dependencies
+        run: npm ci --prefix desktop --no-audit --no-fund
+      - name: Prepare the Brickwright icon and license notices
+        run: |
+          npm run prepare:assets --prefix desktop
+          node desktop/scripts/generate-notices.mjs
+          node desktop/scripts/check-distribution-compliance.mjs
+      - name: Run desktop security and chooser tests
+        run: npm run test --prefix desktop
+      - name: Smoke test the secure app origin
+        run: npm run smoke --prefix desktop
+      - name: Build Windows NSIS installer
+        run: npx --prefix desktop electron-builder --win nsis --publish never -c.extraMetadata.version=0.1.0-dev.${{ github.run_number }}
+      - uses: actions/upload-artifact@v4
+        with:
+          name: brickwright-windows-${{ github.run_number }}-${{ github.sha }}
+          path: |
+            desktop/dist/Brickwright-Setup-*-win-x64.exe
+            desktop/build/build-info.json
+            desktop/build/desktop/licenses/**
+          if-no-files-found: error
+          retention-days: 30
+
+  macos:
+    needs: quality
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22.23.4
+          cache: npm
+      - name: Install Brickwright dependencies
+        run: npm ci --ignore-scripts --include=dev --no-audit --no-fund
+      - name: Apply the pinned VM patch
+        run: npx patch-package --error-on-fail
+      - name: Stub the optional micro:bit firmware artifact
+        run: mkdir -p src/generated && printf "module.exports = '';\n" > src/generated/microbit-hex-url.cjs
+      - name: Build the web editor
+        env:
+          CI: "true"
+          NODE_ENV: production
+          NODE_OPTIONS: --max-old-space-size=8192
+        run: npm run build
+      - name: Generate rights inventory and stage app
+        run: |
+          npm run desktop:asset-inventory
+          node desktop/scripts/stage-desktop.mjs --build-type development --platform darwin-universal --build-number ${{ github.run_number }}
+      - name: Install pinned Electron dependencies
+        run: npm ci --prefix desktop --no-audit --no-fund
+      - name: Prepare the Brickwright icon and license notices
+        run: |
+          npm run prepare:assets --prefix desktop
+          node desktop/scripts/generate-notices.mjs
+          node desktop/scripts/check-distribution-compliance.mjs
+      - name: Run desktop security and chooser tests
+        run: npm run test --prefix desktop
+      - name: Smoke test the secure app origin
+        run: npm run smoke --prefix desktop
+      - name: Build macOS universal DMG
+        run: npx --prefix desktop electron-builder --mac dmg --universal --publish never -c.extraMetadata.version=0.1.0-dev.${{ github.run_number }}
+      - uses: actions/upload-artifact@v4
+        with:
+          name: brickwright-macos-${{ github.run_number }}-${{ github.sha }}
+          path: |
+            desktop/dist/Brickwright-*-mac-universal.dmg
+            desktop/build/build-info.json
+            desktop/build/desktop/licenses/**
+          if-no-files-found: error
+          retention-days: 30

@@ -113,6 +113,11 @@ const words = {
         released: 'Released',
         forceValue: 'Force',
         distanceValue: 'Distance',
+        distanceMode: 'Measurement mode',
+        distanceLongMode: 'Normal (50–2000 mm)',
+        distanceShortMode: 'Short range (50–300 mm)',
+        colorModeNotice: 'Color number and RAW values are sampled alternately. ' +
+            'Using both increases the update interval.',
         colorValue: 'Detected color',
         rgb: 'RGB',
         confirmUpload: 'Clear, upload, and start slot',
@@ -238,6 +243,10 @@ const words = {
         released: '押されていません',
         forceValue: '力',
         distanceValue: '距離',
+        distanceMode: '測定モード',
+        distanceLongMode: '通常（50～2000 mm）',
+        distanceShortMode: '短距離（50～300 mm）',
+        colorModeNotice: 'カラー番号とRAW値を交互に取得しています。両方を使用すると更新間隔が長くなります。',
         colorValue: '検出色',
         rgb: 'RGB',
         confirmUpload: 'スロットを消去して転送・起動',
@@ -409,6 +418,7 @@ class SpikePrimeControlCenter extends React.Component {
         this.modelSelectionTouched = false;
         this.routerAdapters = new WeakMap();
         this.currentConnectionIdentity = null;
+        this.lastDesktopActivitySignature = null;
         bindAll(this, [
             'refresh', 'handleTogglePanel', 'handleClosePanel', 'handleConnect', 'handleDisconnect',
             'handleStopHub', 'handleControllerSlotChanged', 'handleReviewControllerSlot',
@@ -420,7 +430,8 @@ class SpikePrimeControlCenter extends React.Component {
             'handleCancelSavedController',
             'handleConnectionModeChanged', 'handlePeripheralListUpdate',
             'handlePeripheralRequestError', 'handleConnectPeripheral', 'handleDisplayModeChanged',
-            'handleHubModelChanged', 'handleRetryExtensionLoad', 'handleOpenDiagnosticsLog'
+            'handleHubModelChanged', 'handleRetryExtensionLoad', 'handleOpenDiagnosticsLog',
+            'handleDistanceModeChanged'
         ]);
     }
 
@@ -554,6 +565,25 @@ class SpikePrimeControlCenter extends React.Component {
         }
         const nextConnectionIdentity = snapshot && snapshot.connected ?
             this.getConnectionIdentity(snapshot) : null;
+        if (typeof window !== 'undefined' && window.brickwrightDesktop &&
+            typeof window.brickwrightDesktop.updateActivity === 'function') {
+            const motorPorts = (snapshot && snapshot.motorPorts) || {};
+            const motorActive = Object.keys(motorPorts).some(port => {
+                const speed = motorPorts[port] && motorPorts[port].speed;
+                return Number.isFinite(speed) && Math.abs(speed) > 0;
+            });
+            const activity = {
+                bluetoothConnected: Boolean(snapshot && snapshot.connected),
+                projectRunning: Boolean(this.props.vm.runtime && this.props.vm.runtime.running),
+                motorActive,
+                controllerReady: Boolean(snapshot && snapshot.controllerReady)
+            };
+            const signature = JSON.stringify(activity);
+            if (signature !== this.lastDesktopActivitySignature) {
+                this.lastDesktopActivitySignature = signature;
+                window.brickwrightDesktop.updateActivity(activity);
+            }
+        }
         const wasConnected = Boolean(this.state.snapshot && this.state.snapshot.connected);
         if (wasConnected && (!snapshot || !snapshot.connected ||
             this.currentConnectionIdentity !== nextConnectionIdentity)) {
@@ -971,6 +1001,19 @@ class SpikePrimeControlCenter extends React.Component {
         this.setState({displayMode: event.target.value});
     }
 
+    handleDistanceModeChanged (event) {
+        const api = this.getAPI();
+        if (!api || typeof api.setDistanceSensorMode !== 'function') return;
+        const port = event.currentTarget.dataset.port;
+        const mode = Number(event.target.value);
+        api.setDistanceSensorMode(port, mode).then(() => this.refresh())
+            .catch(error => {
+                if (!this.mounted) return;
+                this.setState({error: error && error.message ? error.message : String(error)});
+                this.refresh();
+            });
+    }
+
     renderSensor (snapshot, value, receivedAt) {
         const w = this.getWords();
         if (!snapshot || !snapshot.connected) return <span className={styles.muted}>{w.noConnection}</span>;
@@ -1180,6 +1223,7 @@ class SpikePrimeControlCenter extends React.Component {
     renderPortDetails (port, snapshot) {
         const w = this.getWords();
         if (!this.isPortAttached(port, snapshot)) return null;
+        const effectiveModel = this.getEffectiveModel(snapshot);
         const portSensor = snapshot && snapshot.portSensors && snapshot.portSensors[port];
         const motor = snapshot && snapshot.motorPorts && snapshot.motorPorts[port];
         const detached = Boolean(portSensor && portSensor.connected === false);
@@ -1252,6 +1296,29 @@ class SpikePrimeControlCenter extends React.Component {
                     <div>
                         {w.distanceValue}{': '}{reading.quality === 'out-of-range' ?
                             w.outOfRange : withUnit(reading.distanceMM, 'mm')}
+                    </div>
+                ) : null}
+                {type === 'distance' && effectiveModel === 'essential' ? (
+                    <label className={styles.distanceModeControl}>
+                        <span>{w.distanceMode}</span>
+                        <select
+                            aria-label={`${port} ${w.distanceMode}`}
+                            disabled={!snapshot || !snapshot.connected || Boolean(reading.distanceModeSwitching)}
+                            data-port={port}
+                            onChange={this.handleDistanceModeChanged}
+                            value={Number.isInteger(reading.distanceMode) ? reading.distanceMode : 0}
+                        >
+                            <option value={0}>{w.distanceLongMode}</option>
+                            <option value={1}>{w.distanceShortMode}</option>
+                        </select>
+                    </label>
+                ) : null}
+                {type === 'color' && reading.colorDualDemandActive ? (
+                    <div
+                        className={styles.sensorModeNotice}
+                        role="status"
+                    >
+                        {w.colorModeNotice}
                     </div>
                 ) : null}
                 {type === 'color' && detected ? (

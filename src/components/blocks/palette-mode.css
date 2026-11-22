@@ -91,7 +91,6 @@
     inset-block-start: 2.5rem;
     inset-block-end: 3rem;
     width: 8px;
-    margin-inline-start: -4px;
     cursor: col-resize;
     touch-action: none;
     z-index: 45;

@@ -10607,8 +10607,10 @@ continuous_sensor_loop()
             ? intervals.reduce((sum, interval) => sum + interval, 0) / intervals.length
             : null;
           const telemetry = poll ? {
+            targetIntervalMs: this._pollTargetInterval(poll, monotonicNow),
             samplesReceived: poll.samplesReceived,
             effectiveHz: meanInterval > 0 ? 1000 / meanInterval : null,
+            averageIntervalMs: meanInterval,
             medianIntervalMs: this._sensorSamplePercentile(intervals, 0.5),
             p95IntervalMs: this._sensorSamplePercentile(intervals, 0.95),
             maxIntervalMs: intervals.length ? Math.max(...intervals) : null,
@@ -10616,17 +10618,33 @@ continuous_sensor_loop()
               ? Math.max(0, monotonicNow - poll.lastSampleMonotonicAt)
               : null,
             pollsSent: poll.pollsSent,
+            pollsQueued: poll.pollsQueued,
+            queuedExpirations: poll.queuedExpirations,
+            writeFailures: poll.writeFailures,
+            noSampleCount: poll.noSampleCount,
             pollTimeouts: poll.pollTimeouts,
             notificationCount: poll.notificationCount,
-            unattributedSampleCount: poll.unattributedSampleCount,
+            spontaneousNotificationCount: poll.notificationCount,
+            ambiguousResponseCount: poll.ambiguousResponseCount,
+            unattributedSampleCount: poll.ambiguousResponseCount,
+            state: poll.state,
             currentPollIntervalMs: poll.currentPollIntervalMs,
             active: monotonicNow < poll.activeUntil,
             communicationState: poll.communicationState,
             lastError: poll.lastError,
             lastPollObservation: poll.lastPollObservation || null
           } : value.sensorTelemetry;
+          const colorState = this._devices[port]?.colorModes;
           return [port, {
             ...value,
+            ...(colorState ? {
+              colorMode: colorState.activeMode,
+              colorModeStatus: colorState.switchState,
+              colorDualDemandActive: colorState.rawDemandUntil > monotonicNow &&
+                colorState.colorDemandUntil > monotonicNow,
+              rawColorStatus: value.rawColorStatus || "metadata-pending",
+              colorModeMetadata: this._devices[port].modeMetadata?.[5] || null,
+            } : {}),
             ...(telemetry ? {sensorTelemetry: telemetry} : {})
           }];
         })
@@ -10672,10 +10690,32 @@ continuous_sensor_loop()
             attachmentId: poll.attachmentId,
             mode: poll.mode,
             active: monotonicNow < poll.activeUntil,
+            targetIntervalMs: this._pollTargetInterval(poll, monotonicNow),
+            lastSampleAgeMs: Number.isFinite(poll.lastSampleMonotonicAt)
+              ? Math.max(0, monotonicNow - poll.lastSampleMonotonicAt)
+              : null,
+            state: poll.state,
+            pollsQueued: poll.pollsQueued,
             pollsSent: poll.pollsSent,
+            queuedExpirations: poll.queuedExpirations,
+            writeFailures: poll.writeFailures,
+            noSampleCount: poll.noSampleCount,
             pollTimeouts: poll.pollTimeouts,
+            samplesReceived: poll.samplesReceived,
+            notificationCount: poll.notificationCount,
+            spontaneousNotificationCount: poll.notificationCount,
+            ambiguousResponseCount: poll.ambiguousResponseCount,
+            averageIntervalMs: poll.intervals.length
+              ? poll.intervals.reduce((sum, value) => sum + value, 0) / poll.intervals.length
+              : null,
+            medianIntervalMs: this._sensorSamplePercentile(poll.intervals, 0.5),
+            p95IntervalMs: this._sensorSamplePercentile(poll.intervals, 0.95),
+            effectiveHz: poll.intervals.length
+              ? 1000 / (poll.intervals.reduce((sum, value) => sum + value, 0) / poll.intervals.length)
+              : null,
             currentPollIntervalMs: poll.currentPollIntervalMs,
             communicationState: poll.communicationState,
+            lastPollObservation: poll.lastPollObservation || null,
             lastError: poll.lastError
           }]))
         },
@@ -11216,6 +11256,8 @@ continuous_sensor_loop()
         this._discoverMotorPositionModes(port, this._devices[port]);
       } else if (definition?.type === "distance") {
         this._discoverDistanceSensorMode(port, this._devices[port], 0);
+      } else if (definition?.type === "color") {
+        this._discoverColorSensorModes(port, this._devices[port]);
       } else if (definition && Number.isInteger(definition.inputMode)) {
         this._setInputMode(port, definition.inputMode).catch((error) =>
           this._recordCommunicationError(error)
@@ -11225,14 +11267,22 @@ continuous_sensor_loop()
 
     _clearPortAttachmentTimers(port) {
       const state = this._motorPositionModes[port];
+      const colorState = this._devices[port]?.colorModes;
+      if (colorState?.switchTimer) clearTimeout(colorState.switchTimer);
+      if (colorState) {
+        colorState.switchState = "unavailable";
+        colorState.requestedMode = colorState.activeMode;
+      }
       if (state?.timeout) clearTimeout(state.timeout);
       if (state?.comboTimeout) clearTimeout(state.comboTimeout);
       for (const request of Object.values(this._modeInfoRequests[port] || {})) {
         if (request?.timeout) clearTimeout(request.timeout);
+        request?.rejectResponse?.(new Error(`Sensor device detached from port ${port}`));
       }
       const poll = this._sensorPollStates[port];
       if (poll?.timeout) clearTimeout(poll.timeout);
       if (poll?.pending?.timeout) clearTimeout(poll.pending.timeout);
+      if (poll?.pending) poll.pending.state = "CANCELLED";
       delete this._sensorPollStates[port];
       delete this._sensorLastPortSentAt[port];
       const inputWaiter = this._inputFormatWaiters[port];
@@ -11254,6 +11304,8 @@ continuous_sensor_loop()
       if (!device || !attachmentId) return;
       const old = this._sensorPollStates[port];
       if (old?.timeout) clearTimeout(old.timeout);
+      if (old?.pending?.timeout) clearTimeout(old.pending.timeout);
+      if (old?.pending) old.pending.state = "CANCELLED";
       this._sensorPollStates[port] = {
         port,
         attachmentId,
@@ -11262,11 +11314,17 @@ continuous_sensor_loop()
         activeUntil: 0,
         nextDueAt: this._monotonicNow() + 200,
         pending: null,
+        state: "IDLE",
         pollsSent: 0,
+        pollsQueued: 0,
+        queuedExpirations: 0,
+        writeFailures: 0,
+        noSampleCount: 0,
         pollTimeouts: 0,
         samplesReceived: 0,
         notificationCount: 0,
         unattributedSampleCount: 0,
+        ambiguousResponseCount: 0,
         consecutiveTimeouts: 0,
         currentPollIntervalMs: 200,
         communicationState: "NORMAL",
@@ -11280,6 +11338,22 @@ continuous_sensor_loop()
 
     _pollTargetInterval(poll, now = this._monotonicNow()) {
       return now < poll.activeUntil ? 25 : 200;
+    }
+
+    _cancelSensorPoll(port, reason = "cancelled") {
+      const poll = this._sensorPollStates[port];
+      if (!poll) return;
+      const pending = poll.pending;
+      if (pending?.timeout) clearTimeout(pending.timeout);
+      if (pending) {
+        pending.state = "CANCELLED";
+        pending.cancelReason = reason;
+      }
+      poll.pending = null;
+      poll.state = "IDLE";
+      poll.lastTransitionAt = this._monotonicNow();
+      poll.nextDueAt = Infinity;
+      this._scheduleSensorPoll();
     }
 
     setSensorDemand(port, active = true) {
@@ -11310,47 +11384,57 @@ continuous_sensor_loop()
       poll.lastSampleMonotonicAt = monotonicAt;
       poll.samplesReceived += 1;
       const wasRecovering = poll.communicationState !== "NORMAL";
-      poll.consecutiveTimeouts = 0;
       poll.lastError = null;
       if (wasRecovering) {
         poll.communicationState = "RECOVERY";
         if (!Number.isFinite(poll.stableSince)) poll.stableSince = monotonicAt;
+      } else {
+        poll.consecutiveTimeouts = 0;
       }
-      if (poll.pending) {
+      if (poll.pending?.state === "AWAITING_SAMPLE" &&
+          poll.pending.attachmentId === poll.attachmentId &&
+          poll.pending.mode === poll.mode) {
         const pending = poll.pending;
         if (pending.timeout) clearTimeout(pending.timeout);
-        // LWP3 PortValue has no request id. This sample may be a notification
-        // or a response to the outstanding 0x21; retain the ambiguity.
+        pending.state = "OBSERVED";
         poll.lastPollObservation = {
           sentAt: pending.sentAt,
           observedAt: monotonicAt,
           latencyMs: Math.max(0, monotonicAt - pending.sentAt),
           attribution: "ambiguous-notification-or-poll-response",
         };
-        poll.unattributedSampleCount += 1;
+        poll.ambiguousResponseCount += 1;
+        poll.unattributedSampleCount = poll.ambiguousResponseCount;
         poll.pending = null;
+        poll.state = "OBSERVED";
       } else {
+        // A sample received while a request is still in the BLE write queue
+        // cannot be its response. Keep the queued request and classify this
+        // value as an unsolicited notification.
         poll.notificationCount += 1;
       }
       const targetInterval = this._pollTargetInterval(poll, monotonicAt);
-      if (poll.currentPollIntervalMs > targetInterval) {
+      if (wasRecovering) {
         if (!Number.isFinite(poll.stableSince)) poll.stableSince = monotonicAt;
         if (monotonicAt - poll.stableSince >= 5000) {
-          poll.currentPollIntervalMs = Math.max(
-            targetInterval,
-            Math.floor(poll.currentPollIntervalMs / 2)
-          );
+          poll.currentPollIntervalMs = poll.currentPollIntervalMs > targetInterval
+            ? Math.max(targetInterval, Math.floor(poll.currentPollIntervalMs / 2))
+            : targetInterval;
           poll.stableSince = monotonicAt;
+          if (poll.currentPollIntervalMs <= targetInterval) {
+            poll.consecutiveTimeouts = 0;
+            poll.communicationState = "NORMAL";
+          }
         }
-        if (poll.currentPollIntervalMs <= targetInterval) {
-          poll.communicationState = "NORMAL";
-        }
+        if (poll.communicationState !== "NORMAL") poll.communicationState = "RECOVERY";
       } else {
         poll.currentPollIntervalMs = targetInterval;
         poll.stableSince = monotonicAt;
         poll.communicationState = "NORMAL";
       }
       poll.nextDueAt = monotonicAt + Math.max(targetInterval, poll.currentPollIntervalMs);
+      if (!poll.pending) poll.state = "IDLE";
+      poll.lastTransitionAt = monotonicAt;
       const sorted = [...poll.intervals].sort((a, b) => a - b);
       const percentile = (p) => sorted.length
         ? sorted[Math.min(sorted.length - 1, Math.ceil(sorted.length * p) - 1)]
@@ -11359,16 +11443,26 @@ continuous_sensor_loop()
         ? poll.intervals.reduce((sum, value) => sum + value, 0) / poll.intervals.length
         : null;
       const telemetry = {
+        targetIntervalMs: targetInterval,
         samplesReceived: poll.samplesReceived,
         effectiveHz: average > 0 ? 1000 / average : null,
+        averageIntervalMs: average,
         medianIntervalMs: percentile(0.5),
         p95IntervalMs: percentile(0.95),
         maxIntervalMs: sorted.length ? sorted[sorted.length - 1] : null,
         latestSampleAgeMs: 0,
         pollsSent: poll.pollsSent,
+        pollsQueued: poll.pollsQueued,
+        queuedExpirations: poll.queuedExpirations,
+        writeFailures: poll.writeFailures,
+        noSampleCount: poll.noSampleCount,
         pollTimeouts: poll.pollTimeouts,
         notificationCount: poll.notificationCount,
-        unattributedSampleCount: poll.unattributedSampleCount,
+        spontaneousNotificationCount: poll.notificationCount,
+        ambiguousResponseCount: poll.ambiguousResponseCount,
+        unattributedSampleCount: poll.ambiguousResponseCount,
+        state: poll.state,
+        staleAgeMs: 0,
         currentPollIntervalMs: poll.currentPollIntervalMs,
         active: monotonicAt < poll.activeUntil,
         communicationState: poll.communicationState,
@@ -11421,8 +11515,10 @@ continuous_sensor_loop()
         // Notifications remain the primary stream. Poll only when the stream
         // has gone quiet long enough to need a current-value check.
         const perPortInterval = 1000 / 30;
-        const sincePortWrite = now - (this._sensorLastPortSentAt[poll.port] || -Infinity);
-        const sinceHubWrite = now - (this._sensorGlobalLastSentAt || -Infinity);
+        const lastPortWrite = this._sensorLastPortSentAt[poll.port];
+        const lastHubWrite = this._sensorGlobalLastSentAt;
+        const sincePortWrite = now - (Number.isFinite(lastPortWrite) ? lastPortWrite : -Infinity);
+        const sinceHubWrite = now - (Number.isFinite(lastHubWrite) ? lastHubWrite : -Infinity);
         if (sincePortWrite >= perPortInterval && sinceHubWrite >= 25) {
           this._sensorPollRoundRobin = (ports.indexOf(poll.port) + 1) % ports.length;
           this._sendSensorPoll(poll);
@@ -11438,31 +11534,22 @@ continuous_sensor_loop()
     }
 
     _sendSensorPoll(poll, {priority = null} = {}) {
+      if (poll.pending || this._devices[poll.port]?.attachmentId !== poll.attachmentId ||
+          this._portModes[poll.port] !== poll.mode) return Promise.resolve();
       const now = this._monotonicNow();
       const portId = poll.port === "A" ? 0 : 1;
-      const pending = {sentAt: now, timeout: null};
+      const pending = {
+        state: "QUEUED",
+        queuedAt: now,
+        attachmentId: poll.attachmentId,
+        mode: poll.mode,
+        sentAt: null,
+        timeout: null,
+      };
       poll.pending = pending;
-      poll.pollsSent += 1;
+      poll.state = "QUEUED";
+      poll.pollsQueued += 1;
       poll.nextDueAt = Infinity;
-      this._sensorGlobalLastSentAt = now;
-      this._sensorLastPortSentAt[poll.port] = now;
-      poll.timeout = setTimeout(() => {
-        if (poll.pending !== pending) return;
-        poll.pending = null;
-        poll.pollTimeouts += 1;
-        poll.consecutiveTimeouts += 1;
-        const backoff = poll.consecutiveTimeouts <= 2 ? 50 :
-          poll.consecutiveTimeouts === 3 ? 100 : 200;
-        poll.currentPollIntervalMs = Math.max(this._pollTargetInterval(poll), backoff);
-        poll.communicationState = poll.consecutiveTimeouts < 2 ? "NORMAL" :
-          poll.consecutiveTimeouts === 2 ? "DEGRADED" :
-            poll.consecutiveTimeouts === 3 ? "BACKOFF" : "RECOVERY";
-        poll.stableSince = null;
-        poll.lastError = "no PortValue observed within 250 ms; LWP3 has no request id";
-        poll.nextDueAt = this._monotonicNow() + poll.currentPollIntervalMs;
-        this._scheduleSensorPoll();
-      }, 250);
-      pending.timeout = poll.timeout;
       return this._send(
         [5, 0, LWP3.PORT_INFORMATION_REQUEST, portId, 0],
         {
@@ -11475,9 +11562,55 @@ continuous_sensor_loop()
         if (poll.pending === pending) {
           clearTimeout(pending.timeout);
           poll.pending = null;
-          poll.pollTimeouts += 1;
-          poll.consecutiveTimeouts += 1;
+          const expired = error?.code === "ERR_BLE_WRITE_EXPIRED" ||
+            error?.code === "ERR_BLE_WRITE_SUPERSEDED";
+          pending.state = expired ? "EXPIRED" : "WRITE_FAILED";
+          poll.state = pending.state;
+          if (expired) {
+            poll.queuedExpirations += 1;
+          } else {
+            poll.writeFailures += 1;
+            poll.consecutiveTimeouts += 1;
+          }
           poll.lastError = error?.message || String(error);
+          const backoff = poll.consecutiveTimeouts <= 2 ? 50 :
+            poll.consecutiveTimeouts === 3 ? 100 : 200;
+          poll.currentPollIntervalMs = Math.max(this._pollTargetInterval(poll), backoff);
+          poll.communicationState = expired ? poll.communicationState : poll.consecutiveTimeouts < 2 ? "NORMAL" :
+            poll.consecutiveTimeouts === 2 ? "DEGRADED" :
+              poll.consecutiveTimeouts === 3 ? "BACKOFF" : "RECOVERY";
+          if (!expired) poll.stableSince = null;
+          poll.nextDueAt = this._monotonicNow() + poll.currentPollIntervalMs;
+          poll.lastTransitionAt = this._monotonicNow();
+          if (!expired) this._recordCommunicationError(error);
+          this._scheduleSensorPoll();
+        }
+      }).then((result) => {
+        if (poll.pending !== pending || pending.state !== "QUEUED") return result;
+        if (this._devices[poll.port]?.attachmentId !== pending.attachmentId ||
+            this._portModes[poll.port] !== pending.mode) {
+          poll.pending = null;
+          pending.state = "CANCELLED";
+          poll.state = "IDLE";
+          poll.nextDueAt = this._monotonicNow() + this._pollTargetInterval(poll);
+          this._scheduleSensorPoll();
+          return result;
+        }
+        const sentAt = this._monotonicNow();
+        pending.sentAt = sentAt;
+        pending.state = "AWAITING_SAMPLE";
+        poll.state = "AWAITING_SAMPLE";
+        poll.pollsSent += 1;
+        this._sensorGlobalLastSentAt = sentAt;
+        this._sensorLastPortSentAt[poll.port] = sentAt;
+        pending.timeout = setTimeout(() => {
+          if (poll.pending !== pending || pending.state !== "AWAITING_SAMPLE") return;
+          pending.state = "NO_SAMPLE";
+          poll.pending = null;
+          poll.state = "NO_SAMPLE";
+          poll.noSampleCount += 1;
+          poll.pollTimeouts = poll.noSampleCount;
+          poll.consecutiveTimeouts += 1;
           const backoff = poll.consecutiveTimeouts <= 2 ? 50 :
             poll.consecutiveTimeouts === 3 ? 100 : 200;
           poll.currentPollIntervalMs = Math.max(this._pollTargetInterval(poll), backoff);
@@ -11485,10 +11618,13 @@ continuous_sensor_loop()
             poll.consecutiveTimeouts === 2 ? "DEGRADED" :
               poll.consecutiveTimeouts === 3 ? "BACKOFF" : "RECOVERY";
           poll.stableSince = null;
+          poll.lastError = "no PortValue observed within 250 ms after BLE write completion; LWP3 has no request id";
           poll.nextDueAt = this._monotonicNow() + poll.currentPollIntervalMs;
-          this._recordCommunicationError(error);
+          poll.lastTransitionAt = this._monotonicNow();
           this._scheduleSensorPoll();
-        }
+        }, 250);
+        poll.lastTransitionAt = sentAt;
+        return result;
       });
     }
 
@@ -11639,39 +11775,451 @@ continuous_sensor_loop()
       if (!device || device.type !== "distance") return;
       device.modeMetadata = device.modeMetadata || {};
       device.distanceMode = mode;
-      device.distanceModeStatus = "reading-mode-metadata";
+      device.requestedDistanceMode = mode;
+      this._applyDistanceSensorMode(port, device, mode).catch((error) => {
+        if (this._devices[port]?.attachmentId !== device.attachmentId) return;
+        device.distanceModeStatus = "mode-setup-failed";
+        this._portValues[port] = {
+          ...this._portValues[port],
+          distanceModeStatus: device.distanceModeStatus,
+          distanceMM: null,
+          distance: null,
+          receivedAt: null,
+          quality: "mode-setup-failed",
+        };
+        this._recordCommunicationError(error);
+      });
+    }
+
+    setDistanceSensorMode(port, mode) {
+      const normalized = this._requirePort(port);
+      const target = Number(mode);
+      const device = this._devices[normalized];
+      if (!device || device.type !== "distance") {
+        return Promise.reject(new Error(`No distance sensor attached to port ${normalized}`));
+      }
+      if (target !== 0 && target !== 1) {
+        return Promise.reject(new Error(`Unsupported distance sensor mode ${mode}`));
+      }
+      device.requestedDistanceMode = target;
+      if (device.distanceModeSwitchPromise) return device.distanceModeSwitchPromise;
+      const attachmentId = device.attachmentId;
+      let switchPromise;
+      switchPromise = (async () => {
+        while (this._devices[normalized]?.attachmentId === attachmentId &&
+            this._devices[normalized].requestedDistanceMode !== this._devices[normalized].distanceMode) {
+          const currentDevice = this._devices[normalized];
+          const requested = currentDevice.requestedDistanceMode;
+          const previous = currentDevice.distanceMode;
+          try {
+            await this._applyDistanceSensorMode(normalized, currentDevice, requested);
+          } catch (error) {
+            try {
+              if (previous === 0 || previous === 1) {
+                const attached = this._devices[normalized];
+                await this._applyDistanceSensorMode(normalized, attached, previous);
+                this._devices[normalized].distanceModeStatus = "switch-failed-restored";
+              } else {
+                throw new Error("No previous distance mode is available for rollback");
+              }
+            } catch (rollbackError) {
+              const attached = this._devices[normalized];
+              if (attached?.attachmentId === attachmentId) attached.distanceModeStatus = "mode-setup-failed";
+              this._portValues[normalized] = {
+                ...this._portValues[normalized],
+                distanceMM: null,
+                distance: null,
+                receivedAt: null,
+                distanceModeStatus: "mode-setup-failed",
+                quality: "mode-setup-failed",
+                distanceModeError: rollbackError.message,
+              };
+              error.rollbackError = rollbackError.message;
+            }
+            throw error;
+          }
+        }
+        if (this._devices[normalized]?.attachmentId !== attachmentId) {
+          throw new Error("Distance sensor was detached during mode change");
+        }
+        return this._devices[normalized].distanceMode;
+      })().finally(() => {
+        const currentDevice = this._devices[normalized];
+        if (currentDevice?.attachmentId === attachmentId) {
+          if (currentDevice.distanceModeSwitchPromise === switchPromise) {
+            currentDevice.distanceModeSwitchPromise = null;
+          }
+          currentDevice.requestedDistanceMode = currentDevice.distanceMode;
+        }
+      });
+      device.distanceModeSwitchPromise = switchPromise;
+      return switchPromise;
+    }
+
+    async _applyDistanceSensorMode(port, device, mode) {
+      const attachmentId = device.attachmentId;
+      if (this._devices[port]?.attachmentId !== attachmentId) {
+        throw new Error("Distance sensor attachment changed during mode setup");
+      }
+      if (this._devices[port]?.distanceModeConfiguring) {
+        const pendingSetup = this._devices[port].distanceModeSetupPromise;
+        if (pendingSetup) await pendingSetup;
+        if (this._devices[port]?.attachmentId !== attachmentId) {
+          throw new Error("Distance sensor attachment changed during mode setup");
+        }
+        if (this._devices[port].distanceMode === mode && this._inputFormats[port]?.status === "acknowledged") return;
+      }
+      const activeDevice = this._devices[port];
+      activeDevice.distanceModeConfiguring = true;
+      activeDevice.distanceModeStatus = "reading-mode-metadata";
+      this._cancelSensorPoll(port, "distance-mode-change");
       this._portValues[port] = {
         ...this._portValues[port],
-        distanceMode: mode,
+        requestedDistanceMode: mode,
         distanceModeStatus: device.distanceModeStatus,
+        distanceModeSwitching: true,
         distanceModeMetadata: device.modeMetadata,
         distanceMM: null,
         distance: null,
+        rawValue: null,
+        receivedAt: null,
         quality: "pending-mode-metadata",
       };
-      for (const informationType of [0, LWP3.MODE_VALUE_FORMAT, 3, 4]) {
-        this._requestDistanceModeMetadata(port, mode, informationType, device);
+      const setupPromise = (async () => {
+        const metadataValues = await Promise.all([0, LWP3.MODE_VALUE_FORMAT, 3, 4].map((informationType) =>
+          this._requestDistanceModeMetadata(port, mode, informationType, this._devices[port])
+        ));
+        if (this._devices[port]?.attachmentId !== attachmentId) {
+          throw new Error("Distance sensor attachment changed during metadata query");
+        }
+        const currentDevice = this._devices[port];
+        const metadata = currentDevice.modeMetadata?.[mode];
+        const format = metadata?.format;
+        const expectedName = mode === 0 ? "DISTL" : "DISTS";
+        const symbol = String(metadata?.symbol || "").toLowerCase();
+        if (metadataValues.length !== 4 || metadata?.name !== expectedName ||
+            format?.status !== "verified" || format.dataSets !== 1 || format.dataType !== 1 ||
+            format.decimals !== 1 || symbol !== "cm" ||
+            !Number.isFinite(metadata?.siRange?.min) || !Number.isFinite(metadata?.siRange?.max)) {
+          throw Object.assign(new Error(`Distance mode ${mode} metadata does not match ${expectedName}/int16/0.1 cm`), {
+            code: "ERR_DISTANCE_MODE_UNSUPPORTED",
+            metadata: metadata ? {...metadata, format: format ? {...format} : null} : null,
+          });
+        }
+        currentDevice.distanceModeStatus = "configuring";
+        this._portValues[port] = {
+          ...this._portValues[port],
+          requestedDistanceMode: mode,
+          distanceModeStatus: currentDevice.distanceModeStatus,
+          distanceModeSwitching: true,
+          distanceModeMetadata: metadata,
+        };
+        await this._setInputMode(port, mode, LWP3.DISTANCE_DELTA, {waitForAck: true});
+        if (this._devices[port]?.attachmentId !== attachmentId) {
+          throw new Error("Distance sensor attachment changed during mode acknowledgement");
+        }
+        const acknowledgedDevice = this._devices[port];
+        acknowledgedDevice.distanceMode = mode;
+        acknowledgedDevice.distanceModeStatus = "awaiting-sample";
+        this._portValues[port] = {
+          ...this._portValues[port],
+          distanceMode: mode,
+          requestedDistanceMode: mode,
+          distanceModeStatus: device.distanceModeStatus,
+          distanceModeMetadata: metadata,
+          distanceMM: null,
+          distance: null,
+          rawValue: null,
+          receivedAt: null,
+          quality: "waiting-for-mode-sample",
+        };
+      })();
+      activeDevice.distanceModeSetupPromise = setupPromise;
+      try {
+        await setupPromise;
+      } finally {
+        const currentDevice = this._devices[port];
+        if (currentDevice?.attachmentId === attachmentId &&
+            currentDevice.distanceModeSetupPromise === setupPromise) {
+          currentDevice.distanceModeConfiguring = false;
+          currentDevice.distanceModeSetupPromise = null;
+          this._portValues[port] = {
+            ...this._portValues[port],
+            distanceModeSwitching: false,
+          };
+        }
       }
+    }
+
+    _discoverColorSensorModes(port, device) {
+      if (!device || device.type !== "color") return;
+      device.modeMetadata = device.modeMetadata || {};
+      const state = device.colorModes = {
+        attachmentId: device.attachmentId,
+        colorDemandUntil: 0,
+        rawDemandUntil: 0,
+        activeMode: 0,
+        requestedMode: 0,
+        switchState: "configuring-color",
+        lastModeChangeAt: this._monotonicNow(),
+        lastSampleAt: null,
+        switchTimer: null,
+        switching: false,
+        suppressNextColorEdge: false,
+      };
+      this._portValues[port] = {
+        ...this._portValues[port],
+        colorMode: 0,
+        colorModeStatus: state.switchState,
+        rawColorStatus: "metadata-pending",
+        colorModeMetadata: device.modeMetadata,
+      };
+      for (const informationType of [0, LWP3.MODE_VALUE_FORMAT, 3, 4]) {
+        this._requestDistanceModeMetadata(port, 5, informationType, device);
+      }
+      this._setInputMode(port, 0, LWP3.PORT_VALUE_DELTA, {waitForAck: true}).then(() => {
+        if (this._devices[port]?.attachmentId !== state.attachmentId) return;
+        state.switchState = "ready";
+        state.lastModeChangeAt = this._monotonicNow();
+        this._portValues[port] = {
+          ...this._portValues[port],
+          colorMode: 0,
+          colorModeStatus: state.switchState,
+        };
+      }).catch((error) => {
+        if (this._devices[port]?.attachmentId !== state.attachmentId) return;
+        state.switchState = "unavailable";
+        this._portValues[port] = {
+          ...this._portValues[port],
+          colorModeStatus: state.switchState,
+          color: null,
+          red: null,
+          green: null,
+          blue: null,
+          receivedAt: null,
+        };
+        this._recordCommunicationError(error);
+      });
+    }
+
+    _maybeStartColorSensorMode(port, device, mode) {
+      if (device?.type !== "color" || mode !== 5 ||
+          device.attachmentId !== this._devices[port]?.attachmentId) return;
+      const metadata = device.modeMetadata?.[5];
+      const format = metadata?.format;
+      const range = metadata?.siRange;
+      const verified = metadata?.name === "RGB I" && metadata?.symbol === "RAW" &&
+        format?.status === "verified" && format.mode === 5 && format.dataSets === 4 &&
+        format.dataType === 1 && format.decimals === 0 && Number.isFinite(range?.min) &&
+        Number.isFinite(range?.max) && range.min <= 0 && range.max >= 1023 && range.max <= 1024;
+      if (!verified) {
+        if (format?.status === "unsupported-format" || metadata?.name || metadata?.symbol || range) {
+          this._portValues[port] = {
+            ...this._portValues[port],
+            rawColorStatus: "unsupported-mode-format",
+            colorModeMetadata: metadata,
+          };
+        }
+        return;
+      }
+      this._portValues[port] = {
+        ...this._portValues[port],
+        rawColorStatus: "available",
+        colorModeMetadata: metadata,
+      };
+      const state = device.colorModes;
+      if (state?.rawDemandUntil > this._monotonicNow()) {
+        this._requestColorSensorMode(port, 5).catch((error) => this._recordCommunicationError(error));
+      }
+    }
+
+    setColorDemand(port, kind = "color") {
+      const normalized = this._requirePort(port);
+      const device = this._devices[normalized];
+      const state = device?.colorModes;
+      if (!device || device.type !== "color" || !state || state.attachmentId !== device.attachmentId) return;
+      const until = this._monotonicNow() + 1500;
+      if (kind === "raw") state.rawDemandUntil = until;
+      else state.colorDemandUntil = until;
+      this.setSensorDemand(normalized, true);
+      this._portValues[normalized] = {
+        ...this._portValues[normalized],
+        colorDualDemandActive: state.rawDemandUntil > this._monotonicNow() &&
+          state.colorDemandUntil > this._monotonicNow(),
+        colorModeStatus: state.switchState,
+        rawColorStatus: this._portValues[normalized]?.rawColorStatus || "metadata-pending",
+      };
+      this._scheduleColorModeSwitch(normalized, device);
+    }
+
+    _scheduleColorModeSwitch(port, device) {
+      const state = device?.colorModes;
+      if (!state || state.switchTimer || state.switching ||
+          this._devices[port]?.attachmentId !== state.attachmentId) return;
+      const now = this._monotonicNow();
+      const wantsRaw = state.rawDemandUntil > now;
+      const wantsColor = state.colorDemandUntil > now;
+      let target = state.activeMode;
+      if (wantsRaw && wantsColor) target = state.activeMode === 5 ? 0 : 5;
+      else if (wantsRaw) target = 5;
+      else if (wantsColor) target = 0;
+      if (target === state.activeMode) return;
+      // Switch only after the current mode produced a real sample, and keep
+      // each mode active for at least 200 ms to avoid rapid toggling.
+      if (wantsRaw && wantsColor && !Number.isFinite(state.lastSampleAt)) return;
+      const dueIn = Math.max(0, 200 - (now - state.lastModeChangeAt));
+      if (dueIn > 0) {
+        state.switchTimer = setTimeout(() => {
+          state.switchTimer = null;
+          this._scheduleColorModeSwitch(port, device);
+        }, dueIn);
+        return;
+      }
+      this._requestColorSensorMode(port, target).catch((error) => this._recordCommunicationError(error));
+    }
+
+    _requestColorSensorMode(port, mode) {
+      const device = this._devices[port];
+      const state = device?.colorModes;
+      if (!device || device.type !== "color" || !state || state.attachmentId !== device.attachmentId) {
+        return Promise.reject(new Error(`No color sensor attached to port ${port}`));
+      }
+      state.requestedMode = mode;
+      if (state.switchPromise) return state.switchPromise;
+      state.switching = true;
+      const attachmentId = state.attachmentId;
+      const switchPromise = (async () => {
+        while (this._devices[port]?.attachmentId === attachmentId &&
+            state.requestedMode !== state.activeMode) {
+          const target = state.requestedMode;
+          const previous = state.activeMode;
+          if (target === 5) {
+            await Promise.all([0, LWP3.MODE_VALUE_FORMAT, 3, 4].map((informationType) =>
+              this._requestDistanceModeMetadata(port, 5, informationType, device)
+            ));
+            if (this._devices[port]?.attachmentId !== attachmentId) {
+              throw new Error("Color sensor was detached during metadata query");
+            }
+            const metadata = device.modeMetadata?.[5];
+            if (!metadata || metadata.name !== "RGB I" || metadata.format?.status !== "verified" ||
+                metadata.format.dataSets !== 4 || metadata.format.dataType !== 1 ||
+                metadata.format.decimals !== 0 || metadata.symbol !== "RAW" ||
+                !Number.isFinite(metadata.siRange?.min) || !Number.isFinite(metadata.siRange?.max) ||
+                metadata.siRange.min > 0 || metadata.siRange.max < 1023 || metadata.siRange.max > 1024) {
+              throw Object.assign(new Error("Essential color sensor RGB I mode metadata is unsupported"), {
+                code: "ERR_COLOR_RAW_MODE_UNSUPPORTED"
+              });
+            }
+          }
+          // A later reporter request supersedes this queued target before any
+          // hardware mode change is issued.
+          if (state.requestedMode !== target) continue;
+          state.switchState = target === 5 ? "switching-to-rgb" : "switching-to-color";
+          if (state.switchTimer) clearTimeout(state.switchTimer);
+          state.switchTimer = null;
+          this._cancelSensorPoll(port, "color-mode-change");
+          this._portValues[port] = {
+            ...this._portValues[port],
+            color: null,
+            red: null,
+            green: null,
+            blue: null,
+            intensity: null,
+            receivedAt: null,
+            colorModeStatus: state.switchState,
+            colorValueStatus: "waiting-for-new-mode-sample",
+          };
+          try {
+            await this._setInputMode(port, target, LWP3.PORT_VALUE_DELTA, {waitForAck: true});
+          } catch (error) {
+            state.requestedMode = previous;
+            try {
+              await this._setInputMode(port, previous, LWP3.PORT_VALUE_DELTA, {waitForAck: true});
+              state.activeMode = previous;
+              state.switchState = "switch-failed-restored";
+            } catch (rollbackError) {
+              state.switchState = "unavailable";
+              this._portValues[port] = {
+                ...this._portValues[port],
+                color: null,
+                red: null,
+                green: null,
+                blue: null,
+                receivedAt: null,
+                colorModeStatus: state.switchState,
+                colorModeError: rollbackError.message,
+              };
+            }
+            throw error;
+          }
+          if (this._devices[port]?.attachmentId !== attachmentId) {
+            throw new Error("Color sensor was detached during mode change");
+          }
+          state.activeMode = target;
+          state.lastModeChangeAt = this._monotonicNow();
+          state.lastSampleAt = null;
+          state.switchState = "awaiting-sample";
+          state.suppressNextColorEdge = target === 0;
+          this._portValues[port] = {
+            ...this._portValues[port],
+            colorMode: target,
+            colorModeStatus: state.switchState,
+          };
+        }
+        if (this._devices[port]?.attachmentId !== attachmentId) {
+          throw new Error("Color sensor detached during mode switch");
+        }
+      })().finally(() => {
+        state.switching = false;
+        state.switchPromise = null;
+        this._scheduleColorModeSwitch(port, device);
+      });
+      state.switchPromise = switchPromise;
+      return switchPromise;
     }
 
     _requestDistanceModeMetadata(port, mode, informationType, device) {
       const key = `${mode}:${informationType}`;
       const attachmentId = device.attachmentId;
       if (!this._modeInfoRequests[port]) this._modeInfoRequests[port] = {};
+      const existing = this._modeInfoRequests[port][key];
+      if (existing && existing.attachmentId === attachmentId && existing.status === "pending") {
+        return existing.responsePromise;
+      }
+      const metadata = (device.modeMetadata || (device.modeMetadata = {}))[mode] ||
+        (device.modeMetadata[mode] = {});
+      const cachedValue = informationType === 0 ? metadata.name :
+        informationType === LWP3.MODE_VALUE_FORMAT ? metadata.format :
+          informationType === 3 ? metadata.siRange : informationType === 4 ? metadata.symbol : null;
+      if (cachedValue !== null && typeof cachedValue !== "undefined") return Promise.resolve(cachedValue);
+      let resolveResponse;
+      let rejectResponse;
       const request = {mode, informationType, attachmentId, status: "pending"};
+      request.responsePromise = new Promise((resolve, reject) => {
+        resolveResponse = resolve;
+        rejectResponse = reject;
+      });
+      request.responsePromise.catch(() => {});
+      request.resolveResponse = resolveResponse;
+      request.rejectResponse = rejectResponse;
       this._modeInfoRequests[port][key] = request;
       request.timeout = setTimeout(() => {
         if (this._devices[port]?.attachmentId !== attachmentId || request.status !== "pending") return;
         request.status = "timeout";
         const current = this._devices[port];
         if (current?.attachmentId === attachmentId) {
-          current.distanceModeStatus = `mode-info-${informationType}-timeout`;
+          current.modeSetupStatus = `mode-info-${informationType}-timeout`;
+          if (current.type === "distance") current.distanceModeStatus = current.modeSetupStatus;
           this._portValues[port] = {
             ...this._portValues[port],
-            distanceModeStatus: current.distanceModeStatus,
-            quality: "mode-metadata-timeout",
+            modeSetupStatus: current.modeSetupStatus,
+            ...(current.type === "distance" ? {
+              distanceModeStatus: current.distanceModeStatus,
+              quality: "mode-metadata-timeout",
+            } : {}),
           };
         }
+        request.rejectResponse(new Error(`LWP3 sensor mode ${mode} metadata ${informationType} timed out on port ${port}`));
       }, 900);
       this._send([
         6,
@@ -11683,15 +12231,21 @@ continuous_sensor_loop()
       ]).catch((error) => {
         if (this._modeInfoRequests[port]?.[key] === request) {
           request.status = "write-failed";
-          this._devices[port].distanceModeStatus = "mode-info-write-failed";
+          request.rejectResponse(error);
+          this._devices[port].modeSetupStatus = "mode-info-write-failed";
+          if (this._devices[port].type === "distance") this._devices[port].distanceModeStatus = "mode-info-write-failed";
           this._portValues[port] = {
             ...this._portValues[port],
-            distanceModeStatus: "mode-info-write-failed",
-            quality: "mode-metadata-write-failed",
+            modeSetupStatus: "mode-info-write-failed",
+            ...(this._devices[port].type === "distance" ? {
+              distanceModeStatus: "mode-info-write-failed",
+              quality: "mode-metadata-write-failed",
+            } : {}),
           };
         }
         this._recordCommunicationError(error);
       });
+      return request.responsePromise;
     }
 
     _maybeStartDistanceSensorMode(port, device, mode) {
@@ -11974,7 +12528,7 @@ continuous_sensor_loop()
       const metadata =
         state && state.attachmentId === this._devices[port].attachmentId
           ? state.modeMetadata[mode] || (state.modeMetadata[mode] = {})
-          : device.type === "distance"
+          : device.type === "distance" || device.type === "color"
             ? (device.modeMetadata || (device.modeMetadata = {}))[mode] ||
               (device.modeMetadata[mode] = {})
           : null;
@@ -11985,6 +12539,7 @@ continuous_sensor_loop()
           ""
         );
         if (metadata) metadata.name = name;
+        request.resolveResponse?.(name);
         if (device.type === "distance") {
           device.distanceModeName = name;
           this._portValues[port] = {
@@ -11993,6 +12548,10 @@ continuous_sensor_loop()
             distanceModeMetadata: metadata,
           };
           this._maybeStartDistanceSensorMode(port, device, mode);
+          return;
+        }
+        if (device.type === "color") {
+          this._maybeStartColorSensorMode(port, device, mode);
           return;
         }
         if (state && mode === 3 && name !== "APOS") {
@@ -12018,12 +12577,18 @@ continuous_sensor_loop()
             ? "received"
             : "malformed-response";
         if (metadata && request.status === "received") metadata.siRange = range;
+        if (request.status === "received") request.resolveResponse?.(range);
+        else request.rejectResponse?.(new Error(`Malformed LWP3 mode SI range response on port ${port}`));
         if (device.type === "distance") {
           this._portValues[port] = {
             ...this._portValues[port],
             distanceModeMetadata: metadata,
           };
           this._maybeStartDistanceSensorMode(port, device, mode);
+          return;
+        }
+        if (device.type === "color") {
+          this._maybeStartColorSensorMode(port, device, mode);
           return;
         }
         this._maybeStartAposMode(port, state);
@@ -12035,17 +12600,19 @@ continuous_sensor_loop()
           return;
         }
         request.status = "received";
-        if (metadata)
-          metadata.symbol = String.fromCharCode(...message.slice(6)).replace(
-            /\0+$/,
-            ""
-          );
+        const symbol = String.fromCharCode(...message.slice(6)).replace(/\0+$/, "");
+        if (metadata) metadata.symbol = symbol;
+        request.resolveResponse?.(symbol);
         if (device.type === "distance") {
           this._portValues[port] = {
             ...this._portValues[port],
             distanceModeMetadata: metadata,
           };
           this._maybeStartDistanceSensorMode(port, device, mode);
+          return;
+        }
+        if (device.type === "color") {
+          this._maybeStartColorSensorMode(port, device, mode);
           return;
         }
         this._maybeStartAposMode(port, state);
@@ -12066,9 +12633,12 @@ continuous_sensor_loop()
       };
       const isSingleNumericFormat =
         format.dataSets === 1 && format.dataType >= 0 && format.dataType <= 3;
-      const isSupportedFormat =
+      const isColorRawFormat = device.type === "color" && mode === 5 &&
+        format.dataSets === 4 && format.dataType === 1 && format.decimals === 0;
+      const isSupportedFormat = isColorRawFormat || (
         isSingleNumericFormat &&
-        (mode !== 2 || (format.dataSets === 1 && format.dataType === 2));
+        (mode !== 2 || (format.dataSets === 1 && format.dataType === 2))
+      );
       format.status = isSupportedFormat ? "verified" : "unsupported-format";
       if (metadata) metadata.format = format;
       if (mode === 2) this._modeValueFormats[port] = format;
@@ -12120,6 +12690,15 @@ continuous_sensor_loop()
           distanceModeMetadata: metadata,
         };
         this._maybeStartDistanceSensorMode(port, device, mode);
+        return;
+      }
+      if (device.type === "color") {
+        this._portValues[port] = {
+          ...this._portValues[port],
+          colorModeMetadata: metadata,
+          rawColorModeStatus: format.status,
+        };
+        this._maybeStartColorSensorMode(port, device, mode);
         return;
       }
       this._maybeStartAposMode(port, state);
@@ -13002,14 +13581,62 @@ continuous_sensor_loop()
         state.aposStatus = "ready";
         state.lastAposReceivedAt = now;
         state.lastAposSource = "port-value-mode-3";
+      } else if (device.type === "color" && mode === 5) {
+        const state = device.colorModes;
+        const metadata = device.modeMetadata?.[5];
+        const format = metadata?.format;
+        const range = metadata?.siRange;
+        if (!state || state.attachmentId !== device.attachmentId || state.activeMode !== 5 ||
+            !["awaiting-sample", "ready"].includes(state.switchState) ||
+            format?.status !== "verified" || format.dataSets !== 4 || format.dataType !== 1 ||
+            format.decimals !== 0 || metadata?.name !== "RGB I" || metadata?.symbol !== "RAW" ||
+            message.length !== 12) return;
+        const view = new DataView(message.buffer, message.byteOffset + 4, 8);
+        const channels = [view.getInt16(0, true), view.getInt16(2, true),
+          view.getInt16(4, true), view.getInt16(6, true)];
+        const rawMax = Math.min(1024, range?.max ?? 1024);
+        if (!channels.every((value) => Number.isInteger(value) &&
+            value >= Math.max(0, range?.min ?? 0) && value <= rawMax)) return;
+        next = {
+          ...next,
+          type: "color",
+          red: channels[0],
+          green: channels[1],
+          blue: channels[2],
+          intensity: channels[3],
+          colorDataMode: "RGB I",
+          colorRawReceivedAt: now,
+          colorModeStatus: "ready",
+          rawColorStatus: "ready",
+        };
+        state.lastSampleAt = this._monotonicNow();
+        state.switchState = "ready";
+        this._scheduleColorModeSwitch(port, device);
       } else if (device.type === "color" && mode === 0) {
+        const state = device.colorModes;
+        if (state && state.activeMode !== 0) return;
         const color = message[4] > 127 ? message[4] - 256 : message[4];
-        next = { ...next, type: "color", color };
-        this._recordColorEdge(port, previous.color, color);
+        next = {
+          ...next,
+          type: "color",
+          color,
+          colorMode: 0,
+          colorModeStatus: state?.switchState || "ready",
+          colorReceivedAt: now,
+        };
+        if (state) {
+          state.lastSampleAt = this._monotonicNow();
+          state.switchState = "ready";
+          if (state.suppressNextColorEdge) state.suppressNextColorEdge = false;
+          else this._recordColorEdge(port, previous.color, color);
+          this._scheduleColorModeSwitch(port, device);
+        } else {
+          this._recordColorEdge(port, previous.color, color);
+        }
       } else if (
         device.type === "distance" &&
         mode === device.distanceMode &&
-        ["awaiting-input-format-ack", "ready"].includes(device.distanceModeStatus)
+        ["awaiting-input-format-ack", "awaiting-sample", "ready"].includes(device.distanceModeStatus)
       ) {
         const metadata = device.modeMetadata?.[mode];
         const format = metadata?.format;
@@ -13025,8 +13652,11 @@ continuous_sensor_loop()
         const value = rawValue * scale;
         const unit = String(metadata.symbol || "").toLowerCase();
         const millimeters = value * (unit === "m" ? 1000 : unit === "cm" ? 10 : unit === "mm" ? 1 : NaN);
-        const inRange = Number.isFinite(value) && value >= metadata.siRange.min && value <= metadata.siRange.max;
-        const quality = rawValue < 0 ? "measurement-unavailable" : !inRange ? "out-of-range" : "valid";
+        const inMetadataRange = Number.isFinite(value) && value >= metadata.siRange.min && value <= metadata.siRange.max;
+        const millimeterLimit = mode === 0 ? 2000 : 300;
+        const inPublicRange = Number.isFinite(millimeters) && millimeters >= 50 && millimeters <= millimeterLimit;
+        const quality = rawValue < 0 ? "measurement-unavailable" :
+          !inMetadataRange || !inPublicRange ? "out-of-range" : "valid";
         next = {
           ...next,
           type: "distance",
@@ -13041,6 +13671,7 @@ continuous_sensor_loop()
           distanceModeMetadata: metadata,
           distanceModeStatus: "ready",
         };
+        device.distanceModeStatus = "ready";
       } else if (device.type === "force" && mode === 0) {
         const force = message[4];
         next = { ...next, type: "force", force, pressed: force > 0 };
@@ -13127,7 +13758,6 @@ continuous_sensor_loop()
       this._sensorEdges.delete(key);
       return true;
     }
-
     _requirePort(value) {
       const port = String(value || "")
         .trim()
@@ -15046,6 +15676,23 @@ continuous_sensor_loop()
       }
       return true;
     }
+    setColorDemand(port, kind = "color") {
+      const normalized = String(port || "").trim().toUpperCase();
+      if (!/^[A-F]$/.test(normalized)) return false;
+      if (this._activeProtocol === "essential") {
+        this._essential.setColorDemand(normalized, kind);
+        return true;
+      }
+      this.setSensorDemand(normalized, true);
+      return false;
+    }
+    setDistanceSensorMode(port, mode) {
+      const normalized = String(port || "").trim().toUpperCase();
+      if (this._activeProtocol !== "essential") {
+        return Promise.reject(new Error("Distance sensor mode selection is only available on SPIKE Essential"));
+      }
+      return this._essential.setDistanceSensorMode(normalized, mode);
+    }
     _sensorDemandNow() {
       return typeof performance !== "undefined" && typeof performance.now === "function"
         ? performance.now()
@@ -15236,6 +15883,7 @@ continuous_sensor_loop()
     "resetTimer",
     "getDistance",
     "getDistanceIn",
+    "getRawColor255",
     "getColor",
     "getForce",
     "isForceSensorPressed",
@@ -17673,6 +18321,8 @@ continuous_sensor_loop()
         getState: () => this.getControlCenterState(),
         getSupportedBlockOpcodes: (model) =>
           this.getSupportedBlockOpcodes(model),
+        setDistanceSensorMode: (port, mode) =>
+          this._peripheral.setDistanceSensorMode(port, mode),
         prepareInternalController: (source) =>
           this.prepareInternalControllerForScratch(source),
         supports: (capability) => this._peripheral.supports(capability),
@@ -21944,6 +22594,7 @@ continuous_sensor_loop()
     }
     getColor(args) {
       const port = Cast.toString(args.PORT).trim().toUpperCase();
+      this._peripheral.setColorDemand?.(port, "color");
       this._peripheral.setSensorDemand?.(port, true);
       const portData = this._peripheral.portValues[port];
       if (portData?.type === "color" && this._hasFreshPortReading(portData, port)) {
@@ -21994,6 +22645,7 @@ continuous_sensor_loop()
     }
     getColorRGB(args) {
       const port = Cast.toString(args.PORT).trim().toUpperCase();
+      this._peripheral.setColorDemand?.(port, "raw");
       this._peripheral.setSensorDemand?.(port, true);
       const channel = Cast.toString(args.CHANNEL).toLowerCase();
       if (!["red", "green", "blue"].includes(channel)) return "";
@@ -22003,7 +22655,14 @@ continuous_sensor_loop()
         : "";
     }
     getRawColor255(args) {
-      const raw = this.getColorRGB(args);
+      const port = Cast.toString(args.PORT).trim().toUpperCase();
+      const channel = Cast.toString(args.CHANNEL).toLowerCase();
+      if (!['red', 'green', 'blue'].includes(channel)) return "";
+      this._peripheral.setColorDemand?.(port, "raw");
+      this._peripheral.setSensorDemand?.(port, true);
+      const portData = this._peripheral.portValues[port];
+      const raw = this._hasFreshPortReading(portData, port) &&
+        typeof portData?.[channel] === "number" ? portData[channel] : "";
       if (raw === "" || !Number.isFinite(Number(raw))) return "";
       return rawColorTo255(Number(raw));
     }
@@ -22034,6 +22693,7 @@ continuous_sensor_loop()
     }
     whenColor(args) {
       const port = Cast.toString(args.PORT).trim().toUpperCase();
+      this._peripheral.setColorDemand?.(port, "color");
       this._peripheral.setSensorDemand?.(port, true);
       if (this._peripheral.protocol !== "spike3") return this.isColor(args);
       const color = Cast.toString(args.COLOR).toLowerCase();
@@ -22041,6 +22701,7 @@ continuous_sensor_loop()
     }
     isColor(args) {
       const port = Cast.toString(args.PORT).trim().toUpperCase();
+      this._peripheral.setColorDemand?.(port, "color");
       this._peripheral.setSensorDemand?.(port, true);
       const color = Cast.toString(args.COLOR).toLowerCase();
       const portData = this._peripheral.portValues[port];

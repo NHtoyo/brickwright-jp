@@ -660,6 +660,39 @@ async function acknowledgeEssentialDistance(state, portId = 1, {mode = 0, unit =
   await tick();
 }
 
+function emitEssentialModeMetadata(state, portId, mode, {
+  name,
+  dataSets = 1,
+  dataType = 1,
+  decimals = 1,
+  symbol = "cm",
+  min = 0,
+  max = 200,
+} = {}) {
+  const range = Buffer.alloc(8);
+  range.writeFloatLE(min, 0);
+  range.writeFloatLE(max, 4);
+  const encodedName = Buffer.from(name);
+  const encodedSymbol = Buffer.from(symbol);
+  state.device.emitLWP3([6 + encodedName.length, 0, 0x44, portId, mode, 0, ...encodedName]);
+  state.device.emitLWP3([10, 0, 0x44, portId, mode, 0x80, dataSets, dataType, 4, decimals]);
+  state.device.emitLWP3([14, 0, 0x44, portId, mode, 3, ...range]);
+  state.device.emitLWP3([6 + encodedSymbol.length, 0, 0x44, portId, mode, 4, ...encodedSymbol]);
+}
+
+async function acknowledgeEssentialColorMode(state, portId, mode) {
+  const inputModeRequest = state.device.writes.filter(message =>
+    message[2] === 0x41 && message[3] === portId && message[4] === mode
+  ).at(-1);
+  assert.ok(inputModeRequest, `mode ${mode} input request was sent on port ${portId}`);
+  state.device.emitLWP3([
+    10, 0, 0x47, portId, mode,
+    inputModeRequest[5], inputModeRequest[6], inputModeRequest[7],
+    inputModeRequest[8], inputModeRequest[9],
+  ]);
+  await tick();
+}
+
 function autoAcknowledgeEssentialPositionModes(state) {
   const {device} = state;
   const write = device.rx.writeValueWithoutResponse.bind(device.rx);
@@ -5925,6 +5958,217 @@ test("Essential polling is demand-aware, fair, bounded, and reports recovery", a
   const telemetry = JSON.parse(ext.getCommunicationDiagnostics()).portSensors.A.sensorTelemetry;
   assert.equal(telemetry.communicationState, "NORMAL");
   assert.equal(telemetry.samplesReceived >= 2, true);
+});
+
+test("Essential queued sensor reads do not start the sample timeout before GATT write completion", async () => {
+  const state = setup({hubKind: "essential"});
+  await connectEssential(state);
+  const {device, ext} = state;
+  device.emitLWP3([7, 0, 0x04, 0, 0x01, 0x30, 0]);
+  await tick();
+  await acknowledgeEssentialApos(state, 0);
+  device.emitLWP3([6, 0, 0x45, 0, 0, 0]);
+  await tick();
+
+  const essential = ext._peripheral._essential;
+  const poll = essential._sensorPollStates.A;
+  let signalBlockedWrite;
+  let releaseBlockedWrite;
+  const blockedWriteStarted = new Promise(resolve => {
+    signalBlockedWrite = resolve;
+  });
+  const blockedWrite = new Promise(resolve => {
+    releaseBlockedWrite = resolve;
+  });
+  const originalWrite = device.rx.writeValueWithoutResponse.bind(device.rx);
+  let blockFirstWrite = true;
+  device.rx.writeValueWithoutResponse = async packet => {
+    if (blockFirstWrite) {
+      blockFirstWrite = false;
+      signalBlockedWrite();
+      await blockedWrite;
+    }
+    await originalWrite(packet);
+  };
+
+  const blocker = essential._send([5, 0, 0x21, 1, 0], {priority: 100});
+  await blockedWriteStarted;
+  const queuedPoll = essential._sendSensorPoll(poll);
+  await tick();
+  assert.equal(poll.pending.state, "QUEUED");
+  assert.equal(poll.pending.timeout, null, "queue wait has no sample timeout");
+  assert.equal(poll.noSampleCount, 0);
+
+  await new Promise(resolve => setTimeout(resolve, 275));
+  releaseBlockedWrite();
+  await Promise.all([blocker, queuedPoll]);
+  assert.equal(poll.pending, null);
+  assert.equal(poll.state, "EXPIRED");
+  assert.equal(poll.queuedExpirations, 1);
+  assert.equal(poll.noSampleCount, 0, "queue expiry is not a missing sample");
+  assert.equal(poll.communicationState, "NORMAL");
+});
+
+test("Essential distance mode switches validate DISTL/DISTS and publish only fresh in-range samples", async () => {
+  const state = setup({hubKind: "essential"});
+  await connectEssential(state);
+  const {device, ext} = state;
+  const portId = 1;
+  device.emitLWP3([7, 0, 0x04, portId, 0x01, 0x3e, 0]);
+  await tick();
+  await waitUntil(() => device.writes.some(message =>
+    message[2] === 0x22 && message[3] === portId && message[4] === 0 && message[5] === 0x80
+  ), "DISTL VALUE FORMAT query");
+  emitEssentialModeMetadata(state, portId, 0, {
+    name: "DISTL", dataSets: 1, dataType: 1, decimals: 1,
+    symbol: "cm", min: 0, max: 250,
+  });
+  await tick();
+  await waitUntil(() => device.writes.some(message =>
+    message[2] === 0x41 && message[3] === portId && message[4] === 0
+  ), "DISTL input mode setup");
+  const distlSetup = device.writes.filter(message =>
+    message[2] === 0x41 && message[3] === portId && message[4] === 0
+  ).at(-1);
+  device.emitLWP3([10, 0, 0x47, portId, 0, ...distlSetup.slice(5)]);
+  await tick();
+
+  device.emitLWP3([6, 0, 0x45, portId, 50, 0]);
+  await tick();
+  assert.equal(ext.getDistance({PORT: "B"}), 5, "50 mm is the inclusive lower limit");
+
+  const switchToDists = ext._peripheral.setDistanceSensorMode("B", 1);
+  await waitUntil(() => device.writes.some(message =>
+    message[2] === 0x22 && message[3] === portId && message[4] === 1 && message[5] === 0x80
+  ), "DISTS VALUE FORMAT query");
+  emitEssentialModeMetadata(state, portId, 1, {
+    name: "DISTS", dataSets: 1, dataType: 1, decimals: 1,
+    symbol: "cm", min: 0, max: 32,
+  });
+  await tick();
+  await waitUntil(() => device.writes.some(message =>
+    message[2] === 0x41 && message[3] === portId && message[4] === 1
+  ), "DISTS input mode setup");
+  assert.equal(ext.getDistance({PORT: "B"}), "", "old mode sample is invalidated on switch");
+  const distsSetup = device.writes.filter(message =>
+    message[2] === 0x41 && message[3] === portId && message[4] === 1
+  ).at(-1);
+  device.emitLWP3([10, 0, 0x47, portId, 1, ...distsSetup.slice(5)]);
+  await switchToDists;
+  assert.equal(ext._peripheral._essential._devices.B.distanceMode, 1);
+  assert.equal(ext._peripheral._essential._portModes.B, 1);
+  device.emitLWP3([6, 0, 0x45, portId, 300 & 0xff, 300 >> 8]);
+  await tick();
+  assert.equal(ext.getDistance({PORT: "B"}), 30);
+  device.emitLWP3([6, 0, 0x45, portId, 301 & 0xff, 301 >> 8]);
+  await tick();
+  assert.equal(ext.getDistance({PORT: "B"}), "", "DISTS values over 300 mm are out of range");
+  assert.equal(ext._peripheral.portValues.B.distanceMM, null);
+  assert.equal(ext._peripheral.portValues.B.rawValue, 301, "raw sample remains diagnostic");
+
+  // A second request arriving while the first mode's 0x47 is pending is
+  // serialized and the last requested mode wins.
+  const switchToDistl = ext._peripheral.setDistanceSensorMode("B", 0);
+  await waitUntil(() => device.writes.filter(message =>
+    message[2] === 0x41 && message[3] === portId && message[4] === 0
+  ).length > 1, "serialized DISTL input mode setup");
+  const latestRequest = ext._peripheral.setDistanceSensorMode("B", 1);
+  const distlSwitch = device.writes.filter(message =>
+    message[2] === 0x41 && message[3] === portId && message[4] === 0
+  ).at(-1);
+  device.emitLWP3([10, 0, 0x47, portId, 0, ...distlSwitch.slice(5)]);
+  await tick();
+  await waitUntil(() => device.writes.filter(message =>
+    message[2] === 0x41 && message[3] === portId && message[4] === 1
+  ).length > 1, `last requested DISTS mode setup (${JSON.stringify({
+    writes: device.writes.filter(message => message[2] === 0x41 && message[3] === portId),
+    deviceMode: ext._peripheral._essential._devices.B.distanceMode,
+    requestedMode: ext._peripheral._essential._devices.B.requestedDistanceMode,
+    switching: Boolean(ext._peripheral._essential._devices.B.distanceModeSwitchPromise),
+  })})`);
+  const finalDists = device.writes.filter(message =>
+    message[2] === 0x41 && message[3] === portId && message[4] === 1
+  ).at(-1);
+  device.emitLWP3([10, 0, 0x47, portId, 1, ...finalDists.slice(5)]);
+  await Promise.all([switchToDistl, latestRequest]);
+  assert.equal(ext._peripheral._essential._devices.B.distanceMode, 1);
+});
+
+test("Essential RGB I mode decodes exact RAW values and normalizes getRawColor255", async () => {
+  const state = setup({hubKind: "essential"});
+  await connectEssential(state);
+  const {device, ext, clock} = state;
+  const portId = 0;
+  device.emitLWP3([7, 0, 0x04, portId, 0x01, 0x3d, 0]);
+  await tick();
+  await waitUntil(() => device.writes.filter(message =>
+    message[2] === 0x22 && message[3] === portId && message[4] === 5 && message[5] === 0x80
+  ).length === 1, "RGB I VALUE FORMAT query");
+  emitEssentialModeMetadata(state, portId, 5, {
+    name: "RGB I", dataSets: 4, dataType: 1, decimals: 0,
+    symbol: "RAW", min: 0, max: 1024,
+  });
+  await tick();
+  await waitUntil(() => device.writes.some(message =>
+    message[2] === 0x41 && message[3] === portId && message[4] === 0
+  ), "COLOR mode default setup");
+  await acknowledgeEssentialColorMode(state, portId, 0);
+  await tick();
+
+  assert.equal(ext.getColor({PORT: "A"}), "", "COLOR reporter starts the default mode");
+  assert.equal(device.writes.some(message => message[2] === 0x41 && message[3] === portId && message[4] === 5), false,
+    "COLOR-only demand remains in mode 0");
+  device.emitLWP3([5, 0, 0x45, portId, 9]);
+  await tick();
+  assert.equal(ext.getColor({PORT: "A"}), "red");
+  state.ext._peripheral._essential._sensorEdges.clear();
+
+  ext.getRawColor255({PORT: "A", CHANNEL: "red"});
+  clock.advance(200);
+  await waitUntil(() => device.writes.some(message =>
+    message[2] === 0x41 && message[3] === portId && message[4] === 5
+  ), "RGB I mode setup");
+  await acknowledgeEssentialColorMode(state, portId, 5);
+  await tick();
+  const essential = ext._peripheral._essential;
+  const colorValueWrites = device.writes.filter(message => message[2] === 0x41 && message[3] === portId && message[4] === 0);
+  const rgbValueWrites = device.writes.filter(message => message[2] === 0x41 && message[3] === portId && message[4] === 5);
+  assert.equal(essential._devices.A.colorModes.activeMode, 5);
+  assert.equal(essential._devices.A.colorModes.switching, false);
+  assert.ok(rgbValueWrites.length >= 1);
+  assert.ok(colorValueWrites.length >= 1);
+
+  // Wrong-size 0x45 values must not be accepted as RGB I data.
+  device.emitLWP3([11, 0, 0x45, portId, 0, 0, 0, 0, 0, 0, 0]);
+  await tick();
+  assert.equal(ext.getRawColor255({PORT: "A", CHANNEL: "red"}), "");
+  const rawBytes = Buffer.alloc(8);
+  [0, 512, 1023, 1024].forEach((value, index) => rawBytes.writeInt16LE(value, index * 2));
+  device.emitLWP3([12, 0, 0x45, portId, ...rawBytes]);
+  await tick();
+  assert.equal(essential._portValues.A.red, 0);
+  assert.equal(essential._portValues.A.green, 512);
+  assert.equal(essential._portValues.A.blue, 1023);
+  assert.equal(essential._portValues.A.intensity, 1024);
+  assert.equal(ext.getRawColor255({PORT: "A", CHANNEL: "red"}), 0);
+  assert.equal(ext.getRawColor255({PORT: "A", CHANNEL: "green"}), 128);
+  assert.equal(ext.getRawColor255({PORT: "A", CHANNEL: "blue"}), 255);
+  assert.equal(ext.getRawColor255({PORT: "A", CHANNEL: "green"}), 128,
+    "a later RAW reporter does not start a concurrent mode request");
+  assert.equal(rgbValueWrites.length, 1, "RAW demand holds mode 5 instead of resending setup");
+
+  ext.getColor({PORT: "A"});
+  clock.advance(200);
+  await waitUntil(() => device.writes.filter(message =>
+    message[2] === 0x41 && message[3] === portId && message[4] === 0
+  ).length > colorValueWrites.length, "COLOR mode restored after dual demand");
+  await acknowledgeEssentialColorMode(state, portId, 0);
+  await tick();
+  device.emitLWP3([5, 0, 0x45, portId, 8]);
+  await tick();
+  assert.equal(essential._portValues.A.color, 8);
+  assert.equal(essential._sensorEdges.has("color:A:orange"), false,
+    "the first COLOR sample after returning from RGB I is only a new baseline");
 });
 
 test("Essential output feedback records bounded motor-command response timing", async () => {

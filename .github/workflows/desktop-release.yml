@@ -1,0 +1,303 @@
+name: Brickwright signed desktop release
+
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+    inputs:
+      version:
+        description: SemVer release version, for example 1.2.3
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: desktop-release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  quality-and-rights:
+    runs-on: ubuntu-latest
+    outputs:
+      commit: ${{ steps.source.outputs.commit }}
+    env:
+      RELEASE_VERSION_INPUT: ${{ github.event.inputs.version || github.ref_name }}
+    steps:
+      - name: Validate the release version
+        shell: bash
+        run: |
+          version="${RELEASE_VERSION_INPUT#v}"
+          if [[ "$GITHUB_EVENT_NAME" == "workflow_dispatch" && "$RELEASE_VERSION_INPUT" == v* ]]; then
+            echo 'Enter the workflow version without a leading v.' >&2
+            exit 1
+          fi
+          if ! [[ "$version" =~ ^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(-[0-9A-Za-z.-]+)?(\+[0-9A-Za-z.-]+)?$ ]]; then
+            echo "Invalid SemVer version: $RELEASE_VERSION_INPUT" >&2
+            exit 1
+          fi
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.inputs.version && format('v{0}', github.event.inputs.version) || github.ref }}
+          persist-credentials: false
+      - id: source
+        name: Record the checked-out release commit
+        run: echo "commit=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22.23.4
+          cache: npm
+      - run: npm ci --ignore-scripts --include=dev --no-audit --no-fund
+      - run: npx patch-package --error-on-fail
+      - run: mkdir -p src/generated && printf "module.exports = '';\n" > src/generated/microbit-hex-url.cjs
+      - run: npm run test:unit
+      - run: npm run test:lint
+      - name: Build web editor
+        env:
+          CI: "true"
+          NODE_ENV: production
+          NODE_OPTIONS: --max-old-space-size=8192
+        run: npm run build
+      - name: Install a ChromeDriver matching the runner Chrome
+        run: npm rebuild chromedriver --no-audit --no-fund
+        env:
+          DETECT_CHROMEDRIVER_VERSION: "true"
+      - run: npm run test:integration
+      - run: npm run desktop:asset-inventory
+      - run: npm ci --prefix desktop --no-audit --no-fund
+      - run: node desktop/scripts/stage-desktop.mjs --build-type release --platform source --build-number ${{ github.run_number }}
+        env:
+          BRICKWRIGHT_RELEASE_VERSION: ${{ github.event.inputs.version || github.ref_name }}
+          BRICKWRIGHT_BUILD_COMMIT: ${{ steps.source.outputs.commit }}
+      - run: npm run prepare:assets --prefix desktop
+      - run: node desktop/scripts/generate-notices.mjs
+      - run: npm run test --prefix desktop
+      - run: xvfb-run -a npm run smoke --prefix desktop
+      - run: node desktop/scripts/generate-source-archive.mjs
+      - name: Enforce release license and media rights gate
+        run: node desktop/scripts/check-distribution-compliance.mjs --release
+      - uses: actions/upload-artifact@v4
+        with:
+          name: brickwright-release-source-${{ github.run_number }}-${{ steps.source.outputs.commit }}
+          path: |
+            desktop/dist/Brickwright-*-source.tar.gz
+            desktop/dist/source-manifest.json
+          if-no-files-found: error
+
+  build-windows-signed:
+    needs: quality-and-rights
+    runs-on: windows-latest
+    env:
+      CSC_LINK: ${{ secrets.WIN_CSC_LINK }}
+      CSC_KEY_PASSWORD: ${{ secrets.WIN_CSC_KEY_PASSWORD }}
+      WIN_CSC_LINK: ${{ secrets.WIN_CSC_LINK }}
+      WIN_CSC_KEY_PASSWORD: ${{ secrets.WIN_CSC_KEY_PASSWORD }}
+      BRICKWRIGHT_BUILD_TYPE: release
+    steps:
+      - name: Require Windows signing secrets
+        shell: pwsh
+        run: |
+          if (-not $env:CSC_LINK -or -not $env:CSC_KEY_PASSWORD) { throw 'Windows code-signing secrets are required for a formal release.' }
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.inputs.version && format('v{0}', github.event.inputs.version) || github.ref }}
+          persist-credentials: false
+      - id: source
+        name: Record the checked-out release commit
+        shell: pwsh
+        env:
+          EXPECTED_COMMIT: ${{ needs.quality-and-rights.outputs.commit }}
+        run: |
+          $commit = git rev-parse HEAD
+          if ($commit -ne $env:EXPECTED_COMMIT) { throw 'Windows build checkout does not match the quality-checked source commit.' }
+          "commit=$commit" | Out-File -FilePath $env:GITHUB_OUTPUT -Append
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22.23.4
+          cache: npm
+      - run: npm ci --ignore-scripts --include=dev --no-audit --no-fund
+      - run: npx patch-package --error-on-fail
+      - shell: pwsh
+        run: New-Item -ItemType Directory -Force -Path src/generated | Out-Null; Set-Content -NoNewline -Path src/generated/microbit-hex-url.cjs -Value "module.exports = '';`n"
+      - run: npm run build
+        env:
+          CI: "true"
+          NODE_ENV: production
+          NODE_OPTIONS: --max-old-space-size=8192
+      - run: npm run desktop:asset-inventory
+      - run: node desktop/scripts/stage-desktop.mjs --build-type release --platform win32 --build-number ${{ github.run_number }}
+        env:
+          BRICKWRIGHT_RELEASE_VERSION: ${{ github.event.inputs.version || github.ref_name }}
+          BRICKWRIGHT_BUILD_COMMIT: ${{ steps.source.outputs.commit }}
+      - run: npm ci --prefix desktop --no-audit --no-fund
+      - run: npm run prepare:assets --prefix desktop
+      - run: node desktop/scripts/generate-notices.mjs
+      - name: Build signed Windows installer
+        shell: pwsh
+        env:
+          RELEASE_VERSION_INPUT: ${{ github.event.inputs.version || github.ref_name }}
+        run: |
+          $version = $env:RELEASE_VERSION_INPUT -replace '^v', ''
+          npx --prefix desktop electron-builder --win nsis --publish never "-c.extraMetadata.version=$version"
+      - name: Verify Authenticode signature
+        shell: pwsh
+        run: |
+          $installer = Get-ChildItem desktop/dist/Brickwright-Setup-*-win-x64.exe | Select-Object -First 1
+          if (-not $installer) { throw 'NSIS installer was not produced.' }
+          $signature = Get-AuthenticodeSignature $installer.FullName
+          if ($signature.Status -ne 'Valid') { throw "Invalid Authenticode signature: $($signature.Status)" }
+          $signature.SignerCertificate.Subject | Out-File desktop/dist/windows-signature.txt
+      - uses: actions/upload-artifact@v4
+        with:
+          name: signed-windows-release
+          path: |
+            desktop/dist/Brickwright-Setup-*-win-x64.exe
+            desktop/dist/Brickwright-Setup-*-win-x64.exe.blockmap
+            desktop/dist/latest.yml
+            desktop/dist/windows-signature.txt
+            desktop/build/desktop/licenses/**
+          if-no-files-found: error
+
+  build-macos-signed:
+    needs: quality-and-rights
+    runs-on: macos-latest
+    env:
+      CSC_LINK: ${{ secrets.MAC_CSC_LINK }}
+      CSC_KEY_PASSWORD: ${{ secrets.MAC_CSC_KEY_PASSWORD }}
+      APPLE_ID: ${{ secrets.APPLE_ID }}
+      APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
+      APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+      BRICKWRIGHT_BUILD_TYPE: release
+      RELEASE_VERSION_INPUT: ${{ github.event.inputs.version || github.ref_name }}
+    steps:
+      - name: Require Apple signing and notarization secrets
+        run: |
+          test -n "$CSC_LINK" && test -n "$CSC_KEY_PASSWORD" && test -n "$APPLE_ID" && test -n "$APPLE_APP_SPECIFIC_PASSWORD" && test -n "$APPLE_TEAM_ID" || { echo "Apple Developer ID signing and notarization secrets are required."; exit 1; }
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.inputs.version && format('v{0}', github.event.inputs.version) || github.ref }}
+          persist-credentials: false
+      - id: source
+        name: Record the checked-out release commit
+        env:
+          EXPECTED_COMMIT: ${{ needs.quality-and-rights.outputs.commit }}
+        run: echo "commit=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+      - name: Verify the macOS build uses the quality-checked commit
+        env:
+          EXPECTED_COMMIT: ${{ needs.quality-and-rights.outputs.commit }}
+        run: test "$(git rev-parse HEAD)" = "$EXPECTED_COMMIT"
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22.23.4
+          cache: npm
+      - run: npm ci --ignore-scripts --include=dev --no-audit --no-fund
+      - run: npx patch-package --error-on-fail
+      - run: mkdir -p src/generated && printf "module.exports = '';\n" > src/generated/microbit-hex-url.cjs
+      - run: npm run build
+        env:
+          CI: "true"
+          NODE_ENV: production
+          NODE_OPTIONS: --max-old-space-size=8192
+      - run: npm run desktop:asset-inventory
+      - run: node desktop/scripts/stage-desktop.mjs --build-type release --platform darwin-universal --build-number ${{ github.run_number }}
+        env:
+          BRICKWRIGHT_RELEASE_VERSION: ${{ github.event.inputs.version || github.ref_name }}
+          BRICKWRIGHT_BUILD_COMMIT: ${{ steps.source.outputs.commit }}
+      - run: npm ci --prefix desktop --no-audit --no-fund
+      - run: npm run prepare:assets --prefix desktop
+      - run: node desktop/scripts/generate-notices.mjs
+      - name: Build signed macOS universal DMG
+        run: |
+          release_version="${RELEASE_VERSION_INPUT#v}"
+          npx --prefix desktop electron-builder --mac dmg --universal --publish never "-c.extraMetadata.version=$release_version"
+      - name: Verify app signature and notarize the DMG
+        shell: bash
+        run: |
+          app_path="desktop/dist/mac-universal/Brickwright.app"
+          dmg_path="$(find desktop/dist -maxdepth 1 -name 'Brickwright-*-mac-universal.dmg' -print -quit)"
+          test -d "$app_path"
+          test -n "$dmg_path"
+          codesign --verify --deep --strict --verbose=2 "$app_path"
+          xcrun notarytool submit "$dmg_path" --apple-id "$APPLE_ID" --password "$APPLE_APP_SPECIFIC_PASSWORD" --team-id "$APPLE_TEAM_ID" --wait
+          xcrun stapler staple "$dmg_path"
+          xcrun stapler validate "$dmg_path"
+          codesign -dv --verbose=2 "$app_path" 2> desktop/dist/macos-signature.txt
+      - uses: actions/upload-artifact@v4
+        with:
+          name: signed-macos-release
+          path: |
+            desktop/dist/Brickwright-*-mac-universal.dmg
+            desktop/dist/Brickwright-*-mac-universal.dmg.blockmap
+            desktop/dist/latest-mac.yml
+            desktop/dist/macos-signature.txt
+            desktop/build/desktop/licenses/**
+          if-no-files-found: error
+
+  publish:
+    needs: [quality-and-rights, build-windows-signed, build-macos-signed]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.inputs.version && format('v{0}', github.event.inputs.version) || github.ref }}
+          persist-credentials: false
+      - uses: actions/download-artifact@v4
+        with:
+          name: signed-windows-release
+          path: release-assets/windows
+      - uses: actions/download-artifact@v4
+        with:
+          name: signed-macos-release
+          path: release-assets/macos
+      - uses: actions/download-artifact@v4
+        with:
+          name: brickwright-release-source-${{ github.run_number }}-${{ needs.quality-and-rights.outputs.commit }}
+          path: release-assets/source
+      - name: Create corresponding source archive and checksums
+        shell: bash
+        env:
+          RELEASE_TAG: ${{ github.event.inputs.version && format('v{0}', github.event.inputs.version) || github.ref_name }}
+        run: |
+          tag="$RELEASE_TAG"
+          commit="$(git rev-parse HEAD)"
+          find release-assets/windows -type f -name 'Brickwright-Setup-*-win-x64.exe' -exec cp {} release-assets/ \;
+          find release-assets/windows -type f \( -name 'Brickwright-Setup-*-win-x64.exe.blockmap' -o -name latest.yml \) -exec cp {} release-assets/ \;
+          find release-assets/macos -type f -name 'Brickwright-*-mac-universal.dmg' -exec cp {} release-assets/ \;
+          find release-assets/macos -type f \( -name 'Brickwright-*-mac-universal.dmg.blockmap' -o -name latest-mac.yml \) -exec cp {} release-assets/ \;
+          cp release-assets/windows/dist/windows-signature.txt release-assets/
+          cp release-assets/macos/dist/macos-signature.txt release-assets/
+          cp release-assets/windows/build/desktop/licenses/THIRD_PARTY_LICENSES.txt release-assets/
+          cp release-assets/windows/build/desktop/licenses/THIRD_PARTY_LICENSES.json release-assets/
+          cp release-assets/windows/build/desktop/licenses/GPL-3.0.txt release-assets/
+          cp release-assets/windows/build/desktop/licenses/MPL-2.0.txt release-assets/
+          cp release-assets/source/Brickwright-*-source.tar.gz release-assets/
+          cp release-assets/source/source-manifest.json release-assets/
+          expected_version="${tag#v}"
+          node -e 'const m=require("./release-assets/source-manifest.json"); const c=require("child_process").execFileSync("git",["rev-parse","HEAD"],{encoding:"utf8"}).trim(); if(m.commit!==c||m.version!==process.argv[1]) process.exit(1)' "$expected_version"
+          cd release-assets
+          find . -maxdepth 1 -type f ! -name SHA256SUMS.txt -print0 | sort -z | xargs -0 sha256sum > SHA256SUMS.txt
+      - name: Publish signed installers and source
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ github.event.inputs.version && format('v{0}', github.event.inputs.version) || github.ref_name }}
+        run: |
+          gh release create "$RELEASE_TAG" \
+            release-assets/Brickwright-Setup-*-win-x64.exe \
+            release-assets/Brickwright-Setup-*-win-x64.exe.blockmap \
+            release-assets/latest.yml \
+            release-assets/Brickwright-*-mac-universal.dmg \
+            release-assets/Brickwright-*-mac-universal.dmg.blockmap \
+            release-assets/latest-mac.yml \
+            release-assets/Brickwright-*-source.tar.gz \
+            release-assets/source-manifest.json \
+            release-assets/SHA256SUMS.txt \
+            release-assets/windows-signature.txt \
+            release-assets/macos-signature.txt \
+            release-assets/THIRD_PARTY_LICENSES.txt \
+            release-assets/THIRD_PARTY_LICENSES.json \
+            release-assets/GPL-3.0.txt \
+            release-assets/MPL-2.0.txt \
+            --generate-notes --verify-tag
