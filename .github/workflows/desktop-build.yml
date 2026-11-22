@@ -35,6 +35,7 @@ jobs:
       - name: Run existing unit and SPIKE tests
         run: npm run test:unit
       - name: Build the web editor
+        id: web_build
         env:
           CI: "true"
           NODE_ENV: production
@@ -47,19 +48,26 @@ jobs:
       - name: Run integration tests
         run: npm run test:integration
       - name: Create the media rights inventory
+        if: ${{ always() && !cancelled() && steps.web_build.outcome == 'success' }}
         run: npm run desktop:asset-inventory
       - name: Desktop source and layout checks
+        if: ${{ always() && !cancelled() && steps.web_build.outcome == 'success' }}
         run: npm run test --prefix desktop
       - name: Stage the built editor for an exact-commit source archive
+        if: ${{ always() && !cancelled() && steps.web_build.outcome == 'success' }}
         run: node desktop/scripts/stage-desktop.mjs --build-type development --platform source --build-number ${{ github.run_number }}
         env:
           BRICKWRIGHT_BUILD_COMMIT: ${{ github.sha }}
       - name: Create source archive and manifest
+        id: source_archive
+        if: ${{ always() && !cancelled() && steps.web_build.outcome == 'success' }}
         run: node desktop/scripts/generate-source-archive.mjs
       - name: Report inherited lint status
+        if: ${{ always() && !cancelled() && steps.web_build.outcome == 'success' }}
         run: npm run test:lint
         continue-on-error: true
       - uses: actions/upload-artifact@v4
+        if: ${{ always() && !cancelled() && steps.web_build.outcome == 'success' && steps.source_archive.outcome == 'success' }}
         with:
           name: brickwright-source-${{ github.run_number }}-${{ github.sha }}
           path: |
@@ -70,6 +78,7 @@ jobs:
 
   windows:
     needs: quality
+    if: ${{ always() && needs.quality.result != 'cancelled' && needs.quality.result != 'skipped' }}
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
@@ -123,6 +132,7 @@ jobs:
 
   macos:
     needs: quality
+    if: ${{ always() && needs.quality.result != 'cancelled' && needs.quality.result != 'skipped' }}
     runs-on: macos-latest
     steps:
       - uses: actions/checkout@v4
