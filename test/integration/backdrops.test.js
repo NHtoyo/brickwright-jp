@@ -30,6 +30,8 @@ describe('Working with backdrops', () => {
 
         // Start on the sounds tab of sprite1 to test switching behavior
         await clickText('Sounds');
+        await clickXpath('//button[@aria-label="Choose a Sound"]');
+        await clickText('Meow', scope.modal);
 
         // Add a backdrop without selecting the stage first to test switching
         await clickXpath('//button[@aria-label="Choose a Backdrop"]');
@@ -37,7 +39,7 @@ describe('Working with backdrops', () => {
         await el.sendKeys('blue');
         await clickText('Blue Sky'); // Adds the backdrop
 
-        // Make sure the sprite is still selected, and that the tab has not changed
+        // The sound list is still available, so the sprite did not switch to the stage.
         await clickText('Meow', scope.soundsTab);
 
         // Make sure the backdrop was actually added by going to the backdrops tab
@@ -73,6 +75,8 @@ describe('Working with backdrops', () => {
 
         // Start on the sounds tab of sprite1 to test switching behavior
         await clickText('Sounds');
+        await clickXpath('//button[@aria-label="Choose a Sound"]');
+        await clickText('Meow', scope.modal);
 
         const buttonXpath = '//button[@aria-label="Choose a Backdrop"]';
         const surpriseXpath = `${buttonXpath}/following-sibling::div//button[@aria-label="Surprise"]`;
@@ -83,7 +87,7 @@ describe('Working with backdrops', () => {
         await driver.sleep(500); // Wait for thermometer menu to come up
         await clickXpath(surpriseXpath);
 
-        // Make sure the sprite is still selected, and that the tab has not changed
+        // The sound list is still available, so the sprite did not switch to the stage.
         await clickText('Meow', scope.soundsTab);
 
         const logs = await getLogs();

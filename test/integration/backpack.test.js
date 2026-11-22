@@ -1,18 +1,13 @@
 import path from 'path';
 import SeleniumHelper from '../helpers/selenium-helper';
 
-const {
-    clickText,
-    getDriver,
-    getLogs,
-    loadUri
-} = new SeleniumHelper();
+const {getDriver, loadUri} = new SeleniumHelper();
 
 const uri = path.resolve(__dirname, '../../build/index.html');
 
 let driver;
 
-describe('Working with the how-to library', () => {
+describe('Backpack availability', () => {
     beforeAll(() => {
         driver = getDriver();
     });
@@ -21,24 +16,17 @@ describe('Working with the how-to library', () => {
         await driver.quit();
     });
 
-    test('Backpack is "Coming Soon" without backpack host param', async () => {
+    test('the editor does not show the disabled backpack panel', async () => {
         await loadUri(uri);
-        // Check that the backpack header is visible and wrapped in a coming soon tooltip
-        await clickText('Backpack', '*[@data-for="backpack-tooltip"]');
-        const logs = await getLogs();
-        await expect(logs).toEqual([]);
+        expect(await driver.executeScript(
+            'return document.querySelector("[data-for=\\"backpack-tooltip\\"]") !== null;'
+        )).toBe(false);
     });
 
-    test('Backpack can be expanded with backpack host param', async () => {
+    test('a backpack host query does not expose an unsupported panel', async () => {
         await loadUri(`${uri}?backpack_host=https://backpack.scratch.mit.edu`);
-
-        // Try activating the backpack from the costumes tab to make sure it isn't pushed off
-        await clickText('Costumes');
-
-        // Check that the backpack header is visible and wrapped in a coming soon tooltip
-        await clickText('Backpack'); // Not wrapped in tooltip
-        await clickText('Backpack is empty'); // Make sure it can expand, is empty
-        const logs = await getLogs();
-        await expect(logs).toEqual([]);
+        expect(await driver.executeScript(
+            'return document.querySelector("[data-for=\\"backpack-tooltip\\"]") !== null;'
+        )).toBe(false);
     });
 });

@@ -9,7 +9,10 @@ export const getSpikePaletteBoundaryOffset = (containerRect, flyoutRect, isRtl, 
         !Number.isFinite(flyoutRect.left) || !Number.isFinite(flyoutRect.right) ||
         flyoutRect.width <= 0 || containerRect.width <= 0) return null;
     const boundary = isRtl ? containerRect.right - flyoutRect.left : flyoutRect.right - containerRect.left;
-    return Number.isFinite(boundary) ? boundary - (handleWidth / 2) : null;
+    // Keep the resize hit area on the workspace side of the palette boundary.
+    // Centering it on the divider intercepts clicks on toolbox items near the edge.
+    const inlineOffset = isRtl ? boundary - handleWidth : boundary;
+    return Number.isFinite(inlineOffset) ? inlineOffset : null;
 };
 
 export const clampSpikePaletteWidth = (value, containerWidth = 1280) => {

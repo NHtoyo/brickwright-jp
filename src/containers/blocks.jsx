@@ -278,7 +278,7 @@ class Blocks extends React.Component {
             spikePaletteModel: getSpikePaletteModel(),
             detectedHubModel: null,
             paletteWidth: getStoredSpikePaletteWidth(),
-            paletteHandleOffset: getStoredSpikePaletteWidth() - 4,
+            paletteHandleOffset: getStoredSpikePaletteWidth() - (props.isRtl ? 8 : 0),
             paletteResizeEnabled: true
         };
         this.paletteResizeDrag = null;
@@ -574,8 +574,7 @@ class Blocks extends React.Component {
             if (!containerRect || !flyoutRect || containerRect.width <= 0 || flyoutRect.width <= 0) return;
             const handleOffset = getSpikePaletteBoundaryOffset(containerRect, flyoutRect, this.props.isRtl);
             if (handleOffset === null) return;
-            const boundaryX = handleOffset + 4;
-            this.lastMeasuredPaletteWidth = Math.round(boundaryX);
+            this.lastMeasuredPaletteWidth = Math.round(handleOffset + (this.props.isRtl ? 8 : 0));
             const containerWidth = containerRect.width;
             const canResize = containerWidth >= 360 + 210;
             const measuredHandleOffset = Math.round(handleOffset);

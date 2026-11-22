@@ -2,19 +2,17 @@ import path from 'path';
 import SeleniumHelper from '../helpers/selenium-helper';
 
 const {
-    clickText,
-    clickXpath,
-    findByXpath,
     getDriver,
     getLogs,
-    loadUri
+    loadUri,
+    textExists
 } = new SeleniumHelper();
 
 const uri = path.resolve(__dirname, '../../build/index.html');
 
 let driver;
 
-describe('Working with the how-to library', () => {
+describe('Removed how-to library', () => {
     beforeAll(() => {
         driver = getDriver();
     });
@@ -23,16 +21,12 @@ describe('Working with the how-to library', () => {
         await driver.quit();
     });
 
-    test('Choosing a how-to', async () => {
+    test('does not expose the retired Tutorials menu or bundled tutorial cards', async () => {
         await loadUri(uri);
-        await clickText('Costumes');
-        await clickXpath('//*[@aria-label="Tutorials"]');
-        await clickText('Getting Started'); // Modal should close
-        // Make sure YouTube video on first card appears
-        await findByXpath('//div[contains(@class, "step-video")]');
+        expect(await textExists('Tutorials')).toBe(false);
+        expect(await textExists('Choose a Tutorial')).toBe(false);
+        expect(await textExists('Getting Started')).toBe(false);
         const logs = await getLogs();
         await expect(logs).toEqual([]);
     });
-
-    // @todo navigating cards, etc.
 });

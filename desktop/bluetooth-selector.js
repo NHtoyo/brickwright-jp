@@ -1,4 +1,4 @@
-'use strict';
+/* global document, window */
 
 (() => {
     const devicesRoot = document.getElementById('devices');

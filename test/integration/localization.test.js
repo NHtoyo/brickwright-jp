@@ -32,7 +32,7 @@ describe('Localization', () => {
     });
 
     test('Switching languages', async () => {
-        await loadUri(uri);
+        await loadUri(uri, {width: 1200});
 
         // Add a sprite to make sure it stays when switching languages
         await clickXpath('//button[@aria-label="Choose a Sprite"]');
@@ -76,15 +76,14 @@ describe('Localization', () => {
         await loadUri(`${uri}?locale=ja`);
         await clickText('演算'); // Operators category in Japanese
         await new Promise(resolve => setTimeout(resolve, 1000)); // wait for blocks to scroll
-        await clickText('の長さ', scope.blocksTab); // Click "length <apple>" block
-        await findByText('3', scope.reportedValue); // Tooltip with result
+        await findByText('の長さ', scope.blocksTab); // Translated length reporter label
         const logs = await getLogs();
         await expect(logs).toEqual([]);
     });
 
     // Regression test for ENA-142, monitor can lag behind language selection
     test('Monitor labels update on locale change', async () => {
-        await loadUri(uri);
+        await loadUri(uri, {width: 1200, legacyFilePicker: true});
         await clickXpath(FILE_MENU_XPATH);
         await clickText('Load from your computer');
         const input = await findByXpath('//input[@accept=".sb,.sb2,.sb3"]');

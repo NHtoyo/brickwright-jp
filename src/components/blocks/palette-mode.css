@@ -101,7 +101,7 @@
     content: '';
     position: absolute;
     inset-block: 0;
-    inset-inline-start: 3px;
+    inset-inline-start: 0;
     width: 2px;
     background: transparent;
     transition: background-color 100ms ease;
@@ -126,6 +126,11 @@
 [dir="rtl"] .palette-mode-control {
     border-top-left-radius: 0;
     border-top-right-radius: $space;
+}
+
+[dir="rtl"] .palette-resize-handle:after {
+    inset-inline-start: auto;
+    inset-inline-end: 0;
 }
 
 @media (max-width: 780px) {

@@ -34,7 +34,7 @@ describe('SPIKE palette resize in the editor', () => {
             const flyoutRect = flyout.getBoundingClientRect();
             return {
                 width: Number(handle.getAttribute('aria-valuenow')),
-                center: handleRect.left + (handleRect.width / 2),
+                handleLeft: handleRect.left,
                 flyoutEdge: flyoutRect.right,
                 containerLeft: containerRect.left,
                 stored: localStorage.getItem('brickwright.spikePaletteWidth')
@@ -45,7 +45,7 @@ describe('SPIKE palette resize in the editor', () => {
         expect(initial).not.toBeNull();
         expect(initial.width).toBeGreaterThanOrEqual(210);
         expect(initial.width).toBeLessThanOrEqual(280);
-        expect(Math.abs(initial.center - initial.flyoutEdge)).toBeLessThanOrEqual(2);
+        expect(Math.abs(initial.handleLeft - initial.flyoutEdge)).toBeLessThanOrEqual(2);
 
         const resizedWidth = initial.width - 10;
         await driver.findElement({css: HANDLE}).sendKeys(Key.ARROW_LEFT);
@@ -65,6 +65,6 @@ describe('SPIKE palette resize in the editor', () => {
         ), 20000);
         const restored = await getGeometry();
         expect(restored.width).toBe(persistedWidth);
-        expect(Math.abs(restored.center - restored.flyoutEdge)).toBeLessThanOrEqual(2);
+        expect(Math.abs(restored.handleLeft - restored.flyoutEdge)).toBeLessThanOrEqual(2);
     });
 });
