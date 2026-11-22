@@ -71,11 +71,6 @@ jobs:
             desktop/dist/source-manifest.json
           if-no-files-found: error
           retention-days: 30
-      - name: Report inherited lint status
-        if: ${{ always() && !cancelled() && steps.web_build.outcome == 'success' }}
-        run: npm run test:lint
-        continue-on-error: true
-
   windows:
     needs: app-impact
     if: >-
