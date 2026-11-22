@@ -361,8 +361,26 @@ class SeleniumHelper {
             await this.setTitle(`loadUri ${uri}`);
             const WINDOW_WIDTH = 1024;
             const WINDOW_HEIGHT = 768;
+            const testUrl = new URL(await getTestUrl(uri));
+            // Most integration tests use English labels. Browser locale and stored
+            // editor preferences can survive between loadUri calls, so make the
+            // default explicit while preserving tests that request ja/de/etc.
+            if (testUrl.hostname === '127.0.0.1') {
+                if (!testUrl.searchParams.has('locale') && !testUrl.searchParams.has('lang')) {
+                    testUrl.searchParams.set('locale', 'en');
+                }
+                let currentOrigin;
+                try {
+                    currentOrigin = await this.driver.executeScript('return window.location.origin;');
+                } catch (e) { /* about:blank before the first test page */ }
+                if (currentOrigin !== testUrl.origin) {
+                    await this.driver.executeScript('window.onbeforeunload = undefined;');
+                    await this.driver.get(`${testUrl.origin}/`);
+                }
+                await this.driver.executeScript('localStorage.removeItem("tw:language");');
+            }
             await this.driver
-                .get(await getTestUrl(uri));
+                .get(testUrl.toString());
             await this.driver
                 .executeScript('window.onbeforeunload = undefined;');
             await this.driver.manage().window()

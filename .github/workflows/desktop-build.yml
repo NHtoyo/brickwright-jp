@@ -87,8 +87,24 @@ jobs:
         with:
           node-version: 22.23.4
           cache: npm
+      - name: Record npm cache location for diagnostics
+        id: npm_cache
+        shell: pwsh
+        run: |
+          $cachePath = npm config get cache
+          "path=$cachePath" | Out-File -FilePath $env:GITHUB_OUTPUT -Append
       - name: Install Brickwright dependencies
+        id: npm_install
+        timeout-minutes: 25
         run: npm ci --ignore-scripts --include=dev --no-audit --no-fund
+      - name: Upload Windows npm diagnostics
+        if: ${{ failure() && steps.npm_install.outcome == 'failure' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: brickwright-windows-npm-diagnostics-${{ github.run_number }}
+          path: ${{ steps.npm_cache.outputs.path }}/_logs/*.log
+          if-no-files-found: warn
+          retention-days: 7
       - name: Apply the pinned VM patch
         run: npx patch-package --error-on-fail
       - name: Stub the optional micro:bit firmware artifact
@@ -130,8 +146,39 @@ jobs:
           if-no-files-found: error
           retention-days: 30
 
+  app-impact:
+    runs-on: ubuntu-latest
+    outputs:
+      needed: ${{ steps.paths.outputs.needed }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+      - id: paths
+        name: Check whether packaged app files changed
+        shell: bash
+        env:
+          BASE_SHA: ${{ github.event.before || github.event.pull_request.base.sha }}
+        run: |
+          if [[ -z "$BASE_SHA" || "$BASE_SHA" =~ ^0+$ ]]; then
+            echo "needed=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          git fetch --no-tags --depth=1 origin "$BASE_SHA"
+          needed=false
+          while IFS= read -r path; do
+            case "$path" in
+              .github/workflows/*|test/*|*.md) ;;
+              *) needed=true; break ;;
+            esac
+          done < <(git diff --name-only "$BASE_SHA" "$GITHUB_SHA")
+          echo "needed=$needed" >> "$GITHUB_OUTPUT"
+
   macos:
-    if: github.event_name != 'pull_request' || github.event.pull_request.head.ref == 'work/spikeprime-control-center-ui'
+    needs: app-impact
+    if: >-
+      (github.event_name != 'pull_request' || github.event.pull_request.head.ref == 'work/spikeprime-control-center-ui')
+      && needs.app-impact.outputs.needed == 'true'
     runs-on: macos-latest
     steps:
       - uses: actions/checkout@v4
