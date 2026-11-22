@@ -118,7 +118,8 @@ jobs:
       - name: Smoke test the secure app origin
         run: npm run smoke --prefix desktop
       - name: Build Windows NSIS installer
-        run: npx --prefix desktop electron-builder --win nsis --publish never -c.extraMetadata.version=0.1.0-dev.${{ github.run_number }}
+        working-directory: desktop
+        run: npx electron-builder --win nsis --publish never -c.extraMetadata.version=0.1.0-dev.${{ github.run_number }}
       - uses: actions/upload-artifact@v4
         with:
           name: brickwright-windows-${{ github.run_number }}-${{ github.sha }}
@@ -168,7 +169,8 @@ jobs:
       - name: Smoke test the secure app origin
         run: npm run smoke --prefix desktop
       - name: Build macOS universal DMG
-        run: npx --prefix desktop electron-builder --mac dmg --universal --publish never -c.extraMetadata.version=0.1.0-dev.${{ github.run_number }}
+        working-directory: desktop
+        run: npx electron-builder --mac dmg --universal --publish never -c.extraMetadata.version=0.1.0-dev.${{ github.run_number }}
       - uses: actions/upload-artifact@v4
         with:
           name: brickwright-macos-${{ github.run_number }}-${{ github.sha }}
