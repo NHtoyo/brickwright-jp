@@ -1,6 +1,9 @@
 node_modules/*
 build/*
 dist/*
+# The desktop app stages generated editor bundles here; lint their source before staging.
+desktop/build/*
+desktop/dist/*
 test/*
 src/examples/*
 
