@@ -1,5 +1,3 @@
-'use strict';
-
 const {contextBridge, ipcRenderer} = require('electron');
 
 contextBridge.exposeInMainWorld('brickwrightDesktop', Object.freeze({
@@ -12,7 +10,9 @@ contextBridge.exposeInMainWorld('brickwrightDesktop', Object.freeze({
             bluetoothConnected: state.bluetoothConnected === true,
             projectRunning: state.projectRunning === true,
             motorActive: state.motorActive === true,
-            controllerReady: state.controllerReady === true
+            controllerReady: state.controllerReady === true,
+            controllerBusy: state.controllerBusy === true,
+            projectChanged: state.projectChanged === true
         });
     }
 }));

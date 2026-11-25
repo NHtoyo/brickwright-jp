@@ -95,16 +95,28 @@
     touch-action: none;
     z-index: 45;
     user-select: none;
+    pointer-events: none;
 }
 
 .palette-resize-handle:after {
     content: '';
     position: absolute;
     inset-block: 0;
-    inset-inline-start: 0;
+    inset-inline-start: 3px;
     width: 2px;
     background: transparent;
     transition: background-color 100ms ease;
+    pointer-events: none;
+}
+
+.palette-resize-hit-area {
+    position: absolute;
+    inset-block: 0;
+    inset-inline-start: 5px;
+    width: 7px;
+    cursor: col-resize;
+    touch-action: none;
+    pointer-events: auto;
 }
 
 .palette-resize-handle:hover:after,
@@ -130,7 +142,7 @@
 
 [dir="rtl"] .palette-resize-handle:after {
     inset-inline-start: auto;
-    inset-inline-end: 0;
+    inset-inline-end: 3px;
 }
 
 @media (max-width: 780px) {

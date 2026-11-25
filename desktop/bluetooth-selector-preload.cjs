@@ -1,14 +1,13 @@
-'use strict';
-
 const {contextBridge, ipcRenderer} = require('electron');
 
 contextBridge.exposeInMainWorld('bluetoothSelector', Object.freeze({
     onDevices: callback => {
         if (typeof callback !== 'function') return () => {};
         const listener = (_event, payload) => callback(payload);
-        ipcRenderer.on('bluetooth:devices', listener);
-        return () => ipcRenderer.removeListener('bluetooth:devices', listener);
+        ipcRenderer.on('device-picker:devices', listener);
+        return () => ipcRenderer.removeListener('device-picker:devices', listener);
     },
-    select: (requestId, deviceId) => ipcRenderer.send('bluetooth:select', {requestId, deviceId}),
-    cancel: requestId => ipcRenderer.send('bluetooth:cancel', {requestId})
+    select: (requestId, deviceId, kind = 'bluetooth') =>
+        ipcRenderer.send('device-picker:select', {requestId, deviceId, kind}),
+    cancel: (requestId, kind = 'bluetooth') => ipcRenderer.send('device-picker:cancel', {requestId, kind})
 }));

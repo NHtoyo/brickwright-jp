@@ -30,6 +30,10 @@ jobs:
         with:
           node-version-file: .nvmrc
           cache: npm
+      - uses: actions/cache@v4
+        with:
+          path: ~/.cache/brickwright/microbit
+          key: microbit-firmware-${{ hashFiles('scripts/prepublish.mjs') }}
 
       # --ignore-scripts dodges the upstream prepublish.mjs micro:bit-firmware
       # download (often times out); --include=dev is required because Vercel /
@@ -59,13 +63,8 @@ jobs:
           node scripts/sync-sb3creator.mjs --check --dir _sb3creator-src \
             || echo "::warning::vendored sb3-creator drifted from source — run 'npm run sync:sb3creator'"
 
-      # The micro:bit firmware-flasher imports a generated file that is not
-      # produced by --ignore-scripts. Stub it; the flasher path won't function
-      # but every other code path is unaffected.
-      - name: Stub micro:bit firmware URL
-        run: |
-          mkdir -p src/generated
-          printf "module.exports = '';\n" > src/generated/microbit-hex-url.cjs
+      - name: Fetch and verify micro:bit firmware URL
+        run: npm run prepublish
 
       # Informational while the inherited upstream lint backlog is triaged.
       # The import/namespace runtime crash is fixed by the pinned plugin/parser

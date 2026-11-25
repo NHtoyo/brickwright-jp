@@ -5,6 +5,14 @@
     const status = document.getElementById('status');
     const connect = document.getElementById('connect');
     const cancel = document.getElementById('cancel');
+    const kind = new URLSearchParams(window.location.search).get('kind') === 'usb' ? 'usb' : 'bluetooth';
+    const heading = kind === 'usb' ? 'USBデバイスを選択' : 'Bluetoothデバイスを選択';
+    document.title = heading;
+    document.getElementById('heading').textContent = heading;
+    document.getElementById('description').textContent = kind === 'usb' ?
+        'ファームウェア更新などに使用するUSB機器を選択してください。' :
+        '接続するデバイスを選択してください。デバイス名は機種判定に使用されません。';
+    connect.textContent = kind === 'usb' ? '選択' : '接続';
     let requestId = null;
     let devices = [];
     let selectedId = null;
@@ -32,11 +40,14 @@
             });
             devicesRoot.append(button);
         });
-        status.textContent = devices.length ? '接続するデバイスを選択してください。' : 'デバイスを検索しています…';
+        status.textContent = devices.length ?
+            (kind === 'usb' ? '使用するUSB機器を選択してください。' : '接続するデバイスを選択してください。') :
+            'デバイスを検索しています…';
     };
 
     window.bluetoothSelector.onDevices(payload => {
         if (!payload || typeof payload.requestId !== 'number') return;
+        if ((payload.kind || 'bluetooth') !== kind) return;
         requestId = payload.requestId;
         devices = Array.isArray(payload.devices) ? payload.devices : [];
         if (!devices.some(device => device.deviceId === selectedId)) selectedId = null;
@@ -47,18 +58,18 @@
     connect.addEventListener('click', () => {
         if (settled || requestId === null || !devices.some(device => device.deviceId === selectedId)) return;
         settled = true;
-        window.bluetoothSelector.select(requestId, selectedId);
+        window.bluetoothSelector.select(requestId, selectedId, kind);
         status.textContent = '選択をBrickwrightへ返しています…';
     });
 
     cancel.addEventListener('click', () => {
         if (settled || requestId === null) return;
         settled = true;
-        window.bluetoothSelector.cancel(requestId);
+        window.bluetoothSelector.cancel(requestId, kind);
         window.close();
     });
 
     window.addEventListener('beforeunload', () => {
-        if (!settled && requestId !== null) window.bluetoothSelector.cancel(requestId);
+        if (!settled && requestId !== null) window.bluetoothSelector.cancel(requestId, kind);
     });
 })();

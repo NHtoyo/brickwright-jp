@@ -1,3 +1,25 @@
+diff --git a/node_modules/scratch-vm/src/extension-support/extension-manager.js b/node_modules/scratch-vm/src/extension-support/extension-manager.js
+index 5268ad9..40b3513 100644
+--- a/node_modules/scratch-vm/src/extension-support/extension-manager.js
++++ b/node_modules/scratch-vm/src/extension-support/extension-manager.js
+@@ -189,7 +189,16 @@ class ExtensionManager {
+                 parsedURL.protocol === 'https:' ||
+                 parsedURL.protocol === 'http:' ||
+                 parsedURL.protocol === 'data:' ||
+-                parsedURL.protocol === 'file:'
++                parsedURL.protocol === 'file:' ||
++                (parsedURL.protocol === 'app:' &&
++                    parsedURL.hostname === 'brickwright' &&
++                    !parsedURL.username &&
++                    !parsedURL.password &&
++                    !parsedURL.port &&
++                    parsedURL.pathname === '/extensions/CrispStrobe/legospike_turbowarp_transpile.js' &&
++                    !parsedURL.hash &&
++                    Array.from(parsedURL.searchParams.keys()).every(key => key === 'bwSpikeBuild') &&
++                    parsedURL.searchParams.getAll('bwSpikeBuild').length <= 1)
+             );
+         } catch (e) {
+             return false;
 diff --git a/node_modules/scratch-vm/src/serialization/sb3.js b/node_modules/scratch-vm/src/serialization/sb3.js
 index 66854a0..fbe2941 100644
 --- a/node_modules/scratch-vm/src/serialization/sb3.js

@@ -26,7 +26,7 @@ describe('SPIKE palette width', () => {
         expect(clampSpikePaletteWidth(100, 1000)).toBe(SPIKE_PALETTE_WIDTH_MIN);
         expect(clampSpikePaletteWidth(400, 1000)).toBe(400);
         expect(clampSpikePaletteWidth(900, 1000)).toBe(SPIKE_PALETTE_WIDTH_MAX);
-        expect(clampSpikePaletteWidth(480, 700)).toBe(340);
+        expect(clampSpikePaletteWidth(480, 700)).toBe(332);
         expect(clampSpikePaletteWidth(400, 500)).toBe(SPIKE_PALETTE_WIDTH_MIN);
         expect(SPIKE_PALETTE_WIDTH_MAX).toBe(480);
     });
@@ -40,12 +40,19 @@ describe('SPIKE palette width', () => {
         Object.defineProperty(window, 'localStorage', {configurable: true, value: original});
     });
 
-    test('positions the handle at the measured LTR and RTL flyout boundary', () => {
+    test('centers the resize handle on the measured LTR and RTL flyout boundary', () => {
         const container = {left: 100, right: 900, width: 800};
         const ltrFlyout = {left: 160, right: 380, width: 220};
         const rtlFlyout = {left: 620, right: 840, width: 220};
-        expect(getSpikePaletteBoundaryOffset(container, ltrFlyout, false)).toBe(280);
-        expect(getSpikePaletteBoundaryOffset(container, rtlFlyout, true)).toBe(272);
+        expect(getSpikePaletteBoundaryOffset(container, ltrFlyout, false)).toBe(276);
+        expect(getSpikePaletteBoundaryOffset(container, rtlFlyout, true)).toBe(276);
         expect(getSpikePaletteBoundaryOffset(container, {...ltrFlyout, width: 0}, false)).toBeNull();
+    });
+
+    test('preserves the requested width when the viewport temporarily constrains the effective width', () => {
+        localStorage.setItem(SPIKE_PALETTE_WIDTH_STORAGE_KEY, '480');
+        expect(getStoredSpikePaletteWidth()).toBe(480);
+        expect(clampSpikePaletteWidth(480, 700)).toBe(332);
+        expect(getStoredSpikePaletteWidth()).toBe(480);
     });
 });

@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Bluetoothデバイスを選択</title>
+  <title>デバイスを選択</title>
   <style>
     :root { color-scheme: light; font: 14px system-ui, sans-serif; }
     body { margin: 0; padding: 18px; color: #17202a; background: #fff; }
@@ -23,8 +23,8 @@
   </style>
 </head>
 <body>
-  <h1>Bluetoothデバイスを選択</h1>
-  <p>接続するデバイスを選択してください。デバイス名は機種判定に使用されません。</p>
+  <h1 id="heading">デバイスを選択</h1>
+  <p id="description">利用するデバイスを選択してください。</p>
   <div id="devices" role="listbox" aria-label="利用可能なデバイス"></div>
   <div id="status" role="status" aria-live="polite">デバイスを検索しています…</div>
   <footer>

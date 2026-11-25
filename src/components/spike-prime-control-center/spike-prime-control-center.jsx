@@ -419,6 +419,17 @@ class SpikePrimeControlCenter extends React.Component {
         this.routerAdapters = new WeakMap();
         this.currentConnectionIdentity = null;
         this.lastDesktopActivitySignature = null;
+        this.projectRunning = Boolean(props.vm.runtime && props.vm.runtime.running);
+        this.handleProjectStarted = () => {
+            this.projectRunning = true;
+            this.lastDesktopActivitySignature = null;
+            this.refresh();
+        };
+        this.handleProjectStopped = () => {
+            this.projectRunning = false;
+            this.lastDesktopActivitySignature = null;
+            this.refresh();
+        };
         bindAll(this, [
             'refresh', 'handleTogglePanel', 'handleClosePanel', 'handleConnect', 'handleDisconnect',
             'handleStopHub', 'handleControllerSlotChanged', 'handleReviewControllerSlot',
@@ -439,6 +450,8 @@ class SpikePrimeControlCenter extends React.Component {
         this.mounted = true;
         this.props.vm.on('PERIPHERAL_LIST_UPDATE', this.handlePeripheralListUpdate);
         this.props.vm.on('PERIPHERAL_REQUEST_ERROR', this.handlePeripheralRequestError);
+        this.props.vm.runtime.on('PROJECT_START', this.handleProjectStarted);
+        this.props.vm.runtime.on('PROJECT_STOP_ALL', this.handleProjectStopped);
         this.loadStandardExtension();
         this.refresh();
         this.poll = setInterval(this.refresh, 33);
@@ -448,6 +461,8 @@ class SpikePrimeControlCenter extends React.Component {
         this.mounted = false;
         this.props.vm.removeListener('PERIPHERAL_LIST_UPDATE', this.handlePeripheralListUpdate);
         this.props.vm.removeListener('PERIPHERAL_REQUEST_ERROR', this.handlePeripheralRequestError);
+        this.props.vm.runtime.removeListener('PROJECT_START', this.handleProjectStarted);
+        this.props.vm.runtime.removeListener('PROJECT_STOP_ALL', this.handleProjectStopped);
         if (this.poll) clearInterval(this.poll);
     }
 
@@ -574,9 +589,12 @@ class SpikePrimeControlCenter extends React.Component {
             });
             const activity = {
                 bluetoothConnected: Boolean(snapshot && snapshot.connected),
-                projectRunning: Boolean(this.props.vm.runtime && this.props.vm.runtime.running),
+                projectRunning: this.projectRunning,
                 motorActive,
-                controllerReady: Boolean(snapshot && snapshot.controllerReady)
+                controllerReady: Boolean(snapshot && snapshot.controllerReady),
+                controllerBusy: Boolean(snapshot && snapshot.controllerInstallAttempt &&
+                    snapshot.controllerInstallAttempt.outcome === 'pending'),
+                projectChanged: this.props.projectChanged === true
             };
             const signature = JSON.stringify(activity);
             if (signature !== this.lastDesktopActivitySignature) {
@@ -1631,6 +1649,7 @@ class SpikePrimeControlCenter extends React.Component {
 
 SpikePrimeControlCenter.propTypes = {
     intl: PropTypes.shape({locale: PropTypes.string}),
+    projectChanged: PropTypes.bool,
     vm: PropTypes.instanceOf(VM).isRequired
 };
 

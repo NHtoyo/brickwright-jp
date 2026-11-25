@@ -8,7 +8,11 @@ directories:
 files:
   - main.cjs
   - app-protocol.cjs
+  - navigation.cjs
+  - permission-policy.cjs
+  - close-policy.cjs
   - bluetooth-selection.cjs
+  - usb-device-policy.cjs
   - activity-guard.cjs
   - preload.cjs
   - bluetooth-selector-preload.cjs
@@ -49,6 +53,8 @@ mac:
   extendInfo:
     NSBluetoothAlwaysUsageDescription: BrickwrightはLEGO互換Bluetooth機器との通信にBluetoothを使用します。
     NSBluetoothPeripheralUsageDescription: BrickwrightはLEGO互換Bluetooth機器との通信にBluetoothを使用します。
+    NSCameraUsageDescription: Brickwrightはカメラを使うブロックとビデオモーション検知にカメラを使用します。
+    NSMicrophoneUsageDescription: Brickwrightは録音と音量検知にマイクを使用します。
     CFBundleDisplayName: Brickwright
     LSApplicationCategoryType: public.app-category.education
   extraResources:

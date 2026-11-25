@@ -57,6 +57,9 @@ import {
     clampSpikePaletteWidth,
     getStoredSpikePaletteWidth,
     getSpikePaletteBoundaryOffset,
+    SPIKE_PALETTE_HANDLE_WIDTH,
+    SPIKE_PALETTE_WORKSPACE_MIN,
+    SPIKE_PALETTE_WIDTH_MIN,
     storeSpikePaletteWidth
 } from '../lib/spike-palette-width';
 import {
@@ -272,22 +275,23 @@ class Blocks extends React.Component {
         this.ScratchBlocks.statusButtonCallback = this.handleConnectionModalStart;
         this.ScratchBlocks.recordSoundCallback = this.handleOpenSoundRecorder;
 
+        this.requestedPaletteWidth = getStoredSpikePaletteWidth();
+        const initialPaletteWidth = clampSpikePaletteWidth(this.requestedPaletteWidth, window.innerWidth);
         this.state = {
             prompt: null,
             paletteMode: getPaletteMode(props.vm.editingTarget),
             spikePaletteModel: getSpikePaletteModel(),
             detectedHubModel: null,
-            paletteWidth: getStoredSpikePaletteWidth(),
-            paletteHandleOffset: getStoredSpikePaletteWidth() - (props.isRtl ? 8 : 0),
+            paletteWidth: initialPaletteWidth,
+            paletteHandleOffset: initialPaletteWidth - (SPIKE_PALETTE_HANDLE_WIDTH / 2),
             paletteResizeEnabled: true
         };
         this.paletteResizeDrag = null;
         this.paletteResizeBodyStyles = null;
         this.paletteLayoutFrame = null;
         this.paletteResizeObserver = null;
-        this.lastCommittedPaletteWidth = this.state.paletteWidth;
+        this.lastCommittedPaletteWidth = this.requestedPaletteWidth;
         this.lastMeasuredPaletteWidth = this.state.paletteWidth;
-        this.persistPaletteWidthAfterMeasure = false;
         this.onTargetsUpdate = debounce(this.onTargetsUpdate, 100);
         this.toolboxUpdateQueue = [];
     }
@@ -531,14 +535,14 @@ class Blocks extends React.Component {
         if (!toolbox) return;
         const containerRect = this.blocksContainer && this.blocksContainer.getBoundingClientRect();
         const containerWidth = containerRect && containerRect.width > 0 ? containerRect.width : window.innerWidth;
-        const width = clampSpikePaletteWidth(requestedWidth, containerWidth);
+        const effectiveWidth = clampSpikePaletteWidth(requestedWidth, containerWidth);
         const categoryRect = toolbox.HtmlDiv && toolbox.HtmlDiv.getBoundingClientRect();
         const categoryWidth = categoryRect && categoryRect.width > 0 ? categoryRect.width : 0;
-        const flyoutWidth = Math.max(0, width - categoryWidth);
-        const widthChanged = Math.abs((Number(toolbox.width) || 0) - width) > 0.5;
+        const flyoutWidth = Math.max(0, effectiveWidth - categoryWidth);
+        const widthChanged = Math.abs((Number(toolbox.width) || 0) - effectiveWidth) > 0.5;
         const flyoutWidthChanged = toolbox.flyout_ &&
             Math.abs((Number(toolbox.flyout_.DEFAULT_WIDTH) || 0) - flyoutWidth) > 0.5;
-        if (widthChanged) toolbox.width = width;
+        if (widthChanged) toolbox.width = effectiveWidth;
         if (toolbox.flyout_ && flyoutWidthChanged) toolbox.flyout_.DEFAULT_WIDTH = flyoutWidth;
         if (widthChanged || flyoutWidthChanged) {
             if (toolbox.flyout_) {
@@ -548,13 +552,18 @@ class Blocks extends React.Component {
             toolbox.position();
             workspace.resize();
         }
-        this.effectivePaletteWidth = width;
-        const canResize = containerWidth >= 360 + 210;
+        this.effectivePaletteWidth = effectiveWidth;
+        const initialHandleOffset = effectiveWidth - (SPIKE_PALETTE_HANDLE_WIDTH / 2);
+        if (this.state.paletteHandleOffset !== initialHandleOffset) {
+            this.setState({paletteHandleOffset: initialHandleOffset});
+        }
+        const canResize = containerWidth >= SPIKE_PALETTE_WORKSPACE_MIN + SPIKE_PALETTE_WIDTH_MIN +
+            SPIKE_PALETTE_HANDLE_WIDTH;
         if (canResize !== this.state.paletteResizeEnabled) {
             this.setState({paletteResizeEnabled: canResize});
         }
-        if (width !== this.state.paletteWidth && !this.paletteResizeDrag) {
-            this.setState({paletteWidth: width});
+        if (effectiveWidth !== this.state.paletteWidth && !this.paletteResizeDrag) {
+            this.setState({paletteWidth: effectiveWidth});
         }
         this.schedulePaletteBoundaryMeasure();
     }
@@ -567,28 +576,24 @@ class Blocks extends React.Component {
         if (this.paletteLayoutFrame !== null || !this.workspace) return;
         this.paletteLayoutFrame = window.requestAnimationFrame(() => {
             this.paletteLayoutFrame = null;
-            const toolbox = this.workspace && this.workspace.toolbox_;
-            const flyoutBackground = toolbox && toolbox.flyout_ && toolbox.flyout_.svgBackground_;
+            const flyoutBackground = this.workspace && this.workspace.getParentSvg &&
+                this.workspace.getParentSvg().querySelector('.blocklyFlyoutBackground');
             const containerRect = this.blocksContainer && this.blocksContainer.getBoundingClientRect();
             const flyoutRect = flyoutBackground && flyoutBackground.getBoundingClientRect();
             if (!containerRect || !flyoutRect || containerRect.width <= 0 || flyoutRect.width <= 0) return;
             const handleOffset = getSpikePaletteBoundaryOffset(containerRect, flyoutRect, this.props.isRtl);
             if (handleOffset === null) return;
-            this.lastMeasuredPaletteWidth = Math.round(handleOffset + (this.props.isRtl ? 8 : 0));
+            this.lastMeasuredPaletteWidth = Math.round(handleOffset + (SPIKE_PALETTE_HANDLE_WIDTH / 2));
             const containerWidth = containerRect.width;
-            const canResize = containerWidth >= 360 + 210;
-            const measuredHandleOffset = Math.round(handleOffset);
+            const canResize = containerWidth >= SPIKE_PALETTE_WORKSPACE_MIN + SPIKE_PALETTE_WIDTH_MIN +
+                SPIKE_PALETTE_HANDLE_WIDTH;
+            const measuredHandleOffset = handleOffset;
             const updates = {};
             if (Math.abs((this.state.paletteHandleOffset || 0) - measuredHandleOffset) > 0) {
                 updates.paletteHandleOffset = measuredHandleOffset;
             }
             if (this.state.paletteResizeEnabled !== canResize) updates.paletteResizeEnabled = canResize;
             if (Object.keys(updates).length) this.setState(updates);
-            if (this.persistPaletteWidthAfterMeasure) {
-                this.persistPaletteWidthAfterMeasure = false;
-                this.lastCommittedPaletteWidth = this.lastMeasuredPaletteWidth;
-                storeSpikePaletteWidth(this.lastMeasuredPaletteWidth);
-            }
         });
     }
     handlePaletteResizePointerDown (event) {
@@ -636,7 +641,11 @@ class Blocks extends React.Component {
         if (!drag || (event && typeof event.pointerId !== 'undefined' && drag.pointerId !== event.pointerId)) return;
         this.paletteResizeDrag = null;
         this.restorePaletteResizeStyles();
-        this.persistPaletteWidthAfterMeasure = true;
+        if (drag.width !== drag.startWidth) {
+            this.lastCommittedPaletteWidth = drag.width;
+            this.requestedPaletteWidth = drag.width;
+            storeSpikePaletteWidth(drag.width);
+        }
         this.schedulePaletteBoundaryMeasure();
         if (event && event.currentTarget && event.currentTarget.hasPointerCapture &&
             event.currentTarget.hasPointerCapture(event.pointerId)) {
@@ -649,8 +658,7 @@ class Blocks extends React.Component {
         if (!drag) return;
         this.paletteResizeDrag = null;
         this.restorePaletteResizeStyles();
-        this.persistPaletteWidthAfterMeasure = false;
-        this.setState({paletteWidth: this.lastCommittedPaletteWidth}, () =>
+        this.setState({paletteWidth: clampSpikePaletteWidth(this.lastCommittedPaletteWidth)}, () =>
             this.applyPaletteWidth(this.lastCommittedPaletteWidth));
     }
 
@@ -662,19 +670,14 @@ class Blocks extends React.Component {
             this.state.paletteWidth + (direction * 10),
             (this.blocksContainer && this.blocksContainer.clientWidth) || window.innerWidth
         );
+        this.requestedPaletteWidth = width;
+        this.lastCommittedPaletteWidth = width;
+        storeSpikePaletteWidth(width);
         this.setState({paletteWidth: width}, () => this.applyPaletteWidth(width));
-        this.persistPaletteWidthAfterMeasure = true;
-        this.schedulePaletteBoundaryMeasure();
     }
 
     handlePaletteViewportResize () {
-        const containerWidth = (this.blocksContainer && this.blocksContainer.clientWidth) || window.innerWidth;
-        const width = clampSpikePaletteWidth(this.state.paletteWidth, containerWidth);
-        if (width === this.state.paletteWidth) {
-            this.applyPaletteWidth(width);
-            return;
-        }
-        this.setState({paletteWidth: width}, () => this.applyPaletteWidth(width));
+        this.applyPaletteWidth(this.requestedPaletteWidth);
     }
     requestToolboxUpdate () {
         clearTimeout(this.toolboxUpdateTimeout);
@@ -1230,7 +1233,8 @@ class Blocks extends React.Component {
                         aria-label={intl.formatMessage(messages.PALETTE_RESIZE_LABEL)}
                         aria-orientation="vertical"
                         aria-valuemax={Math.min(480, Math.max(210,
-                            ((this.blocksContainer && this.blocksContainer.clientWidth) || window.innerWidth) - 360))}
+                            ((this.blocksContainer && this.blocksContainer.clientWidth) || window.innerWidth) -
+                                SPIKE_PALETTE_WORKSPACE_MIN - SPIKE_PALETTE_HANDLE_WIDTH))}
                         aria-valuemin={210}
                         aria-valuenow={this.state.paletteWidth}
                         className={paletteStyles.paletteResizeHandle}
@@ -1244,7 +1248,12 @@ class Blocks extends React.Component {
                         style={{insetInlineStart: `${this.state.paletteHandleOffset}px`}}
                         tabIndex={0}
                         title={intl.formatMessage(messages.PALETTE_RESIZE_LABEL)}
-                    /> : null}
+                    >
+                        <span
+                            aria-hidden="true"
+                            className={paletteStyles.paletteResizeHitArea}
+                        />
+                    </div> : null}
                 </div>
                 {this.state.prompt ? (
                     <Prompt

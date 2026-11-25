@@ -105,7 +105,7 @@ describe('Working with the blocks', () => {
     });
 
     test('Creating a list', async () => {
-        await loadUri(uri);
+        await loadUri(uri, {width: 1280, height: 900});
         await clickText('Blocks');
         await clickBlocksCategory('Variables');
 
@@ -206,7 +206,7 @@ describe('Working with the blocks', () => {
     });
 
     test('Renaming costume changes the default costume name in the toolbox', async () => {
-        await loadUri(uri);
+        await loadUri(uri, {width: 1280, height: 900});
 
         // Rename the costume
         await clickText('Costumes');
@@ -314,7 +314,7 @@ describe('Working with the blocks', () => {
         const myVariable = 'my\u00A0variable';
         const changeVariableByScope = "*[@data-id='data_changevariableby']";
 
-        await loadUri(uri);
+        await loadUri(uri, {width: 1280, height: 900});
 
         await clickText('Blocks');
         await clickBlocksCategory('Variables');

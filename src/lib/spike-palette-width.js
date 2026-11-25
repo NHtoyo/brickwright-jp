@@ -2,17 +2,22 @@ export const SPIKE_PALETTE_WIDTH_STORAGE_KEY = 'brickwright.spikePaletteWidth';
 export const SPIKE_PALETTE_WIDTH_DEFAULT = 280;
 export const SPIKE_PALETTE_WIDTH_MIN = 210;
 export const SPIKE_PALETTE_WIDTH_MAX = 480;
+export const SPIKE_PALETTE_WORKSPACE_MIN = 360;
+export const SPIKE_PALETTE_HANDLE_WIDTH = 8;
 
-export const getSpikePaletteBoundaryOffset = (containerRect, flyoutRect, isRtl, handleWidth = 8) => {
+export const getSpikePaletteBoundaryOffset = (
+    containerRect,
+    flyoutRect,
+    isRtl,
+    handleWidth = SPIKE_PALETTE_HANDLE_WIDTH
+) => {
     if (!containerRect || !flyoutRect ||
         !Number.isFinite(containerRect.left) || !Number.isFinite(containerRect.right) ||
         !Number.isFinite(flyoutRect.left) || !Number.isFinite(flyoutRect.right) ||
         flyoutRect.width <= 0 || containerRect.width <= 0) return null;
     const boundary = isRtl ? containerRect.right - flyoutRect.left : flyoutRect.right - containerRect.left;
-    // Keep the resize hit area on the workspace side of the palette boundary.
-    // Centering it on the divider intercepts clicks on toolbox items near the edge.
-    const inlineOffset = isRtl ? boundary - handleWidth : boundary;
-    return Number.isFinite(inlineOffset) ? inlineOffset : null;
+    const boundaryOffset = boundary - (handleWidth / 2);
+    return Number.isFinite(boundaryOffset) ? boundaryOffset : null;
 };
 
 export const clampSpikePaletteWidth = (value, containerWidth = 1280) => {
@@ -20,7 +25,10 @@ export const clampSpikePaletteWidth = (value, containerWidth = 1280) => {
         (typeof value === 'string' && value.trim() === '') ?
         Number.NaN : Number(value);
     const requested = Number.isFinite(width) ? width : SPIKE_PALETTE_WIDTH_DEFAULT;
-    const availableMaximum = Math.max(SPIKE_PALETTE_WIDTH_MIN, Number(containerWidth) - 360);
+    const availableMaximum = Math.max(
+        SPIKE_PALETTE_WIDTH_MIN,
+        Number(containerWidth) - SPIKE_PALETTE_WORKSPACE_MIN - SPIKE_PALETTE_HANDLE_WIDTH
+    );
     const maximum = Math.min(SPIKE_PALETTE_WIDTH_MAX, availableMaximum);
     return Math.round(Math.max(SPIKE_PALETTE_WIDTH_MIN, Math.min(maximum, requested)));
 };
@@ -32,7 +40,7 @@ export const getStoredSpikePaletteWidth = () => {
         if (stored === null || stored.trim() === '') return SPIKE_PALETTE_WIDTH_DEFAULT;
         const value = Number(stored);
         return Number.isFinite(value) ?
-            clampSpikePaletteWidth(value, window.innerWidth) : SPIKE_PALETTE_WIDTH_DEFAULT;
+            clampSpikePaletteWidth(value) : SPIKE_PALETTE_WIDTH_DEFAULT;
     } catch (error) {
         return SPIKE_PALETTE_WIDTH_DEFAULT;
     }
@@ -43,7 +51,7 @@ export const storeSpikePaletteWidth = width => {
         if (typeof window !== 'undefined') {
             window.localStorage.setItem(
                 SPIKE_PALETTE_WIDTH_STORAGE_KEY,
-                String(clampSpikePaletteWidth(width, window.innerWidth))
+                String(clampSpikePaletteWidth(width))
             );
         }
     } catch (error) {

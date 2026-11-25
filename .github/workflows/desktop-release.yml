@@ -48,9 +48,13 @@ jobs:
         with:
           node-version: 22.23.4
           cache: npm
+      - uses: actions/cache@v4
+        with:
+          path: ~/.cache/brickwright/microbit
+          key: microbit-firmware-${{ hashFiles('scripts/prepublish.mjs') }}
       - run: npm ci --ignore-scripts --include=dev --no-audit --no-fund
       - run: npx patch-package --error-on-fail
-      - run: mkdir -p src/generated && printf "module.exports = '';\n" > src/generated/microbit-hex-url.cjs
+      - run: npm run prepublish
       - run: npm run test:unit
       - run: npm run test:lint
       - name: Build web editor
@@ -65,6 +69,14 @@ jobs:
           DETECT_CHROMEDRIVER_VERSION: "true"
       - run: npm run test:integration
       - run: npm run desktop:asset-inventory
+      - uses: actions/upload-artifact@v4
+        with:
+          name: brickwright-release-web-${{ steps.source.outputs.commit }}
+          path: |
+            build/**
+            desktop/compliance/assets-rights.json
+          if-no-files-found: error
+          retention-days: 1
       - run: npm ci --prefix desktop --no-audit --no-fund
       - run: node desktop/scripts/stage-desktop.mjs --build-type release --platform source --build-number ${{ github.run_number }}
         env:
@@ -116,16 +128,15 @@ jobs:
         with:
           node-version: 22.23.4
           cache: npm
-      - run: npm ci --ignore-scripts --include=dev --no-audit --no-fund
-      - run: npx patch-package --error-on-fail
-      - shell: pwsh
-        run: New-Item -ItemType Directory -Force -Path src/generated | Out-Null; Set-Content -NoNewline -Path src/generated/microbit-hex-url.cjs -Value "module.exports = '';`n"
-      - run: npm run build
-        env:
-          CI: "true"
-          NODE_ENV: production
-          NODE_OPTIONS: --max-old-space-size=8192
-      - run: npm run desktop:asset-inventory
+          cache-dependency-path: desktop/package-lock.json
+      - uses: actions/cache@v4
+        with:
+          path: ~\AppData\Local\electron-builder\Cache
+          key: electron-builder-windows-${{ runner.arch }}-${{ hashFiles('desktop/package-lock.json') }}
+      - uses: actions/download-artifact@v4
+        with:
+          name: brickwright-release-web-${{ needs.quality-and-rights.outputs.commit }}
+          path: .
       - run: node desktop/scripts/stage-desktop.mjs --build-type release --platform win32 --build-number ${{ github.run_number }}
         env:
           BRICKWRIGHT_RELEASE_VERSION: ${{ github.event.inputs.version || github.ref_name }}
@@ -191,15 +202,15 @@ jobs:
         with:
           node-version: 22.23.4
           cache: npm
-      - run: npm ci --ignore-scripts --include=dev --no-audit --no-fund
-      - run: npx patch-package --error-on-fail
-      - run: mkdir -p src/generated && printf "module.exports = '';\n" > src/generated/microbit-hex-url.cjs
-      - run: npm run build
-        env:
-          CI: "true"
-          NODE_ENV: production
-          NODE_OPTIONS: --max-old-space-size=8192
-      - run: npm run desktop:asset-inventory
+          cache-dependency-path: desktop/package-lock.json
+      - uses: actions/cache@v4
+        with:
+          path: ~/Library/Caches/electron-builder
+          key: electron-builder-macos-${{ runner.arch }}-${{ hashFiles('desktop/package-lock.json') }}
+      - uses: actions/download-artifact@v4
+        with:
+          name: brickwright-release-web-${{ needs.quality-and-rights.outputs.commit }}
+          path: .
       - run: node desktop/scripts/stage-desktop.mjs --build-type release --platform darwin-universal --build-number ${{ github.run_number }}
         env:
           BRICKWRIGHT_RELEASE_VERSION: ${{ github.event.inputs.version || github.ref_name }}
@@ -210,7 +221,7 @@ jobs:
       - name: Build signed macOS universal DMG
         run: |
           release_version="${RELEASE_VERSION_INPUT#v}"
-          npx --prefix desktop electron-builder --mac dmg --universal --publish never "-c.extraMetadata.version=$release_version"
+          npx --prefix desktop electron-builder --mac dmg zip --universal --publish never "-c.extraMetadata.version=$release_version"
       - name: Verify app signature and notarize the DMG
         shell: bash
         run: |
@@ -229,6 +240,8 @@ jobs:
           path: |
             desktop/dist/Brickwright-*-mac-universal.dmg
             desktop/dist/Brickwright-*-mac-universal.dmg.blockmap
+            desktop/dist/Brickwright-*-mac-universal.zip
+            desktop/dist/Brickwright-*-mac-universal.zip.blockmap
             desktop/dist/latest-mac.yml
             desktop/dist/macos-signature.txt
             desktop/build/desktop/licenses/**
@@ -266,7 +279,7 @@ jobs:
           find release-assets/windows -type f -name 'Brickwright-Setup-*-win-x64.exe' -exec cp {} release-assets/ \;
           find release-assets/windows -type f \( -name 'Brickwright-Setup-*-win-x64.exe.blockmap' -o -name latest.yml \) -exec cp {} release-assets/ \;
           find release-assets/macos -type f -name 'Brickwright-*-mac-universal.dmg' -exec cp {} release-assets/ \;
-          find release-assets/macos -type f \( -name 'Brickwright-*-mac-universal.dmg.blockmap' -o -name latest-mac.yml \) -exec cp {} release-assets/ \;
+          find release-assets/macos -type f \( -name 'Brickwright-*-mac-universal.dmg.blockmap' -o -name 'Brickwright-*-mac-universal.zip' -o -name 'Brickwright-*-mac-universal.zip.blockmap' -o -name latest-mac.yml \) -exec cp {} release-assets/ \;
           cp release-assets/windows/dist/windows-signature.txt release-assets/
           cp release-assets/macos/dist/macos-signature.txt release-assets/
           cp release-assets/windows/build/desktop/licenses/THIRD_PARTY_LICENSES.txt release-assets/
@@ -290,6 +303,8 @@ jobs:
             release-assets/latest.yml \
             release-assets/Brickwright-*-mac-universal.dmg \
             release-assets/Brickwright-*-mac-universal.dmg.blockmap \
+            release-assets/Brickwright-*-mac-universal.zip \
+            release-assets/Brickwright-*-mac-universal.zip.blockmap \
             release-assets/latest-mac.yml \
             release-assets/Brickwright-*-source.tar.gz \
             release-assets/source-manifest.json \

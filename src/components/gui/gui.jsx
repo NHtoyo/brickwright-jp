@@ -150,6 +150,7 @@ const GUIComponent = props => {
         onTelemetryModalCancel,
         onTelemetryModalOptIn,
         onTelemetryModalOptOut,
+        projectChanged,
         securityManager,
         showComingSoon,
         showOpenFilePicker,
@@ -399,15 +400,26 @@ const GUIComponent = props => {
                                         />
                                     </Tab>
                                     <Tab className={tabClassNames.tab}>
-                                        <span role="img" aria-label="code" style={{marginRight: 4}}>{'📜'}</span>
+                                        <span
+                                            aria-label="code"
+                                            role="img"
+                                            style={{marginRight: 4}}
+                                        >{'📜'}</span>
                                         <FormattedMessage
                                             defaultMessage="Code"
-                                            description="Button to get to the Brickwright code panel (pseudocode/Python/JavaScript)"
+                                            description={
+                                                'Button to get to the Brickwright code panel ' +
+                                                '(pseudocode/Python/JavaScript)'
+                                            }
                                             id="gui.gui.pseudocodeTab"
                                         />
                                     </Tab>
                                     <Tab className={tabClassNames.tab}>
-                                        <span role="img" aria-label="circuit" style={{marginRight: 4}}>{'🔌'}</span>
+                                        <span
+                                            aria-label="circuit"
+                                            role="img"
+                                            style={{marginRight: 4}}
+                                        >{'🔌'}</span>
                                         <FormattedMessage
                                             defaultMessage="Circuit"
                                             description="Button to get to the Brickwright circuit designer"
@@ -435,6 +447,7 @@ const GUIComponent = props => {
                                     </Box>
                                     <SpikePrimeControlCenter
                                         intl={intl}
+                                        projectChanged={projectChanged}
                                         vm={vm}
                                     />
                                     <Box className={styles.extensionButtonContainer}>
@@ -615,6 +628,7 @@ const mapStateToProps = state => ({
     isWindowFullScreen: state.scratchGui.tw.isWindowFullScreen,
     // This is the button's mode, as opposed to the actual current state
     blocksId: state.scratchGui.timeTravel.year.toString(),
+    projectChanged: state.scratchGui.projectChanged,
     stageSizeMode: state.scratchGui.stageSize.stageSize,
     theme: state.scratchGui.theme.theme
 });

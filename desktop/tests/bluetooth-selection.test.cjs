@@ -1,5 +1,3 @@
-'use strict';
-
 const assert = require('node:assert/strict');
 const test = require('node:test');
 const {BluetoothSelectionQueue, handleBluetoothSelectionRequest} = require('../bluetooth-selection.cjs');
@@ -21,7 +19,9 @@ test('prevents Chromium auto-selection and waits for an explicit device choice',
     const {queue, opened, updates} = queueHarness();
     const callbacks = [];
     let prevented = false;
-    const id = handleBluetoothSelectionRequest(queue, {preventDefault: () => { prevented = true; }}, [
+    const id = handleBluetoothSelectionRequest(queue, {preventDefault: () => {
+        prevented = true;
+    }}, [
         {deviceId: 'device-1', deviceName: 'SPIKE Prime'}
     ], value => callbacks.push(value));
 
@@ -35,29 +35,37 @@ test('prevents Chromium auto-selection and waits for an explicit device choice',
     assert.equal(queue.select(id, 'device-1'), false);
 });
 
-test('serializes concurrent selection requests and cancels only the active request', () => {
-    const {queue, opened, closed} = queueHarness();
+test('keeps repeated Chromium discovery events in one logical user selection session', () => {
+    const {queue, opened, updates, closed} = queueHarness();
     const results = [];
-    const first = queue.enqueue(value => results.push(['first', value]));
-    const second = queue.enqueue(value => results.push(['second', value]));
+    const first = queue.enqueue(value => results.push(['event-1', value]));
+    const sameSession = queue.enqueue(value => results.push(['event-2', value]));
+    for (let index = 2; index < 10; index++) {
+        assert.equal(queue.enqueue(value => results.push([`event-${index + 1}`, value])), first);
+    }
+    assert.equal(sameSession, first);
     queue.updateDevices([{deviceId: 'p', deviceName: 'SPIKE Prime'}]);
+    queue.updateDevices([
+        {deviceId: 'p', deviceName: 'SPIKE Prime'},
+        {deviceId: 'e', deviceName: 'SPIKE Essential'}
+    ]);
     assert.deepEqual(opened, [first]);
-    assert.equal(queue.cancel(second), false);
-    assert.equal(queue.cancel(first), true);
-    assert.deepEqual(results, [['first', '']]);
-    assert.deepEqual(opened, [first, second]);
-    assert.equal(queue.select(second, 'p'), false, 'queued request has no devices until it becomes active');
-    queue.updateDevices([{deviceId: 'e', deviceName: 'SPIKE Essential'}]);
-    assert.equal(queue.select(second, 'e'), true);
-    assert.deepEqual(results, [['first', ''], ['second', 'e']]);
-    assert.deepEqual(closed, [first, second]);
+    assert.equal(updates.length, 3, 'discovery updates refresh the existing dialog');
+    assert.equal(queue.select(first, 'e'), true);
+    assert.equal(queue.select(first, 'e'), false, 'a settled session cannot be selected twice');
+    assert.equal(results.length, 10);
+    assert.ok(results.every(([, deviceId]) => deviceId === 'e'));
+    assert.deepEqual(closed, [first]);
 });
 
 test('cancels the request exactly once when the selection dialog is disposed or times out', () => {
     let timeoutHandler = null;
     const results = [];
     const {queue} = queueHarness({
-        setTimer: handler => { timeoutHandler = handler; return 1; },
+        setTimer: handler => {
+            timeoutHandler = handler;
+            return 1;
+        },
         clearTimer: () => {}
     });
     const timedOut = queue.enqueue(value => results.push(['timeout', value]));
@@ -65,10 +73,12 @@ test('cancels the request exactly once when the selection dialog is disposed or 
     assert.deepEqual(results, [['timeout', '']]);
     assert.equal(queue.cancel(timedOut), false);
 
-    const disposed = queue.enqueue(value => results.push(['dispose', value]));
+    queue.enqueue(value => results.push(['dispose', value]));
     queue.dispose();
     assert.deepEqual(results, [['timeout', ''], ['dispose', '']]);
     let disposedCallbackResult = null;
-    assert.equal(queue.enqueue(value => { disposedCallbackResult = value; }), null);
+    assert.equal(queue.enqueue(value => {
+        disposedCallbackResult = value;
+    }), null);
     assert.equal(disposedCallbackResult, '', 'enqueueing after disposal resolves as an explicit cancellation');
 });
