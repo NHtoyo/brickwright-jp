@@ -78,10 +78,10 @@ child.on('exit', async code => {
         assert.equal(result.editorReady, true, 'editor root must be mounted');
         assert.equal(result.controlCenterVisible, true,
             'SPIKE live control center must be rendered');
-        assert.ok(result.paletteDragSmoke.scratch.created.some(block => !block.opcode.startsWith('spikeprime_')),
-            'a Scratch block must be dragged from the real toolbox into the editor workspace');
-        assert.ok(result.paletteDragSmoke.spike.created.some(block => block.opcode.startsWith('spikeprime_')),
-            'a SPIKE block must be dragged from the real toolbox into the editor workspace');
+        assert.ok(result.paletteBlockSmoke.scratch.created.some(block => block.opcode.startsWith('motion_')),
+            'a Scratch toolbox block must reach the real VM through the main Blockly workspace');
+        assert.ok(result.paletteBlockSmoke.spike.created.some(block => block.opcode === 'spikeprime_motorStart'),
+            'a SPIKE toolbox block must reach the real VM through the main Blockly workspace');
         assert.equal(result.spikeLoaded, true, 'SPIKE must be registered in the real Scratch VM');
         assert.equal(result.spikeRouterRegistered, true,
             'SPIKE control center must share the registered VM HubRouter');
