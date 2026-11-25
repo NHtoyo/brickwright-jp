@@ -12,6 +12,8 @@ const userDataDir = path.join(os.tmpdir(), `brickwright-smoke-profile-${process.
 const smokeFileRoot = path.join(os.tmpdir(), `brickwright-smoke-files-${process.pid}`);
 const packagedExecutable = process.env.BRICKWRIGHT_SMOKE_EXECUTABLE;
 const electronBinary = packagedExecutable || electron;
+const soundFixtureBase64 = fs.readFileSync(path.join(desktopDir, '..', 'test', 'fixtures', 'sneaker.wav'))
+    .toString('base64');
 fs.rmSync(smokeFileRoot, {recursive: true, force: true});
 const child = spawn(electronBinary, packagedExecutable ? [] : ['.'], {
     cwd: desktopDir,
@@ -20,7 +22,8 @@ const child = spawn(electronBinary, packagedExecutable ? [] : ['.'], {
         BRICKWRIGHT_DESKTOP_SMOKE: '1',
         BRICKWRIGHT_SMOKE_REPORT: reportFile,
         BRICKWRIGHT_SMOKE_USER_DATA: userDataDir,
-        BRICKWRIGHT_SMOKE_FILE_ROOT: smokeFileRoot
+        BRICKWRIGHT_SMOKE_FILE_ROOT: smokeFileRoot,
+        BRICKWRIGHT_SMOKE_SOUND_FIXTURE_B64: soundFixtureBase64
     },
     windowsHide: true,
     stdio: ['ignore', 'pipe', 'pipe']
@@ -149,7 +152,8 @@ child.on('exit', async code => {
                 BRICKWRIGHT_SMOKE_REOPEN: '1',
                 BRICKWRIGHT_SMOKE_REPORT: reopenReportFile,
                 BRICKWRIGHT_SMOKE_USER_DATA: userDataDir,
-                BRICKWRIGHT_SMOKE_FILE_ROOT: smokeFileRoot
+                BRICKWRIGHT_SMOKE_FILE_ROOT: smokeFileRoot,
+                BRICKWRIGHT_SMOKE_SOUND_FIXTURE_B64: soundFixtureBase64
             },
             windowsHide: true,
             stdio: ['ignore', 'pipe', 'pipe']

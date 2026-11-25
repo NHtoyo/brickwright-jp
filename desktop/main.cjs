@@ -1314,9 +1314,8 @@ const createMainWindow = async () => {
             result.devicePickerSmoke[kind] = pickerResult;
         }
         smokeProgress('native Bluetooth and USB cancellation checks completed');
-        const soundFixtureBase64 = fsSync.readFileSync(
-            path.join(__dirname, '..', 'test', 'fixtures', 'sneaker.wav')
-        ).toString('base64');
+        const soundFixtureBase64 = process.env.BRICKWRIGHT_SMOKE_SOUND_FIXTURE_B64 ||
+            fsSync.readFileSync(path.join(__dirname, '..', 'test', 'fixtures', 'sneaker.wav')).toString('base64');
         const expectedProjectOpcodes = {
             scratch: result.paletteBlockSmoke.scratch.created.map(block => block.opcode),
             spike: result.paletteBlockSmoke.spike.created.map(block => block.opcode)
