@@ -73,7 +73,7 @@ child.on('exit', code => {
         assert.equal(result.spikeRouterRegistered, true,
             'SPIKE control center must share the registered VM HubRouter');
         assert.ok(result.spikeBlockCount > 0, 'SPIKE block metadata must be registered in the real Scratch VM');
-        const responsiveMaximum = Math.max(210, result.viewportWidth - 360 - 8);
+        const responsiveMaximum = Math.max(210, result.blocksContainerWidth - 360 - 8);
         const expectedPaletteWidth = Math.max(210, Math.min(280, responsiveMaximum));
         assert.equal(result.paletteWidth, expectedPaletteWidth,
             'fresh desktop profiles use the requested palette width, clamped to preserve workspace space');
