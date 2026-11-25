@@ -865,6 +865,14 @@ const createMainWindow = async () => {
             mainWindow.webContents.sendInputEvent({type: 'mouseDown', ...categoryPoint, button: 'left', clickCount: 1});
             mainWindow.webContents.sendInputEvent({type: 'mouseUp', ...categoryPoint, button: 'left', clickCount: 1});
             const expectedCategoryId = categorySelector.replace('.scratchCategoryId-', '');
+            await mainWindow.webContents.executeJavaScript(`(() => {
+                const workspace = window.ScratchBlocks && window.ScratchBlocks.getMainWorkspace();
+                const toolbox = workspace && workspace.toolbox_;
+                const expected = ${JSON.stringify(expectedCategoryId)};
+                if (!toolbox) throw new Error('Blockly toolbox was unavailable while selecting ' + expected + '.');
+                if (toolbox.getSelectedCategoryId() !== expected) toolbox.setSelectedCategoryById(expected);
+                return toolbox.getSelectedCategoryId();
+            })()`);
             let points = null;
             const deadline = Date.now() + 8000;
             while (!points && Date.now() < deadline) {
@@ -915,7 +923,30 @@ const createMainWindow = async () => {
                 })()`);
                 if (!points) await new Promise(resolve => setTimeout(resolve, 50));
             }
-            if (!points) throw new Error(`No visible ${label} block was available for a real drag.`);
+            if (!points) {
+                const paletteState = await mainWindow.webContents.executeJavaScript(`(() => {
+                    const workspace = window.ScratchBlocks && window.ScratchBlocks.getMainWorkspace();
+                    const flyout = workspace && workspace.getFlyout() && workspace.getFlyout().getWorkspace();
+                    return {
+                        selectedCategoryId: workspace && workspace.toolbox_ &&
+                            workspace.toolbox_.getSelectedCategoryId(),
+                        paletteModes: [...document.querySelectorAll('input[type="checkbox"]')]
+                            .filter(input => ['scratch', 'spike'].includes(input.value))
+                            .map(input => ({value: input.value, checked: input.checked})),
+                        renderedCategoryIds: [...document.querySelectorAll('[class*="scratchCategoryId-"]')]
+                            .filter(element => element.getBoundingClientRect().width > 0)
+                            .map(element => element.className),
+                        flyoutTypes: flyout ? flyout.getTopBlocks(false).map(block => block.type).slice(0, 40) : [],
+                        flyoutBounds: (() => {
+                            const rect = document.querySelector('.blocklyFlyoutBackground')?.getBoundingClientRect();
+                            return rect && {left: rect.left, right: rect.right, top: rect.top, bottom: rect.bottom};
+                        })()
+                    };
+                })()`);
+                const message = `No visible ${label} block was available for a real drag: ${
+                    JSON.stringify(paletteState)}`;
+                throw new Error(message);
+            }
             mainWindow.webContents.sendInputEvent({type: 'mouseMove', ...points.start});
             await new Promise(resolve => setTimeout(resolve, 60));
             mainWindow.webContents.sendInputEvent({type: 'mouseDown', ...points.start, button: 'left', clickCount: 1});
