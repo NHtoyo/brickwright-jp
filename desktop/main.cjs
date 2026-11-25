@@ -905,11 +905,20 @@ const createMainWindow = async () => {
                     if (!block || !workspace) return null;
                     const blockRect = block.getBoundingClientRect();
                     const workspaceRect = workspace.getBoundingClientRect();
-                    const start = {
-                        // Start on the solid left edge rather than an input field in the block center.
-                        x: Math.round(blockRect.left + Math.min(12, Math.max(6, blockRect.width * 0.08))),
-                        y: Math.round(blockRect.top + blockRect.height / 2)
-                    };
+                    const start = [0.18, 0.32, 0.5, 0.68, 0.82].flatMap(xRatio =>
+                        [0.16, 0.84, 0.34, 0.66, 0.5].map(yRatio => ({
+                            x: Math.round(blockRect.left + blockRect.width * xRatio),
+                            y: Math.round(blockRect.top + blockRect.height * yRatio)
+                        }))
+                    ).find(point => {
+                        const hit = document.elementFromPoint(point.x, point.y);
+                        if (!hit || hit.closest('.blocklyDraggable') !== block ||
+                            hit.closest('.blocklyEditableText, input, textarea, button, foreignObject')) return false;
+                        // Extension icons can cover the block's left edge; only begin on the block itself.
+                        return hit.matches('path.blocklyPath, text, tspan, use') ||
+                            Boolean(hit.closest('path.blocklyPath'));
+                    });
+                    if (!start) return null;
                     const end = {
                         x: Math.round(workspaceRect.left + Math.min(workspaceRect.width - 80,
                             Math.max(160, workspaceRect.width * 0.35))),
