@@ -12,6 +12,12 @@ npm-*
 # Build
 /build
 /dist
+/desktop/build
+/desktop/dist
+/desktop/node_modules
+/desktop/assets/brickwright.png
+/desktop/assets/brickwright.ico
+/desktop/assets/brickwright.icns
 /.opt-in
 
 # Generated translation files

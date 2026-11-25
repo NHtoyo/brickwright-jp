@@ -143,7 +143,15 @@ class SB3Creator {
         }
         project.extensions = [...used];
         const urls = { ...(project.extensionURLs || {}) };
-        for (const id of used) if (SB3Creator.EXTENSION_URLS[id]) urls[id] = SB3Creator.EXTENSION_URLS[id];
+        // Brickwright owns the standard SPIKE implementation and resolves its
+        // stable `spikeprime` ID to the bundled source. Never serialize a stale
+        // third-party URL for that ID into a project.
+        delete urls.spikeprime;
+        for (const id of used) {
+            if (id !== 'spikeprime' && SB3Creator.EXTENSION_URLS[id]) {
+                urls[id] = SB3Creator.EXTENSION_URLS[id];
+            }
+        }
         if (Object.keys(urls).length) project.extensionURLs = urls;
         return project.extensions;
     }
@@ -5459,6 +5467,9 @@ SB3Creator.EXTENSION_URLS = {
     stc12: 'https://crispstrobe.github.io/extensions/CrispStrobe/stc12.js',
     ...GENERATED_URLS   // gamepad + LEGO/hardware extension URLs (auto-generated)
 };
+// `spikeprime` is resolved to Brickwright's bundled source by the VM loader.
+// The generated external URL is intentionally excluded from project metadata.
+delete SB3Creator.EXTENSION_URLS.spikeprime;
 
 // Pluggable-driver convention for runtime/hardware extensions (gamepad, LEGO, …).
 // The transpiled program is driver-agnostic: it calls `_<runtime>.<method>(args)`.

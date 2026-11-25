@@ -1,0 +1,324 @@
+name: Brickwright desktop development builds
+
+on:
+  push:
+    branches: [work/spikeprime-control-center-ui]
+  pull_request:
+    types: [opened, synchronize, reopened]
+  workflow_dispatch:
+
+concurrency:
+  group: desktop-build-${{ github.event.pull_request.head.ref || github.ref_name }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  quality:
+    if: github.event_name != 'pull_request' || github.event.pull_request.head.ref == 'work/spikeprime-control-center-ui'
+    runs-on: ubuntu-latest
+    outputs:
+      web_artifact_digest: ${{ steps.web_artifact.outputs.artifact-digest }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        id: node_setup
+        with:
+          node-version: 22.23.4
+          cache: npm
+          cache-dependency-path: package-lock.json
+      - uses: actions/cache@v4
+        with:
+          path: ~/.cache/brickwright/microbit
+          key: microbit-firmware-${{ hashFiles('scripts/prepublish.mjs') }}
+      - name: Install Brickwright dependencies
+        run: npm ci --ignore-scripts --include=dev --no-audit --no-fund
+      - name: Apply the pinned VM patch
+        run: npx patch-package --error-on-fail
+      - name: Fetch and verify the micro:bit firmware artifact
+        run: npm run prepublish
+      - name: Lint changed desktop and SPIKE UI modules
+        run: >-
+          npx eslint
+          desktop/activity-guard.cjs
+          desktop/bluetooth-selection.cjs
+          desktop/bluetooth-selector-preload.cjs
+          desktop/bluetooth-selector.js
+          desktop/main.cjs
+          desktop/preload.cjs
+          desktop/scripts/generate-notices.mjs
+          desktop/scripts/smoke-test.cjs
+          desktop/scripts/stage-desktop.mjs
+          desktop/tests/activity-guard.test.cjs
+          desktop/tests/bluetooth-selection.test.cjs
+          desktop/tests/close-policy.test.cjs
+          desktop/tests/license-provenance.test.cjs
+          desktop/tests/navigation.test.cjs
+          desktop/tests/permission-policy.test.cjs
+          desktop/tests/usb-device-policy.test.cjs
+          desktop/usb-device-policy.cjs
+          scripts/prepublish.mjs
+          src/components/gui/gui.jsx
+          src/components/spike-prime-control-center/spike-prime-control-center.jsx
+          src/containers/blocks.jsx
+          src/lib/spike-palette-width.js
+      - name: Run existing unit and SPIKE tests
+        run: npm run test:unit
+      - name: Build the web editor
+        id: web_build
+        env:
+          CI: "true"
+          NODE_ENV: production
+          NODE_OPTIONS: --max-old-space-size=8192
+        run: npm run build
+      - name: Prepare provenance-checked web runtime license data
+        if: ${{ success() }}
+        env:
+          BRICKWRIGHT_BUILD_COMMIT: ${{ github.sha }}
+        run: node desktop/scripts/generate-notices.mjs --web-only
+      - name: Install a ChromeDriver matching the runner Chrome
+        run: npm rebuild chromedriver --no-audit --no-fund
+        env:
+          DETECT_CHROMEDRIVER_VERSION: "true"
+      - name: Run integration tests
+        run: npm run test:integration
+      - name: Create the media rights inventory
+        if: ${{ always() && !cancelled() && steps.web_build.outcome == 'success' }}
+        run: npm run desktop:asset-inventory
+      - name: Publish the single tested web build for desktop jobs
+        if: ${{ success() }}
+        uses: actions/upload-artifact@v4
+        id: web_artifact
+        with:
+          name: brickwright-web-${{ github.sha }}
+          path: |
+            build/**
+            desktop/compliance/assets-rights.json
+          if-no-files-found: error
+          retention-days: 1
+      - name: Desktop source and layout checks
+        if: ${{ always() && !cancelled() && steps.web_build.outcome == 'success' }}
+        run: npm run test --prefix desktop
+      - name: Stage the built editor for an exact-commit source archive
+        if: ${{ always() && !cancelled() && steps.web_build.outcome == 'success' }}
+        run: node desktop/scripts/stage-desktop.mjs --build-type development --platform source --build-number ${{ github.run_number }}
+        env:
+          BRICKWRIGHT_BUILD_COMMIT: ${{ github.sha }}
+      - name: Create source archive and manifest
+        id: source_archive
+        if: ${{ always() && !cancelled() && steps.web_build.outcome == 'success' }}
+        run: node desktop/scripts/generate-source-archive.mjs
+      - uses: actions/upload-artifact@v4
+        if: ${{ always() && !cancelled() && steps.web_build.outcome == 'success' && steps.source_archive.outcome == 'success' }}
+        with:
+          name: brickwright-source-${{ github.run_number }}-${{ github.sha }}
+          path: |
+            desktop/dist/Brickwright-*-source.tar.gz
+            desktop/dist/source-manifest.json
+          if-no-files-found: error
+          retention-days: 30
+  windows:
+    needs: [quality, app-impact]
+    if: >-
+      (github.event_name != 'pull_request' || github.event.pull_request.head.ref == 'work/spikeprime-control-center-ui')
+      && needs.app-impact.outputs.needed == 'true'
+      && needs.quality.result == 'success'
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        id: node_setup
+        with:
+          node-version: 22.23.4
+          cache: npm
+          cache-dependency-path: desktop/package-lock.json
+      - name: Report Windows dependency cache inputs
+        shell: pwsh
+        env:
+          NPM_CACHE_HIT: ${{ steps.node_setup.outputs.cache-hit }}
+          NPM_CACHE_KEY: npm-${{ runner.os }}-${{ runner.arch }}-node-22.23.4-${{ hashFiles('desktop/package-lock.json') }}
+        run: |
+          "npm-cache-hit=$env:NPM_CACHE_HIT"
+          "npm-cache-key=$env:NPM_CACHE_KEY"
+          $cachePath = npm config get cache
+          "npm-cache-dir=$cachePath"
+          "node=$(node --version) npm=$(npm --version)"
+          "desktop-lock-sha256=$((Get-FileHash desktop/package-lock.json -Algorithm SHA256).Hash.ToLower())"
+      - uses: actions/cache@v4
+        with:
+          path: ~\AppData\Local\electron-builder\Cache
+          key: electron-builder-windows-${{ hashFiles('desktop/package-lock.json') }}
+      - name: Download the quality-checked web build
+        uses: actions/download-artifact@v4
+        with:
+          name: brickwright-web-${{ github.sha }}
+          path: .
+      - name: Stage app from the shared web build
+        run: node desktop/scripts/stage-desktop.mjs --build-type development --platform win32 --build-number ${{ github.run_number }}
+        env:
+          BRICKWRIGHT_BUILD_COMMIT: ${{ github.sha }}
+      - name: Install pinned Electron dependencies
+        shell: pwsh
+        run: |
+          $timer = [Diagnostics.Stopwatch]::StartNew()
+          $cachePath = npm config get cache
+          npm ci --prefix desktop --timing --no-audit --no-fund
+          if ($LASTEXITCODE -ne 0) { throw "npm ci failed with exit code $LASTEXITCODE" }
+          $timer.Stop()
+          "desktop-npm-ci-seconds=$([math]::Round($timer.Elapsed.TotalSeconds, 2))"
+          Get-ChildItem (Join-Path $cachePath '_logs') -Filter '*-debug-0.log' -ErrorAction SilentlyContinue |
+            Sort-Object LastWriteTime -Descending | Select-Object -First 1 -ExpandProperty FullName
+      - name: Prepare the Brickwright icon and license notices
+        run: |
+          npm run prepare:assets --prefix desktop
+          node desktop/scripts/generate-notices.mjs
+          node desktop/scripts/check-distribution-compliance.mjs
+        env:
+          BRICKWRIGHT_BUILD_COMMIT: ${{ github.sha }}
+          BRICKWRIGHT_WEB_ARTIFACT_SHA256: ${{ needs.quality.outputs.web_artifact_digest }}
+      - name: Run desktop security and chooser tests
+        run: npm run test --prefix desktop
+      - name: Smoke test the secure app origin
+        run: npm run smoke --prefix desktop
+      - name: Build Windows NSIS installer
+        working-directory: desktop
+        run: npx electron-builder --win nsis --publish never --config.extraMetadata.version=0.1.0-dev.${{ github.run_number }}
+      - name: Install and smoke test the packaged Windows app
+        shell: pwsh
+        run: |
+          $installer = Get-ChildItem desktop/dist -Filter 'Brickwright-Setup-*-win-x64.exe' | Select-Object -First 1
+          if (-not $installer) { throw 'NSIS installer was not produced.' }
+          $installDir = Join-Path $env:RUNNER_TEMP 'BrickwrightNSISSmoke'
+          Start-Process -FilePath $installer.FullName -ArgumentList @('/S', "/D=$installDir") -Wait
+          $executable = Join-Path $installDir 'Brickwright.exe'
+          if (-not (Test-Path $executable)) { throw "Installed app not found: $executable" }
+          $env:BRICKWRIGHT_SMOKE_EXECUTABLE = $executable
+          npm run smoke --prefix desktop
+      - uses: actions/upload-artifact@v4
+        with:
+          name: brickwright-windows-${{ github.run_number }}-${{ github.sha }}
+          path: |
+            desktop/dist/Brickwright-Setup-*-win-x64.exe
+            desktop/build/build-info.json
+            desktop/build/desktop/licenses/**
+          if-no-files-found: error
+          retention-days: 30
+
+  app-impact:
+    runs-on: ubuntu-latest
+    outputs:
+      needed: ${{ steps.paths.outputs.needed }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+      - id: paths
+        name: Check whether packaged app files changed
+        shell: bash
+        env:
+          BASE_SHA: ${{ github.event.before || github.event.pull_request.base.sha }}
+        run: |
+          if [[ -z "$BASE_SHA" || "$BASE_SHA" =~ ^0+$ ]]; then
+            echo "needed=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          git fetch --no-tags --depth=1 origin "$BASE_SHA"
+          needed=false
+          while IFS= read -r path; do
+            case "$path" in
+              test/*|desktop/tests/*|.eslintignore|docs/*|README.md|CONTRIBUTING.md) ;;
+              *) needed=true; break ;;
+            esac
+          done < <(git diff --name-only "$BASE_SHA" "$GITHUB_SHA")
+          echo "needed=$needed" >> "$GITHUB_OUTPUT"
+
+  macos:
+    needs: [quality, app-impact]
+    if: >-
+      (github.event_name != 'pull_request' || github.event.pull_request.head.ref == 'work/spikeprime-control-center-ui')
+      && needs.app-impact.outputs.needed == 'true'
+      && needs.quality.result == 'success'
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        id: node_setup
+        with:
+          node-version: 22.23.4
+          cache: npm
+          cache-dependency-path: desktop/package-lock.json
+      - name: Report macOS dependency cache inputs
+        env:
+          NPM_CACHE_HIT: ${{ steps.node_setup.outputs.cache-hit }}
+          NPM_CACHE_KEY: npm-${{ runner.os }}-${{ runner.arch }}-node-22.23.4-${{ hashFiles('desktop/package-lock.json') }}
+        run: |
+          echo "npm-cache-hit=$NPM_CACHE_HIT"
+          echo "npm-cache-key=$NPM_CACHE_KEY"
+          echo "npm-cache-dir=$(npm config get cache)"
+          echo "node=$(node --version) npm=$(npm --version)"
+          echo "desktop-lock-sha256=$(shasum -a 256 desktop/package-lock.json | cut -d ' ' -f 1)"
+      - uses: actions/cache@v4
+        with:
+          path: ~/Library/Caches/electron-builder
+          key: electron-builder-macos-${{ hashFiles('desktop/package-lock.json') }}
+      - name: Download the quality-checked web build
+        uses: actions/download-artifact@v4
+        with:
+          name: brickwright-web-${{ github.sha }}
+          path: .
+      - name: Stage app from the shared web build
+        run: node desktop/scripts/stage-desktop.mjs --build-type development --platform darwin-universal --build-number ${{ github.run_number }}
+        env:
+          BRICKWRIGHT_BUILD_COMMIT: ${{ github.sha }}
+      - name: Install pinned Electron dependencies
+        run: |
+          started_at=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+          started=$(date +%s)
+          npm ci --prefix desktop --timing --no-audit --no-fund
+          elapsed=$(($(date +%s) - started))
+          echo "desktop-npm-ci-started-at=$started_at"
+          echo "desktop-npm-ci-seconds=$elapsed"
+          npm config get cache
+      - name: Prepare the Brickwright icon and license notices
+        run: |
+          npm run prepare:assets --prefix desktop
+          node desktop/scripts/generate-notices.mjs
+          node desktop/scripts/check-distribution-compliance.mjs
+        env:
+          BRICKWRIGHT_BUILD_COMMIT: ${{ github.sha }}
+          BRICKWRIGHT_WEB_ARTIFACT_SHA256: ${{ needs.quality.outputs.web_artifact_digest }}
+      - name: Run desktop security and chooser tests
+        run: npm run test --prefix desktop
+      - name: Smoke test the secure app origin
+        run: npm run smoke --prefix desktop
+      - name: Build macOS universal DMG
+        working-directory: desktop
+        run: npx electron-builder --mac dmg --universal --publish never --config.extraMetadata.version=0.1.0-dev.${{ github.run_number }}
+      - name: Mount and smoke test the packaged macOS app
+        shell: bash
+        run: |
+          set -euo pipefail
+          image="$(find desktop/dist -maxdepth 1 -name 'Brickwright-*-mac-universal.dmg' -print -quit)"
+          test -n "$image"
+          mount_point="$RUNNER_TEMP/brickwright-dmg-smoke"
+          mkdir -p "$mount_point"
+          hdiutil attach "$image" -nobrowse -mountpoint "$mount_point"
+          trap 'hdiutil detach "$mount_point" -quiet || true' EXIT
+          test -x "$mount_point/Brickwright.app/Contents/MacOS/Brickwright"
+          BRICKWRIGHT_SMOKE_EXECUTABLE="$mount_point/Brickwright.app/Contents/MacOS/Brickwright" npm run smoke --prefix desktop
+      - uses: actions/upload-artifact@v4
+        with:
+          name: brickwright-macos-${{ github.run_number }}-${{ github.sha }}
+          path: |
+            desktop/dist/Brickwright-*-mac-universal.dmg
+            desktop/build/build-info.json
+            desktop/build/desktop/licenses/**
+          if-no-files-found: error
+          retention-days: 30

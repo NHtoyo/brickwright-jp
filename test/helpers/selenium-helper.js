@@ -6,6 +6,7 @@ import path from 'path';
 import bindAll from 'lodash.bindall';
 import 'chromedriver'; // register path
 import webdriver from 'selenium-webdriver';
+import {Command} from 'selenium-webdriver/lib/command';
 import chrome from 'selenium-webdriver/chrome';
 
 if (process.env.CHROMEDRIVER_PATH) {
@@ -14,7 +15,7 @@ if (process.env.CHROMEDRIVER_PATH) {
     );
 }
 
-const {Button, By, until} = webdriver;
+const {By, until} = webdriver;
 
 const USE_HEADLESS = process.env.USE_HEADLESS !== 'no';
 const BUILD_DIRECTORY = path.resolve(__dirname, '../../build');
@@ -59,6 +60,15 @@ const getBuildServer = () => {
                 } catch (error) {
                     response.statusCode = 400;
                     return response.end('Bad request');
+                }
+
+                // Give Selenium a same-origin document that cannot run the editor
+                // and rewrite its preferred locale before a test page loads.
+                if (requestPath === '/__test-origin__.html') {
+                    response.statusCode = 200;
+                    response.setHeader('Content-Type', 'text/html; charset=utf-8');
+                    response.setHeader('Cache-Control', 'no-store');
+                    return response.end('<!doctype html><html><head></head><body></body></html>');
                 }
 
                 const relativePath = requestPath.replace(/^\/+/, '') || 'index.html';
@@ -158,10 +168,16 @@ const enhanceError = async (outerError, cause, driver) => {
             .logs()
             .get('browser');
         const browserLogText = browserLogEntries.map(entry => entry.message).join('\n');
+        const BROWSER_LOG_LIMIT = 4000;
+        const visibleBrowserLog = browserLogText.length > BROWSER_LOG_LIMIT ?
+            `${browserLogText.slice(0, BROWSER_LOG_LIMIT)}\n... (${browserLogText.length} characters total)` : browserLogText;
         outerError.message += `\nBrowser URL: ${url}`;
         outerError.message += `\nBrowser title: ${title}`;
-        outerError.message += `\nBrowser logs:\n*****\n${browserLogText}\n*****\n`;
-        outerError.message += `\nBrowser page source:\n*****\n${pageSource}\n*****\n`;
+        outerError.message += `\nBrowser logs:\n*****\n${visibleBrowserLog}\n*****\n`;
+        const PAGE_SOURCE_LIMIT = 4000;
+        const visiblePageSource = pageSource.length > PAGE_SOURCE_LIMIT ?
+            `${pageSource.slice(0, PAGE_SOURCE_LIMIT)}\n... (${pageSource.length} characters total)` : pageSource;
+        outerError.message += `\nBrowser page source:\n*****\n${visiblePageSource}\n*****\n`;
     }
     return outerError;
 };
@@ -190,6 +206,7 @@ class SeleniumHelper {
         // this type declaration suppresses IDE type warnings throughout this file
         /** @type {webdriver.ThenableWebDriver} */
         this.driver = null;
+        this.legacyFilePickerOverrideInstalled = false;
     }
 
     /**
@@ -355,18 +372,47 @@ class SeleniumHelper {
      * @param {string} uri The URI to load.
      * @returns {Promise} A promise that resolves when the URI is loaded.
      */
-    async loadUri (uri) {
+    async loadUri (uri, windowSize = {}) {
         const outerError = new Error(`loadUri failed with arguments:\n\turi: ${uri}`);
         try {
             await this.setTitle(`loadUri ${uri}`);
-            const WINDOW_WIDTH = 1024;
-            const WINDOW_HEIGHT = 768;
+            const windowWidth = windowSize.width || 1024;
+            const windowHeight = windowSize.height || 768;
+            const testUrl = new URL(await getTestUrl(uri));
+            if (windowSize.legacyFilePicker && !this.legacyFilePickerOverrideInstalled) {
+                const executor = this.driver.getExecutor();
+                executor.defineCommand('sendChromeCommand', 'POST', '/session/:sessionId/chromium/send_command');
+                await this.driver.schedule(
+                    new Command('sendChromeCommand')
+                        .setParameter('cmd', 'Page.addScriptToEvaluateOnNewDocument')
+                        .setParameter('params', {
+                            source: 'Object.defineProperty(window, "showOpenFilePicker", {' +
+                                'configurable: true, value: undefined});'
+                        }),
+                    'disable native file picker for E2E fallback tests'
+                );
+                this.legacyFilePickerOverrideInstalled = true;
+            }
+            // Most integration tests use English labels. Browser locale and stored
+            // editor preferences can survive between loadUri calls, so make the
+            // default explicit while preserving tests that request ja/de/etc.
+            if (testUrl.hostname === '127.0.0.1') {
+                if (!testUrl.searchParams.has('locale') && !testUrl.searchParams.has('lang')) {
+                    testUrl.searchParams.set('locale', 'en');
+                }
+                await this.driver.get(`${testUrl.origin}/__test-origin__.html`);
+                await this.driver.executeScript(`
+                    localStorage.removeItem("tw:language");
+                    localStorage.removeItem("brickwright.spikePaletteWidth");
+                `);
+            }
+            // Set the viewport before the editor mounts so responsive controls
+            // initialize against the dimensions the test will actually use.
+            await this.driver.manage().window().setSize(windowWidth, windowHeight);
             await this.driver
-                .get(await getTestUrl(uri));
+                .get(testUrl.toString());
             await this.driver
                 .executeScript('window.onbeforeunload = undefined;');
-            await this.driver.manage().window()
-                .setSize(WINDOW_WIDTH, WINDOW_HEIGHT);
             await this.driver.wait(
                 async () => await this.driver.executeScript('return document.readyState;') === 'complete',
                 DEFAULT_TIMEOUT_MILLISECONDS
@@ -441,9 +487,22 @@ class SeleniumHelper {
         try {
             await this.setTitle(`rightClickText ${text}`);
             const el = await this.findByText(text, scope);
-            return this.driver.actions()
-                .click(el, Button.RIGHT)
-                .perform();
+            await this.driver.executeScript(target => {
+                const rect = target.getBoundingClientRect();
+                target.dispatchEvent(new MouseEvent('contextmenu', {
+                    bubbles: true,
+                    cancelable: true,
+                    view: window,
+                    button: 2,
+                    buttons: 2,
+                    clientX: rect.left + (rect.width / 2),
+                    clientY: rect.top + (rect.height / 2)
+                }));
+            }, el);
+            await this.driver.wait(() => this.driver.executeScript(
+                'return Array.from(document.querySelectorAll("nav.react-contextmenu--visible"))'
+                    + '.some(menu => menu.style.pointerEvents === "auto");'
+            ), DEFAULT_TIMEOUT_MILLISECONDS);
         } catch (cause) {
             throw await enhanceError(outerError, cause, this.driver);
         }

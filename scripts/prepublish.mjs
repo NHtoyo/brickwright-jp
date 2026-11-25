@@ -6,6 +6,7 @@
 
 import fs from 'fs';
 import path from 'path';
+import os from 'os';
 import nodeCrypto from 'crypto';
 
 import crossFetch from 'cross-fetch';
@@ -80,12 +81,28 @@ const extractFirstMatchingFile = (filter, relativeDestDir, zipBuffer) => new Pro
 const downloadMicrobitHex = async () => {
     const url = 'https://downloads.scratch.mit.edu/microbit/scratch-microbit-1.2.0.hex.zip';
     const expectedSHA256 = 'dfd574b709307fe76c44dbb6b0ac8942e7908f4d5c18359fae25fbda3c9f4399';
-    console.info(`Downloading ${url}`);
-    const response = await crossFetch(url);
-    const zipBuffer = Buffer.from(await response.arrayBuffer());
-    const sha256 = nodeCrypto.createHash('sha-256').update(zipBuffer).digest('hex');
-    if (sha256 !== expectedSHA256) {
-        throw new Error(`microbit hex has SHA-256 ${sha256} but expected ${expectedSHA256}`);
+    const cacheDirectory = process.env.BRICKWRIGHT_MICROBIT_CACHE ||
+        path.join(os.homedir(), '.cache', 'brickwright', 'microbit');
+    const cachedArchive = path.join(cacheDirectory, `scratch-microbit-1.2.0-${expectedSHA256}.zip`);
+    const verifyArchive = archive => {
+        const archiveHash = nodeCrypto.createHash('sha-256').update(archive);
+        const sha256 = archiveHash.digest('hex');
+        if (sha256 !== expectedSHA256) {
+            throw new Error(`microbit hex archive has SHA-256 ${sha256} but expected ${expectedSHA256}`);
+        }
+        return archive;
+    };
+    let zipBuffer;
+    try {
+        zipBuffer = verifyArchive(fs.readFileSync(cachedArchive));
+        console.info(`Using verified micro:bit firmware archive cache: ${cachedArchive}`);
+    } catch (error) {
+        console.info(`Downloading ${url}`);
+        const response = await crossFetch(url);
+        if (!response.ok) throw new Error(`microbit firmware download failed: HTTP ${response.status}`);
+        zipBuffer = verifyArchive(Buffer.from(await response.arrayBuffer()));
+        fs.mkdirSync(cacheDirectory, {recursive: true});
+        fs.writeFileSync(cachedArchive, zipBuffer);
     }
     const relativeHexDir = path.join('static', 'microbit');
     const hexFileName = await extractFirstMatchingFile(

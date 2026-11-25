@@ -1,9 +1,166 @@
 import LazyScratchBlocks from './tw-lazy-scratch-blocks';
 import {defaultBlockColors} from './themes';
+import {
+    getSpikeOpcodeCategories,
+    SPIKE_CATEGORY_COLORS,
+    SPIKE_CATEGORY_ORDER,
+    SPIKE_HIDDEN_PALETTE_OPCODES
+} from './spike-toolbox-categories';
+import {spikeToolboxIconURI} from './spike-toolbox-icons';
 
 const categorySeparator = '<sep gap="36"/>';
 
 const blockSeparator = '<sep gap="36"/>'; // At default scale, about 28px
+
+export const filterSpikeCategoryXML = (categoryXML, supportedOpcodes) => {
+    const hasHiddenBlock = SPIKE_HIDDEN_PALETTE_OPCODES.some(opcode =>
+        categoryXML.includes(`type="spikeprime_${opcode}"`)
+    );
+    if (!Array.isArray(supportedOpcodes) && !hasHiddenBlock) return categoryXML;
+    if (typeof DOMParser === 'undefined' || typeof XMLSerializer === 'undefined') {
+        return categoryXML;
+    }
+    const supportedOpcodesSet = Array.isArray(supportedOpcodes) ? new Set(supportedOpcodes) : null;
+    const hiddenOpcodes = new Set(SPIKE_HIDDEN_PALETTE_OPCODES);
+    const supportedTypes = new Set();
+    supportedOpcodesSet?.forEach(opcode => {
+        if (typeof opcode !== 'string') return;
+        supportedTypes.add(opcode.startsWith('spikeprime_') ? opcode : `spikeprime_${opcode}`);
+    });
+    const parsed = new DOMParser().parseFromString(categoryXML, 'application/xml');
+    if (parsed.getElementsByTagName('parsererror').length > 0) return categoryXML;
+    const category = parsed.documentElement;
+    Array.from(category.children).forEach(child => {
+        if (child.tagName.toLowerCase() !== 'block') return;
+        const type = child.getAttribute('type');
+        if (!type || !type.startsWith('spikeprime_')) return;
+        const opcode = type.slice('spikeprime_'.length);
+        if (hiddenOpcodes.has(opcode) || (supportedOpcodesSet && !supportedTypes.has(type))) {
+            category.removeChild(child);
+        }
+    });
+    return new XMLSerializer().serializeToString(parsed);
+};
+
+const categoryLabelsDefault = {
+    spikePrefix: 'SPIKE',
+    motor: 'Motors',
+    movement: 'Movement',
+    light: 'Light',
+    sound: 'Sound',
+    events: 'Events',
+    control: 'Control',
+    sensors: 'Sensors',
+    sensorExtensions: 'Sensor Extensions',
+    motorExtensions: 'Motor Extensions',
+    movementExtensions: 'Movement Extensions',
+    operators: 'Operators',
+    variables: 'Variables',
+    myBlocks: 'My Blocks',
+    other: 'Other'
+};
+
+const renderCategory = (doc, {
+    id,
+    name,
+    category,
+    blocks,
+    custom,
+    showStatusButton = false
+}) => {
+    const element = doc.createElement('category');
+    element.setAttribute('id', id);
+    element.setAttribute('name', name);
+    const color = SPIKE_CATEGORY_COLORS[category];
+    element.setAttribute('colour', color.primary);
+    element.setAttribute('secondaryColour', color.secondary);
+    element.setAttribute('iconURI', spikeToolboxIconURI(category));
+    if (custom) element.setAttribute('custom', custom);
+    if (showStatusButton) element.setAttribute('showStatusButton', 'true');
+    blocks.forEach(block => element.appendChild(block));
+    return element;
+};
+
+const reorganizeToolboxCategories = ({
+    standardXML,
+    spikeCategoryXML,
+    otherCategories,
+    paletteMode,
+    supportedOpcodes,
+    categoryLabels = categoryLabelsDefault
+}) => {
+    const showScratch = paletteMode === 'scratch' || paletteMode === 'both';
+    const showSpike = paletteMode === 'spike' || paletteMode === 'both';
+    const scratchCategories = showScratch ? [
+        ...standardXML.map(category => category.xml),
+        ...otherCategories.map(category => category.xml)
+    ].filter(Boolean) : [];
+
+    if (typeof DOMParser === 'undefined' || typeof XMLSerializer === 'undefined') {
+        // Keep the canonical Scratch/other-extension XML intact in environments
+        // without the DOM APIs needed to split SPIKE blocks into their own groups.
+        return scratchCategories;
+    }
+    const document = new DOMParser().parseFromString('<xml></xml>', 'application/xml');
+    const spikeDoc = spikeCategoryXML ?
+        new DOMParser().parseFromString(filterSpikeCategoryXML(spikeCategoryXML, supportedOpcodes), 'application/xml') :
+        null;
+    const spikeBlocksByCategory = Object.fromEntries(SPIKE_CATEGORY_ORDER.map(category => [category, []]));
+    if (spikeDoc && spikeDoc.getElementsByTagName('parsererror').length === 0) {
+        Array.from(spikeDoc.documentElement.children).forEach(block => {
+            if (block.tagName.toLowerCase() !== 'block') return;
+            const type = block.getAttribute('type') || '';
+            if (!type.startsWith('spikeprime_')) return;
+            const opcode = type.slice('spikeprime_'.length);
+            getSpikeOpcodeCategories(opcode).forEach(category => {
+                const clone = document.importNode(block, true);
+                [clone, ...Array.from(clone.getElementsByTagName('*'))].forEach(node => {
+                    if (['block', 'shadow'].includes(node.tagName.toLowerCase())) node.removeAttribute('id');
+                });
+                spikeBlocksByCategory[category].push(clone);
+            });
+        });
+    }
+
+    if (!showSpike) return scratchCategories;
+
+    const localizedLabels = {...categoryLabelsDefault, ...categoryLabels};
+    const spikePrefix = localizedLabels.spikePrefix || 'SPIKE';
+    const spikeCategories = {
+        motor: {id: 'bw-spike-prime-motor', name: localizedLabels.motor},
+        movement: {id: 'bw-spike-prime-movement', name: localizedLabels.movement},
+        light: {id: 'bw-spike-prime-light', name: localizedLabels.light},
+        sound: {id: 'bw-spike-prime-sound', name: localizedLabels.sound},
+        events: {id: 'bw-spike-prime-events', name: localizedLabels.events},
+        // The hub status button is provided by the always-visible GUI overlay.
+        // A second category status action would rely on the old extension id.
+        control: {id: 'bw-spike-prime-control', name: localizedLabels.control},
+        sensors: {id: 'bw-spike-prime-sensors', name: localizedLabels.sensors},
+        sensorExtensions: {id: 'bw-spike-prime-sensor-extensions', name: localizedLabels.sensorExtensions},
+        motorExtensions: {id: 'bw-spike-prime-motor-extensions', name: localizedLabels.motorExtensions},
+        movementExtensions: {id: 'bw-spike-prime-movement-extensions', name: localizedLabels.movementExtensions},
+        operators: {id: 'bw-spike-prime-operators', name: localizedLabels.operators},
+        variables: {id: 'bw-spike-prime-variables', name: localizedLabels.variables},
+        myBlocks: {id: 'bw-spike-prime-my-blocks', name: localizedLabels.myBlocks},
+        other: {id: 'bw-spike-prime-other', name: localizedLabels.other}
+    };
+    const spikeXML = [];
+    SPIKE_CATEGORY_ORDER.forEach(category => {
+        const blocks = spikeBlocksByCategory[category];
+        if (!blocks.length) return;
+        const info = spikeCategories[category];
+        const categoryElement = renderCategory(document, {
+            ...info,
+            name: `${spikePrefix} · ${info.name}`,
+            category,
+            blocks
+        });
+        spikeXML.push(new XMLSerializer().serializeToString(categoryElement));
+    });
+    // Scratch's standard categories and other extensions keep their original
+    // XML, order, names, theme and block IDs. SPIKE is a distinct section below.
+    return [...scratchCategories, ...spikeXML];
+};
 
 const translate = (id, english) => {
     if (LazyScratchBlocks.isLoaded()) {
@@ -770,10 +927,15 @@ const xmlClose = '</xml>';
  * @param {?string} backdropName - The name of the default selected backdrop dropdown.
  * @param {?string} soundName -  The name of the default selected sound dropdown.
  * @param {?object} colors - The colors for the theme.
+ * @param {'both'|'scratch'|'spike'|'none'} paletteMode - Which palettes to show;
+ * `both` remains supported for saved-project compatibility.
+ * @param {(Array.<string>|null)} supportedSpikeBlockOpcodes - Optional list of supported SPIKE block opcodes.
+ * @param {?object} categoryLabels - Optional localized labels for built-in SPIKE categories.
  * @returns {string} - a ScratchBlocks-style XML document for the contents of the toolbox.
  */
 const makeToolboxXML = function (isInitialSetup, isStage = true, targetId, categoriesXML = [],
-    costumeName = '', backdropName = '', soundName = '', colors = defaultBlockColors) {
+    costumeName = '', backdropName = '', soundName = '', colors = defaultBlockColors,
+    paletteMode = 'both', supportedSpikeBlockOpcodes = null, categoryLabels = categoryLabelsDefault) {
     isStage = isInitialSetup || isStage;
     const gap = [categorySeparator];
 
@@ -782,6 +944,14 @@ const makeToolboxXML = function (isInitialSetup, isStage = true, targetId, categ
     soundName = xmlEscape(soundName);
 
     categoriesXML = categoriesXML.slice();
+    if (Array.isArray(supportedSpikeBlockOpcodes)) {
+        categoriesXML = categoriesXML.map(categoryInfo => (
+            categoryInfo.id === 'spikeprime' ? {
+                ...categoryInfo,
+                xml: filterSpikeCategoryXML(categoryInfo.xml, supportedSpikeBlockOpcodes)
+            } : categoryInfo
+        ));
+    }
     const moveCategory = categoryId => {
         const index = categoriesXML.findIndex(categoryInfo => categoryInfo.id === categoryId);
         if (index >= 0) {
@@ -809,29 +979,25 @@ const makeToolboxXML = function (isInitialSetup, isStage = true, targetId, categ
         turbowarpXML = turbowarpXML.replace('<block', `${extraTurboWarpBlocks}<block`);
     }
 
-    const everything = [
-        xmlOpen,
-        motionXML, gap,
-        looksXML, gap,
-        soundXML, gap,
-        eventsXML, gap,
-        controlXML, gap,
-        sensingXML, gap,
-        operatorsXML, gap,
-        variablesXML, gap,
-        myBlocksXML
+    const spikeCategoryInfo = categoriesXML.find(category => category.id === 'spikeprime');
+    const standardXML = [
+        ['motion', motionXML], ['looks', looksXML], ['sound', soundXML], ['event', eventsXML],
+        ['control', controlXML], ['sensing', sensingXML], ['operators', operatorsXML],
+        ['data', variablesXML], ['procedures', myBlocksXML]
+    ].map(([id, xml]) => ({id, xml}));
+    const otherCategories = [
+        ...(turbowarpXML ? [{id: 'tw', xml: turbowarpXML}] : []),
+        ...categoriesXML.filter(category => category.id !== 'spikeprime')
     ];
-
-    if (turbowarpXML) {
-        everything.push(gap, turbowarpXML);
-    }
-
-    for (const extensionCategory of categoriesXML) {
-        everything.push(gap, extensionCategory.xml);
-    }
-
-    everything.push(xmlClose);
-    return everything.join('\n');
+    const grouped = reorganizeToolboxCategories({
+        standardXML,
+        spikeCategoryXML: spikeCategoryInfo && spikeCategoryInfo.xml,
+        otherCategories,
+        paletteMode,
+        supportedOpcodes: supportedSpikeBlockOpcodes,
+        categoryLabels
+    });
+    return [xmlOpen, grouped.join(`\n${gap}\n`), xmlClose].join('\n');
 };
 
 export default makeToolboxXML;

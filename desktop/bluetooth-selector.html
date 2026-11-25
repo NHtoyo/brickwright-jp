@@ -1,0 +1,36 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>デバイスを選択</title>
+  <style>
+    :root { color-scheme: light; font: 14px system-ui, sans-serif; }
+    body { margin: 0; padding: 18px; color: #17202a; background: #fff; }
+    h1 { margin: 0 0 8px; font-size: 18px; }
+    p { margin: 0 0 12px; color: #4b5563; }
+    #devices { min-height: 180px; max-height: 300px; overflow: auto; border: 1px solid #cbd5e1; border-radius: 8px; }
+    .device { display: block; width: 100%; padding: 12px; text-align: left; color: inherit; background: white; border: 0; border-bottom: 1px solid #e5e7eb; cursor: pointer; }
+    .device:last-child { border-bottom: 0; }
+    .device[aria-pressed="true"] { background: #eaf4ff; box-shadow: inset 3px 0 #1683e8; }
+    .name { display: block; font-weight: 650; }
+    .id { display: block; margin-top: 3px; color: #667085; font-size: 11px; overflow-wrap: anywhere; }
+    #status { min-height: 20px; margin: 10px 0; }
+    footer { display: flex; justify-content: flex-end; gap: 8px; }
+    button.action { padding: 7px 14px; border: 1px solid #9ca3af; border-radius: 6px; background: #f9fafb; cursor: pointer; }
+    button.primary { color: white; border-color: #0878d1; background: #0878d1; }
+    button:disabled { opacity: .5; cursor: default; }
+  </style>
+</head>
+<body>
+  <h1 id="heading">デバイスを選択</h1>
+  <p id="description">利用するデバイスを選択してください。</p>
+  <div id="devices" role="listbox" aria-label="利用可能なデバイス"></div>
+  <div id="status" role="status" aria-live="polite">デバイスを検索しています…</div>
+  <footer>
+    <button class="action" id="cancel" type="button">キャンセル</button>
+    <button class="action primary" id="connect" type="button" disabled>接続</button>
+  </footer>
+  <script src="/desktop/bluetooth-selector.js"></script>
+</body>
+</html>

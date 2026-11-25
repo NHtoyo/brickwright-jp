@@ -24,6 +24,7 @@ import chromeStyles from './compact-chrome.css';
 import CostumeLibrary from '../../containers/costume-library.jsx';
 import BackdropLibrary from '../../containers/backdrop-library.jsx';
 import Watermark from '../../containers/watermark.jsx';
+import SpikePrimeControlCenter from '../spike-prime-control-center/spike-prime-control-center.jsx';
 
 import Backpack from '../../containers/backpack.jsx';
 import BrowserModal from '../browser-modal/browser-modal.jsx';
@@ -149,6 +150,7 @@ const GUIComponent = props => {
         onTelemetryModalCancel,
         onTelemetryModalOptIn,
         onTelemetryModalOptOut,
+        projectChanged,
         securityManager,
         showComingSoon,
         showOpenFilePicker,
@@ -398,15 +400,26 @@ const GUIComponent = props => {
                                         />
                                     </Tab>
                                     <Tab className={tabClassNames.tab}>
-                                        <span role="img" aria-label="code" style={{marginRight: 4}}>{'📜'}</span>
+                                        <span
+                                            aria-label="code"
+                                            role="img"
+                                            style={{marginRight: 4}}
+                                        >{'📜'}</span>
                                         <FormattedMessage
                                             defaultMessage="Code"
-                                            description="Button to get to the Brickwright code panel (pseudocode/Python/JavaScript)"
+                                            description={
+                                                'Button to get to the Brickwright code panel ' +
+                                                '(pseudocode/Python/JavaScript)'
+                                            }
                                             id="gui.gui.pseudocodeTab"
                                         />
                                     </Tab>
                                     <Tab className={tabClassNames.tab}>
-                                        <span role="img" aria-label="circuit" style={{marginRight: 4}}>{'🔌'}</span>
+                                        <span
+                                            aria-label="circuit"
+                                            role="img"
+                                            style={{marginRight: 4}}
+                                        >{'🔌'}</span>
                                         <FormattedMessage
                                             defaultMessage="Circuit"
                                             description="Button to get to the Brickwright circuit designer"
@@ -414,7 +427,9 @@ const GUIComponent = props => {
                                         />
                                     </Tab>
                                 </TabList>
-                                <TabPanel className={tabClassNames.tabPanel}>
+                                <TabPanel
+                                    className={[tabClassNames.tabPanel, styles.blocksTabPanel].join(' ')}
+                                >
                                     <Box className={styles.blocksWrapper}>
                                         <Blocks
                                             key={`${blocksId}/${theme.id}`}
@@ -430,6 +445,11 @@ const GUIComponent = props => {
                                             vm={vm}
                                         />
                                     </Box>
+                                    <SpikePrimeControlCenter
+                                        intl={intl}
+                                        projectChanged={projectChanged}
+                                        vm={vm}
+                                    />
                                     <Box className={styles.extensionButtonContainer}>
                                         <button
                                             className={styles.extensionButton}
@@ -608,6 +628,7 @@ const mapStateToProps = state => ({
     isWindowFullScreen: state.scratchGui.tw.isWindowFullScreen,
     // This is the button's mode, as opposed to the actual current state
     blocksId: state.scratchGui.timeTravel.year.toString(),
+    projectChanged: state.scratchGui.projectChanged,
     stageSizeMode: state.scratchGui.stageSize.stageSize,
     theme: state.scratchGui.theme.theme
 });

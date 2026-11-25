@@ -96,9 +96,10 @@ class SB3Downloader extends React.Component {
                     'application/octet-stream'
                 ).then(() => {
                     this.finishedSaving();
-                }).catch(e => {
-                    this.handleSaveError(e);
-                });
+                })
+                    .catch(e => {
+                        this.handleSaveError(e);
+                    });
                 return;
             }
             this.finishedSaving();
@@ -310,7 +311,7 @@ SB3Downloader.propTypes = {
 SB3Downloader.defaultProps = {
     className: '',
     showSaveFilePicker: typeof showSaveFilePicker === 'function' && !navigator.userAgent.includes('Android') ?
-        window.showSaveFilePicker.bind(window) :
+        options => window.showSaveFilePicker(options) :
         null
 };
 
