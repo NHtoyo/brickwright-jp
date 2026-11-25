@@ -24,6 +24,46 @@ const SPIKE_EXTENSION_BUILD_ID = crypto.createHash('sha256')
     .digest('hex')
     .slice(0, 16);
 
+// Record the package roots that webpack actually placed in the editor's
+// runtime chunks. The desktop license inventory consumes this report instead
+// of treating every package in the lockfile as distributed runtime code.
+class RuntimePackageInventoryPlugin {
+    apply (compiler) {
+        if (path.resolve(compiler.options.output.path) !== path.resolve(__dirname, 'build')) return;
+        compiler.hooks.done.tap('RuntimePackageInventoryPlugin', stats => {
+            const runtimeModules = new Set();
+            const visited = new Set();
+            const visit = module => {
+                if (!module || visited.has(module)) return;
+                visited.add(module);
+                const inRuntimeChunk = module.chunksIterable && Array.from(module.chunksIterable).length > 0;
+                if (inRuntimeChunk) {
+                    const resource = module.resource || module.context;
+                    if (typeof resource === 'string') {
+                        const normalized = path.resolve(resource.split('?')[0]).replace(/\\/g, '/');
+                        const nodeModulesIndex = normalized.indexOf('/node_modules/');
+                        // Source files are part of Brickwright itself, not
+                        // third-party packages. Keep package-relative paths so
+                        // symlinked local node_modules still match package-lock.
+                        if (nodeModulesIndex >= 0) runtimeModules.add(normalized.slice(nodeModulesIndex + 1));
+                    }
+                }
+                // Webpack 4's ConcatenatedModule hides its constituent modules
+                // inside `_modules`; keep their package attribution as well.
+                const nested = module.modules || module._modules;
+                if (nested) for (const child of nested) visit(child);
+            };
+            for (const module of stats.compilation.modules || []) visit(module);
+            const output = path.join(__dirname, 'desktop', 'build', 'webpack-runtime-packages.json');
+            fs.mkdirSync(path.dirname(output), {recursive: true});
+            fs.writeFileSync(output, JSON.stringify({
+                schemaVersion: 1,
+                runtimeModules: [...runtimeModules].sort()
+            }, null, 2));
+        });
+    }
+}
+
 const root = process.env.ROOT || '';
 if (root.length > 0 && !root.endsWith('/')) {
     throw new Error('If ROOT is defined, it must have a trailing slash.');
@@ -146,6 +186,7 @@ const base = {
         }]
     },
     plugins: [
+        new RuntimePackageInventoryPlugin(),
         new CopyWebpackPlugin({
             patterns: [
                 {

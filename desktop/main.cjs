@@ -53,6 +53,13 @@ let currentUsbDevices = [];
 let usbDevicePermissions = null;
 let bluetoothChooserEventCount = 0;
 let usbChooserEventCount = 0;
+let smokeFileMode = 'normal';
+let smokeFileSequence = 0;
+const smokeFileWriters = new Map();
+const SMOKE_PROJECT_FILENAME = 'Brickwright_日本語 project with spaces.sb3';
+const smokeProgress = step => {
+    if (process.env.BRICKWRIGHT_DESKTOP_SMOKE === '1') console.info(`[Brickwright smoke] ${step}`);
+};
 let updateDownloaded = false;
 let installingUpdate = false;
 let updateMenuItem = null;
@@ -156,9 +163,6 @@ const bluetoothQueue = new BluetoothSelectionQueue({
                     kind: 'bluetooth',
                     devices: currentBluetoothDevices
                 });
-                if (process.env.BRICKWRIGHT_DESKTOP_SMOKE === '1') {
-                    setTimeout(() => bluetoothQueue.cancel(requestId), 150);
-                }
             }
         });
         bluetoothWindow.on('closed', () => {
@@ -218,9 +222,6 @@ const usbQueue = new BluetoothSelectionQueue({
                     kind: 'usb',
                     devices: currentUsbDevices
                 });
-                if (process.env.BRICKWRIGHT_DESKTOP_SMOKE === '1') {
-                    setTimeout(() => usbQueue.cancel(requestId), 150);
-                }
             }
         });
         usbWindow.on('closed', () => {
@@ -611,7 +612,87 @@ const createMainWindow = async () => {
     await mainWindow.loadURL(`${APP_ORIGIN}/editor.html`);
 
     if (process.env.BRICKWRIGHT_DESKTOP_SMOKE === '1') {
+        smokeProgress('editor loaded; checking VM, SPIKE extension, and palette');
         const reportPath = process.env.BRICKWRIGHT_SMOKE_REPORT;
+        if (process.env.BRICKWRIGHT_SMOKE_REOPEN === '1') {
+            const reopened = await mainWindow.webContents.executeJavaScript(`(async () => {
+                const api = window.brickwrightDesktop && window.brickwrightDesktop.smokeFiles;
+                if (!api || !await api.enabled()) throw new Error('Electron smoke file adapter is unavailable.');
+                const saved = await api.read();
+                const bytes = Uint8Array.from(atob(saved.base64), character => character.charCodeAt(0));
+                let loadResolved = false;
+                let loadInputMatchesSavedFile = false;
+                const originalLoadProject = window.vm.loadProject.bind(window.vm);
+                window.vm.loadProject = (...args) => {
+                    const input = args[0] instanceof ArrayBuffer ? new Uint8Array(args[0]) :
+                        ArrayBuffer.isView(args[0]) ? new Uint8Array(args[0].buffer, args[0].byteOffset,
+                            args[0].byteLength) : null;
+                    loadInputMatchesSavedFile = Boolean(input && input.length === bytes.length &&
+                        input.every((byte, index) => byte === bytes[index]));
+                    return originalLoadProject(...args).then(value => {
+                        loadResolved = true;
+                        return value;
+                    });
+                };
+                window.showOpenFilePicker = async () => [{
+                    name: saved.name,
+                    async getFile () { return new File([bytes], saved.name, {type: 'application/octet-stream'}); }
+                }];
+                const fileMenu = [...document.querySelectorAll('[class*="menu-bar-item"]')]
+                    .find(element => /^(file|ファイル)$/i.test(element.textContent.trim()));
+                if (!fileMenu) throw new Error('The File menu was not found after relaunch.');
+                fileMenu.click();
+                const deadline = Date.now() + 5000;
+                let loadItem = null;
+                while (!loadItem && Date.now() < deadline) {
+                    loadItem = [...document.querySelectorAll('li[class*="menu-item"]')]
+                        .find(element => /load from your computer/i.test(element.textContent.trim()) ||
+                            /コンピューター.*読み込/.test(element.textContent.trim()));
+                    if (!loadItem) await new Promise(resolve => setTimeout(resolve, 25));
+                }
+                if (!loadItem) throw new Error('Open from computer was unavailable after relaunch.');
+                loadItem.click();
+                const loadedDeadline = Date.now() + 15000;
+                let opcodes = [];
+                let media = {costumes: 0, sounds: 0};
+                while (Date.now() < loadedDeadline) {
+                    opcodes = window.vm.runtime.targets.flatMap(target => target.blocks ?
+                        Object.values(target.blocks._blocks).map(block => block.opcode) : []);
+                    media = window.vm.runtime.targets.reduce((result, target) => ({
+                        costumes: result.costumes + (target.sprite && target.sprite.costumes ?
+                            target.sprite.costumes.length : 0),
+                        sounds: result.sounds + (target.sprite && target.sprite.sounds ?
+                            target.sprite.sounds.length : 0)
+                    }), {costumes: 0, sounds: 0});
+                    const hasProjectBlocks = opcodes.some(opcode => opcode.startsWith('motion_')) &&
+                        opcodes.some(opcode => opcode.startsWith('spikeprime_'));
+                    if (loadResolved && loadInputMatchesSavedFile && hasProjectBlocks &&
+                        media.costumes > 0 && media.sounds > 0) break;
+                    await new Promise(resolve => setTimeout(resolve, 50));
+                }
+                return {
+                    fileName: saved.name,
+                    fileByteLength: bytes.length,
+                    loadResolved,
+                    loadInputMatchesSavedFile,
+                    scratchBlockRestored: opcodes.some(opcode => opcode.startsWith('motion_')),
+                    spikeBlockRestored: opcodes.some(opcode => opcode.startsWith('spikeprime_')),
+                    costumeCount: media.costumes,
+                    soundCount: media.sounds,
+                    actualFilePickerFlow: true
+                };
+            })()`);
+            if (!reopened.loadResolved || !reopened.loadInputMatchesSavedFile ||
+                !reopened.scratchBlockRestored || !reopened.spikeBlockRestored ||
+                reopened.costumeCount < 1 || reopened.soundCount < 1) {
+                throw new Error(`Electron relaunch/open smoke failed: ${JSON.stringify(reopened)}`);
+            }
+            if (reportPath) fsSync.writeFileSync(reportPath, JSON.stringify(reopened, null, 2));
+            process.stdout.write(`BRICKWRIGHT_DESKTOP_REOPEN_SMOKE ${JSON.stringify(reopened)}\n`);
+            approvedWindowClose = true;
+            setTimeout(() => app.quit(), 50);
+            return;
+        }
         const result = await mainWindow.webContents.executeJavaScript(`(async () => {
             const deadline = Date.now() + 30000;
             let vm = window.vm;
@@ -750,20 +831,685 @@ const createMainWindow = async () => {
                     .catch(() => 0)
             };
         })()`);
+        const dragWorkspaceBlock = async (categorySelector, label) => {
+            const before = await mainWindow.webContents.executeJavaScript(`(() => {
+                const target = window.vm.runtime.targets.find(candidate => !candidate.isStage);
+                return target ? Object.values(target.blocks._blocks).filter(block => block.topLevel).length : -1;
+            })()`);
+            const categoryPoint = await mainWindow.webContents.executeJavaScript(`(async () => {
+                const selector = ${JSON.stringify(categorySelector)};
+                const visibleCategory = () => [...document.querySelectorAll(selector)]
+                    .find(element => element.getBoundingClientRect().width > 0 &&
+                        element.getBoundingClientRect().height > 0);
+                if (!visibleCategory()) {
+                    const paletteKind = selector.includes('bw-spike') ? 'spike' : 'scratch';
+                    const toggle = [...document.querySelectorAll('input[type="checkbox"]')]
+                        .find(element => element.value === paletteKind);
+                    if (toggle && !toggle.checked) toggle.click();
+                }
+                const deadline = Date.now() + 5000;
+                while (!visibleCategory() && Date.now() < deadline) {
+                    await new Promise(resolve => setTimeout(resolve, 30));
+                }
+                const category = visibleCategory();
+                if (!category) throw new Error('Missing visible ' + ${JSON.stringify(label)} + ' toolbox category.');
+                const rect = category.getBoundingClientRect();
+                return {x: Math.round(rect.left + rect.width / 2), y: Math.round(rect.top + rect.height / 2)};
+            })()`);
+            mainWindow.webContents.sendInputEvent({type: 'mouseMove', ...categoryPoint});
+            mainWindow.webContents.sendInputEvent({type: 'mouseDown', ...categoryPoint, button: 'left', clickCount: 1});
+            mainWindow.webContents.sendInputEvent({type: 'mouseUp', ...categoryPoint, button: 'left', clickCount: 1});
+            const expectedCategoryId = categorySelector.replace('.scratchCategoryId-', '');
+            let points = null;
+            const deadline = Date.now() + 8000;
+            while (!points && Date.now() < deadline) {
+                points = await mainWindow.webContents.executeJavaScript(`(() => {
+                    const mainWorkspace = window.ScratchBlocks && window.ScratchBlocks.getMainWorkspace();
+                    const flyoutWorkspace = mainWorkspace && mainWorkspace.getFlyout() &&
+                        mainWorkspace.getFlyout().getWorkspace();
+                    const flyoutRect = document.querySelector('.blocklyFlyoutBackground') &&
+                        document.querySelector('.blocklyFlyoutBackground').getBoundingClientRect();
+                    const prefix = ${JSON.stringify(label.startsWith('SPIKE') ? 'spikeprime_' : 'motion_')};
+                    const blockModel = flyoutWorkspace && flyoutWorkspace.getTopBlocks(false).find(candidate => {
+                        if (!candidate.type.startsWith(prefix)) return false;
+                        const root = candidate.getSvgRoot();
+                        if (!root || !flyoutRect) return false;
+                        const rect = root.getBoundingClientRect();
+                        const centerX = rect.left + rect.width / 2;
+                        const centerY = rect.top + rect.height / 2;
+                        return rect.width > 0 && rect.height > 0 && centerX >= flyoutRect.left &&
+                            centerX <= flyoutRect.right && centerY >= flyoutRect.top && centerY <= flyoutRect.bottom;
+                    });
+                    const block = blockModel && blockModel.getSvgRoot();
+                    const workspace = document.querySelector('.blocklyMainBackground');
+                    if (!block || !workspace) return null;
+                    const blockRect = block.getBoundingClientRect();
+                    const workspaceRect = workspace.getBoundingClientRect();
+                    const start = {
+                        x: Math.round(blockRect.left + blockRect.width / 2),
+                        y: Math.round(blockRect.top + blockRect.height / 2)
+                    };
+                    const end = {
+                        x: Math.round(workspaceRect.left + Math.max(220, workspaceRect.width * 0.35)),
+                        y: Math.round(workspaceRect.top + Math.max(140, workspaceRect.height * 0.35))
+                    };
+                    const selectedCategoryId = mainWorkspace && mainWorkspace.toolbox_ &&
+                        mainWorkspace.toolbox_.getSelectedCategoryId();
+                    if (selectedCategoryId !== ${JSON.stringify(expectedCategoryId)}) return null;
+                    return {
+                        start,
+                        end,
+                        selectedCategoryId,
+                        visibleFlyoutTypes: flyoutWorkspace ? flyoutWorkspace.getTopBlocks(false)
+                            .filter(candidate => candidate.type.startsWith(prefix)).slice(0, 8)
+                            .map(candidate => candidate.type) : []
+                    };
+                })()`);
+                if (!points) await new Promise(resolve => setTimeout(resolve, 50));
+            }
+            if (!points) throw new Error(`No visible ${label} block was available for a real drag.`);
+            mainWindow.webContents.sendInputEvent({type: 'mouseMove', ...points.start});
+            await new Promise(resolve => setTimeout(resolve, 30));
+            mainWindow.webContents.sendInputEvent({type: 'mouseDown', ...points.start, button: 'left', clickCount: 1});
+            const steps = 10;
+            for (let step = 1; step <= steps; step++) {
+                mainWindow.webContents.sendInputEvent({
+                    type: 'mouseMove',
+                    x: points.start.x + Math.round((points.end.x - points.start.x) * step / steps),
+                    y: points.start.y + Math.round((points.end.y - points.start.y) * step / steps)
+                });
+                await new Promise(resolve => setTimeout(resolve, 15));
+            }
+            mainWindow.webContents.sendInputEvent({type: 'mouseUp', ...points.end, button: 'left', clickCount: 1});
+            let created = null;
+            const dropDeadline = Date.now() + 8000;
+            while (!created && Date.now() < dropDeadline) {
+                created = await mainWindow.webContents.executeJavaScript(`(() => {
+                    const target = window.vm.runtime.targets.find(candidate => !candidate.isStage);
+                    if (!target) return null;
+                    const blocks = Object.values(target.blocks._blocks).filter(block => block.topLevel);
+                    if (blocks.length <= ${before}) return null;
+                    return blocks.slice(${before}).map(block => ({id: block.id, opcode: block.opcode}));
+                })()`);
+                if (!created) await new Promise(resolve => setTimeout(resolve, 50));
+            }
+            if (!created || created.length === 0) {
+                throw new Error(`The real ${label} block drag did not add a workspace block.`);
+            }
+            return {created,
+                start: points.start,
+                end: points.end,
+                selectedCategoryId: points.selectedCategoryId,
+                visibleFlyoutTypes: points.visibleFlyoutTypes};
+        };
+        result.paletteDragSmoke = {
+            scratch: await dragWorkspaceBlock('.scratchCategoryId-motion', 'Scratch Motion'),
+            spike: await dragWorkspaceBlock('.scratchCategoryId-bw-spike-prime-motor', 'SPIKE motor')
+        };
+        if (!result.paletteDragSmoke.spike.created.some(block => block.opcode.startsWith('spikeprime_'))) {
+            throw new Error(`The real SPIKE toolbox drag did not produce a SPIKE opcode: ${
+                JSON.stringify(result.paletteDragSmoke)}`);
+        }
+        result.codeTabSmoke = await mainWindow.webContents.executeJavaScript(`(async () => {
+            const tabs = [...document.querySelectorAll('[role="tab"]')];
+            const codeTab = tabs.find(tab => /code|コード/i.test(tab.textContent.trim()));
+            if (!codeTab) throw new Error('The real Code tab was not found.');
+            const workspace = window.ScratchBlocks && window.ScratchBlocks.getMainWorkspace();
+            const sprite = window.vm.runtime.targets.find(target => !target.isStage && target.blocks);
+            const spikeModel = sprite && Object.values(sprite.blocks._blocks)
+                .find(block => /spikeprime_.*motorRunFor/i.test(block.opcode));
+            const spikeBlock = workspace && spikeModel && workspace.getBlockById(spikeModel.id);
+            const flagBlock = workspace && workspace.getAllBlocks(false)
+                .find(block => block.type === 'event_whenflagclicked' && block.nextConnection &&
+                    !block.nextConnection.targetConnection);
+            if (!spikeBlock || !spikeBlock.previousConnection || !flagBlock) {
+                throw new Error('A Scratch flag and SPIKE motor block were not available to create a mixed script.');
+            }
+            flagBlock.nextConnection.connect(spikeBlock.previousConnection);
+            codeTab.click();
+            const deadline = Date.now() + 8000;
+            let editor = null;
+            let fromBlocks = null;
+            while (Date.now() < deadline) {
+                editor = document.querySelector('[role="tabpanel"] textarea');
+                fromBlocks = [...document.querySelectorAll('[role="tabpanel"] button')]
+                    .find(button => /^from blocks/i.test(button.textContent.trim()));
+                if (editor && fromBlocks) break;
+                await new Promise(resolve => setTimeout(resolve, 30));
+            }
+            if (!editor || !fromBlocks) throw new Error('The Code tab editor or From blocks action did not render.');
+            fromBlocks.click();
+            const conversionDeadline = Date.now() + 15000;
+            let pseudocodeStatus = '';
+            while (Date.now() < conversionDeadline) {
+                editor = document.querySelector('[role="tabpanel"] textarea');
+                pseudocodeStatus = document.querySelector('[role="tabpanel"]')?.textContent || '';
+                const completed = /Read the current project into all three languages|Read into all three languages/
+                    .test(pseudocodeStatus);
+                if (editor && completed) break;
+                await new Promise(resolve => setTimeout(resolve, 50));
+            }
+            const pseudocode = editor && editor.value;
+            if (!pseudocode || !pseudocode.trim()) {
+                throw new Error('Scratch blocks did not convert to pseudocode in the Electron Code tab.');
+            }
+            const pythonTab = [...document.querySelectorAll('[role="tabpanel"] button[aria-pressed]')]
+                .find(button => /python/i.test(button.textContent));
+            if (!pythonTab) throw new Error('The Code tab Python conversion mode was unavailable.');
+            pythonTab.click();
+            fromBlocks = [...document.querySelectorAll('[role="tabpanel"] button')]
+                .find(button => /^from blocks/i.test(button.textContent.trim()));
+            fromBlocks.click();
+            const pythonDeadline = Date.now() + 15000;
+            let pythonStatus = '';
+            while (Date.now() < pythonDeadline) {
+                editor = document.querySelector('[role="tabpanel"] textarea');
+                pythonStatus = document.querySelector('[role="tabpanel"]')?.textContent || '';
+                const completed = /Read the current project into all three languages|Read into all three languages/
+                    .test(pythonStatus);
+                if (editor && completed) break;
+                await new Promise(resolve => setTimeout(resolve, 50));
+            }
+            const python = editor && editor.value;
+            const spikeCodeGenerated = Boolean(python && /_spikeprime[.]/.test(python));
+            if (!python || !python.trim() || /unsupported value block/i.test(python) || !spikeCodeGenerated) {
+                throw new Error('Scratch blocks did not convert to Python in the Electron Code tab: ' + JSON.stringify({
+                    python: python && python.slice(0, 1200), pythonStatus, pseudocodeStatus,
+                    spikeCodeGenerated
+                }));
+            }
+            return {pseudocodeGenerated: pseudocode.length > 0, pythonGenerated: python.length > 0,
+                spikeCodeGenerated,
+                containsSpikeBlockInProject: window.vm.runtime.targets.some(target => target.blocks &&
+                    Object.values(target.blocks._blocks).some(block => block.opcode.startsWith('spikeprime_')))};
+        })()`);
+        if (!result.codeTabSmoke.pseudocodeGenerated || !result.codeTabSmoke.pythonGenerated ||
+            !result.codeTabSmoke.containsSpikeBlockInProject) {
+            throw new Error(`Electron Code tab conversion smoke failed: ${JSON.stringify(result.codeTabSmoke)}`);
+        }
+        const codeTab = await mainWindow.webContents.executeJavaScript(`(() => {
+            const tab = [...document.querySelectorAll('[role="tab"]')]
+                .find(element => /code|コード/i.test(element.textContent.trim()));
+            if (!tab) return false;
+            const circuit = [...document.querySelectorAll('[role="tab"]')]
+                .find(element => /circuit|回路/i.test(element.textContent.trim()));
+            if (!circuit) throw new Error('The real Circuit tab was not found.');
+            circuit.click();
+            return true;
+        })()`);
+        if (!codeTab) throw new Error('Could not move from Code to Circuit tab.');
+        result.circuitTabSmoke = await mainWindow.webContents.executeJavaScript(`(async () => {
+            const deadline = Date.now() + 15000;
+            const tab = [...document.querySelectorAll('[role="tab"]')]
+                .find(element => /circuit|回路/i.test(element.textContent.trim()));
+            let panel = tab && document.getElementById(tab.getAttribute('aria-controls'));
+            while (Date.now() < deadline && (!panel || !panel.querySelector('button'))) {
+                await new Promise(resolve => setTimeout(resolve, 50));
+                panel = tab && document.getElementById(tab.getAttribute('aria-controls'));
+            }
+            if (!panel || !panel.textContent.includes('Parts')) {
+                throw new Error('Circuit designer did not load in Electron: ' +
+                    (panel ? panel.textContent.slice(0, 1200) : 'tab panel was missing'));
+            }
+            const partButton = label => [...panel.querySelectorAll('button')]
+                .find(button => button.textContent.trim() === label);
+            const led = partButton('+ LED');
+            const pot = partButton('+ Pot');
+            const simulate = partButton('Sim');
+            const power = partButton('POWER ON') || partButton('POWER OFF');
+            if (!led || !pot || !simulate || !power) throw new Error('Circuit editing controls are incomplete: ' +
+                JSON.stringify([...panel.querySelectorAll('button')].map(button => button.textContent.trim())));
+            const board = panel.querySelector('svg');
+            if (!board) throw new Error('Circuit board canvas was not rendered.');
+            const before = panel.querySelectorAll('wokwi-led, wokwi-potentiometer').length;
+            led.click();
+            pot.click();
+            const after = panel.querySelectorAll('wokwi-led, wokwi-potentiometer').length;
+            if (after <= before) throw new Error('Circuit part placement did not update the board.');
+            const powerBefore = power.textContent.trim();
+            power.click();
+            const powerDeadline = Date.now() + 2000;
+            while (Date.now() < powerDeadline && partButton(powerBefore)) {
+                await new Promise(resolve => setTimeout(resolve, 25));
+            }
+            const powerToggled = !partButton(powerBefore);
+            if (!powerToggled) throw new Error('Circuit power control did not change state.');
+            simulate.click();
+            const simDeadline = Date.now() + 2000;
+            while (Date.now() < simDeadline && !panel.textContent.includes('SIMULATING')) {
+                await new Promise(resolve => setTimeout(resolve, 25));
+            }
+            const simActive = panel.textContent.includes('SIMULATING');
+            if (!simActive) throw new Error('Circuit simulation mode did not start.');
+            const build = partButton('Build');
+            if (build) build.click();
+            return {designerLoaded: true, partsPlaced: after - before, powerToggled: true,
+                simulationStarted: simActive, returnedToBuildMode: Boolean(build)};
+        })()`);
+        if (!result.circuitTabSmoke.designerLoaded || result.circuitTabSmoke.partsPlaced < 2 ||
+            !result.circuitTabSmoke.powerToggled || !result.circuitTabSmoke.simulationStarted) {
+            throw new Error(`Electron Circuit tab smoke failed: ${JSON.stringify(result.circuitTabSmoke)}`);
+        }
+        smokeProgress('Scratch and SPIKE blocks were dragged from the real palette into the workspace');
+        smokeProgress('editor, SPIKE extension, and palette checks completed');
         result.devicePickerSmoke = {};
         for (const [kind, expression] of [
             ['bluetooth', 'navigator.bluetooth.requestDevice({acceptAllDevices: true})'],
             ['usb', 'navigator.usb.requestDevice({filters: [{vendorId: 0x0d28}]})']
         ]) {
-            result.devicePickerSmoke[kind] = await mainWindow.webContents.executeJavaScript(`(async () => {
-                try {
-                    await ${expression};
-                    return {outcome: 'resolved'};
-                } catch (error) {
-                    return {outcome: 'rejected', errorName: error.name};
-                }
+            const resultKey = `__brickwright${kind}ChooserResult`;
+            const initialEventCount = kind === 'bluetooth' ? bluetoothChooserEventCount : usbChooserEventCount;
+            await mainWindow.webContents.executeJavaScript(`(() => {
+                window[${JSON.stringify(resultKey)}] = null;
+                ${expression}.then(
+                    () => { window[${JSON.stringify(resultKey)}] = {outcome: 'resolved'}; },
+                    error => {
+                        window[${JSON.stringify(resultKey)}] = {outcome: 'rejected', errorName: error.name};
+                    }
+                );
+                return true;
             })()`, true);
+            let pickerResult = null;
+            const pickerDeadline = Date.now() + 5000;
+            while (!pickerResult && Date.now() < pickerDeadline) {
+                pickerResult = await mainWindow.webContents.executeJavaScript(
+                    `window[${JSON.stringify(resultKey)}]`
+                );
+                if (pickerResult) break;
+                if (kind === 'bluetooth' && bluetoothChooserEventCount > initialEventCount &&
+                    activeBluetoothDialogId !== null) {
+                    bluetoothQueue.cancel(activeBluetoothDialogId);
+                }
+                if (kind === 'usb' && usbChooserEventCount > initialEventCount && activeUsbDialogId !== null) {
+                    usbQueue.cancel(activeUsbDialogId);
+                }
+                await new Promise(resolve => setTimeout(resolve, 25));
+            }
+            if (!pickerResult) throw new Error(`The ${kind} chooser request did not settle after cancellation.`);
+            result.devicePickerSmoke[kind] = pickerResult;
         }
+        smokeProgress('native Bluetooth and USB cancellation checks completed');
+        const soundFixtureBase64 = fsSync.readFileSync(
+            path.join(__dirname, '..', 'test', 'fixtures', 'sneaker.wav')
+        ).toString('base64');
+        const expectedProjectOpcodes = {
+            scratch: result.paletteDragSmoke.scratch.created.map(block => block.opcode),
+            spike: result.paletteDragSmoke.spike.created.map(block => block.opcode)
+        };
+        result.fileOperations = await mainWindow.webContents.executeJavaScript(`(async () => {
+            const api = window.brickwrightDesktop && window.brickwrightDesktop.smokeFiles;
+            if (!api || !await api.enabled()) throw new Error('Electron smoke file adapter is unavailable.');
+            const filename = 'Brickwright_日本語 project with spaces.sb3';
+            const soundFixtureBase64 = ${JSON.stringify(soundFixtureBase64)};
+            const expectedProjectOpcodes = ${JSON.stringify(expectedProjectOpcodes)};
+            let savePickerCalls = 0;
+            let openPickerCalls = 0;
+            let getFileCalls = 0;
+            let lastMenuItemClicked = '';
+            const fileTrace = [];
+            window.confirm = () => true;
+            const waitFor = async (predicate, label) => {
+                const deadline = Date.now() + 20000;
+                while (Date.now() < deadline) {
+                    const value = await predicate();
+                    if (value) return value;
+                    await new Promise(resolve => setTimeout(resolve, 50));
+                }
+                throw new Error('Timed out waiting for ' + label + '.');
+            };
+            const toBase64 = chunk => {
+                const bytes = chunk instanceof Uint8Array ? chunk : new Uint8Array(chunk);
+                let binary = '';
+                for (let offset = 0; offset < bytes.length; offset += 0x8000) {
+                    binary += String.fromCharCode(...bytes.subarray(offset, offset + 0x8000));
+                }
+                return btoa(binary);
+            };
+            window.showSaveFilePicker = async () => {
+                savePickerCalls++;
+                const mode = await api.getMode();
+                fileTrace.push('picker-mode:' + mode);
+                fileTrace.push('stream-globals:' + [
+                    typeof AbortController,
+                    typeof ReadableStream,
+                    typeof WritableStream,
+                    typeof ByteLengthQueuingStrategy
+                ].join(','));
+                if (mode === 'cancel') {
+                    await api.setMode('normal');
+                    throw new DOMException('The user cancelled the save picker.', 'AbortError');
+                }
+                return {
+                    name: filename,
+                    async createWritable () {
+                        fileTrace.push('begin-write-requested');
+                        const {id} = await api.beginWrite();
+                        fileTrace.push('begin-write:' + id);
+                        const stream = new WritableStream({
+                            write: chunk => {
+                                fileTrace.push('write-chunk:' + (chunk.byteLength || chunk.length || 0));
+                                return api.write(id, toBase64(chunk));
+                            },
+                            close: () => {
+                                fileTrace.push('close-requested');
+                                return api.close(id);
+                            },
+                            abort: () => {
+                                fileTrace.push('abort-requested');
+                                return api.abort(id);
+                            }
+                        });
+                        const writer = stream.getWriter();
+                        return {
+                            write: chunk => writer.write(chunk),
+                            close: () => writer.close(),
+                            abort: reason => writer.abort(reason)
+                        };
+                    }
+                };
+            };
+            window.showOpenFilePicker = async () => {
+                openPickerCalls++;
+                fileTrace.push('open-picker-called');
+                if (await api.getMode() === 'cancel') {
+                    await api.setMode('normal');
+                    throw new DOMException('The user cancelled the open picker.', 'AbortError');
+                }
+                return [{
+                    name: filename,
+                    async getFile () {
+                        getFileCalls++;
+                        fileTrace.push('open-get-file');
+                        const saved = await api.read();
+                        const binary = atob(saved.base64);
+                        const bytes = new Uint8Array(binary.length);
+                        for (let index = 0; index < binary.length; index++) bytes[index] = binary.charCodeAt(index);
+                        return new File([bytes], saved.name, {type: 'application/octet-stream'});
+                    }
+                }];
+            };
+            const clickFileMenu = async () => {
+                const label = [...document.querySelectorAll('[class*="menu-bar-item"]')]
+                    .find(element => /^(file|ファイル)$/i.test(element.textContent.trim()));
+                if (!label) throw new Error('The File menu was not found.');
+                label.click();
+                await new Promise(resolve => setTimeout(resolve, 40));
+            };
+            const clickMenuItem = async matcher => {
+                if (!document.querySelector('li[class*="menu-item"]')) await clickFileMenu();
+                const item = [...document.querySelectorAll('li[class*="menu-item"]')]
+                    .find(element => matcher(element.textContent.trim()));
+                if (!item) {
+                    const labels = [...document.querySelectorAll('li[class*="menu-item"]')]
+                        .map(element => element.textContent.trim());
+                    throw new Error('Menu item not found. Available items: ' + labels.join(' | '));
+                }
+                item.click();
+                lastMenuItemClicked = item.textContent.trim();
+                await new Promise(resolve => setTimeout(resolve, 50));
+            };
+            const isSaveAsNew = text => text.toLowerCase() === 'save as...' || text.endsWith('として保存する');
+            const savedDigest = async () => {
+                const saved = await api.read();
+                const bytes = Uint8Array.from(atob(saved.base64), character => character.charCodeAt(0));
+                const digest = await crypto.subtle.digest('SHA-256', bytes);
+                return {
+                    name: saved.name,
+                    byteLength: saved.byteLength,
+                    digest: [...new Uint8Array(digest)].map(byte => byte.toString(16).padStart(2, '0')).join(''),
+                    zipHeader: bytes[0] === 0x50 && bytes[1] === 0x4b
+                };
+            };
+            const containsExpectedBlocks = () => {
+                const opcodes = window.vm.runtime.targets.flatMap(target => target.blocks ?
+                    Object.values(target.blocks._blocks).map(block => block.opcode) : []);
+                return expectedProjectOpcodes.scratch.every(opcode => opcodes.includes(opcode)) &&
+                    expectedProjectOpcodes.spike.every(opcode => opcodes.includes(opcode));
+            };
+            if (!window.vm.runtime.targets.some(target => !target.isStage && target.blocks)) {
+                throw new Error('The real editor sprite block store was unavailable.');
+            }
+            let vmLoadProjectCalls = 0;
+            let vmLoadProjectResolved = 0;
+            let loadInputMatchesSavedFile = false;
+            const originalLoadProject = window.vm.loadProject.bind(window.vm);
+            window.vm.loadProject = (...args) => {
+                vmLoadProjectCalls++;
+                fileTrace.push('vm-load-project-called');
+                return (async () => {
+                    const saved = await api.read();
+                    const expected = Uint8Array.from(atob(saved.base64), character => character.charCodeAt(0));
+                    const input = args[0] instanceof ArrayBuffer ? new Uint8Array(args[0]) :
+                        ArrayBuffer.isView(args[0]) ? new Uint8Array(
+                            args[0].buffer,
+                            args[0].byteOffset,
+                            args[0].byteLength
+                        ) : null;
+                    loadInputMatchesSavedFile = Boolean(input && input.length === expected.length &&
+                        input.every((byte, index) => byte === expected[index]));
+                    return originalLoadProject(...args);
+                })().then(value => {
+                    vmLoadProjectResolved++;
+                    fileTrace.push('vm-load-project-resolved:file-match=' + loadInputMatchesSavedFile);
+                    return value;
+                }, error => {
+                    fileTrace.push('vm-load-project-rejected:' + (error && error.message));
+                    throw error;
+                });
+            };
+            const originalFileReaderRead = FileReader.prototype.readAsArrayBuffer;
+            FileReader.prototype.readAsArrayBuffer = function (...args) {
+                fileTrace.push('file-reader-read');
+                return originalFileReaderRead.apply(this, args);
+            };
+            await clickMenuItem(isSaveAsNew);
+            try {
+                await waitFor(async () => api.read(), 'actual SB3 file creation');
+            } catch (error) {
+                throw new Error(
+                    error.message + ' savePickerCalls=' + savePickerCalls + ', menuItem=' + lastMenuItemClicked +
+                    ', fileTrace=' + fileTrace.join('|')
+                );
+            }
+            const initialFile = await savedDigest();
+            if (initialFile.name !== filename || !initialFile.zipHeader || initialFile.byteLength < 1) {
+                throw new Error('The product save flow did not create a valid SB3 file.');
+            }
+
+            if (!containsExpectedBlocks()) {
+                throw new Error('The real Scratch and SPIKE toolbox blocks were not saved in the project.');
+            }
+            const soundsTab = [...document.querySelectorAll('[role="tab"]')]
+                .find(tab => /^(sounds|音)$/i.test(tab.textContent.trim()));
+            if (!soundsTab) throw new Error('The real Scratch Sounds tab was not found.');
+            soundsTab.click();
+            const soundInput = await waitFor(async () => document.querySelector('input[type="file"][accept*=".wav"]'),
+                'the real sound upload input');
+            const soundBinary = atob(soundFixtureBase64);
+            const soundBytes = Uint8Array.from(soundBinary, character => character.charCodeAt(0));
+            const soundTransfer = new DataTransfer();
+            soundTransfer.items.add(new File([soundBytes], 'sneaker.wav', {type: 'audio/wav'}));
+            Object.defineProperty(soundInput, 'files', {configurable: true, value: soundTransfer.files});
+            soundInput.dispatchEvent(new Event('change', {bubbles: true}));
+            await waitFor(async () => window.vm.editingTarget && window.vm.editingTarget.sprite.sounds.length > 0,
+                'the real sound upload into the Scratch project');
+            const blocksTab = [...document.querySelectorAll('[role="tab"]')]
+                .find(tab => /^(blocks|ブロック)$/i.test(tab.textContent.trim()));
+            if (blocksTab) blocksTab.click();
+
+            await clickMenuItem(text => text.includes(filename));
+            const updatedFile = await waitFor(async () => {
+                if (fileTrace.filter(entry => entry === 'close-requested').length < 2) return null;
+                const current = await savedDigest();
+                return current.digest !== initialFile.digest ? current : null;
+            }, 'the edited project overwrite to the existing SB3 file');
+            await clickMenuItem(text => /load from your computer/i.test(text) || /コンピューター.*読み込/.test(text));
+            try {
+                await waitFor(async () => vmLoadProjectResolved > 0 && loadInputMatchesSavedFile &&
+                    containsExpectedBlocks() &&
+                    window.vm.runtime.targets.some(target => target.isStage) &&
+                    window.vm.runtime.targets.some(target => !target.isStage),
+                'project reload from the actual SB3 file');
+            } catch (error) {
+                throw new Error(error.message + ' openPickerCalls=' + openPickerCalls +
+                    ', getFileCalls=' + getFileCalls + ', menuItem=' + lastMenuItemClicked +
+                    ', vmLoadProjectCalls=' + vmLoadProjectCalls +
+                    ', loadInputMatchesSavedFile=' + loadInputMatchesSavedFile +
+                    ', containsExpectedBlocks=' + containsExpectedBlocks() +
+                    ', vmTargets=' + window.vm.runtime.targets.length +
+                    ', loadedOpcodes=' + window.vm.runtime.targets.flatMap(target => target.blocks ?
+                        Object.values(target.blocks._blocks).map(block => block.opcode) : []).slice(-15).join(',') +
+                    ', fileTrace=' + fileTrace.join('|'));
+            }
+            const media = window.vm.runtime.targets.reduce((result, target) => ({
+                costumes: result.costumes + (target.sprite && target.sprite.costumes ?
+                    target.sprite.costumes.length : 0),
+                sounds: result.sounds + (target.sprite && target.sprite.sounds ?
+                    target.sprite.sounds.length : 0)
+            }), {costumes: 0, sounds: 0});
+
+            await api.setMode('cancel');
+            await clickMenuItem(isSaveAsNew);
+            await new Promise(resolve => setTimeout(resolve, 200));
+            const afterCancelledPicker = await savedDigest();
+            const saveCancelPreservedFile = afterCancelledPicker.digest === updatedFile.digest;
+            const openCallsBeforeCancel = vmLoadProjectCalls;
+            await api.setMode('cancel');
+            await clickMenuItem(text => /load from your computer/i.test(text) || /コンピューター.*読み込/.test(text));
+            await new Promise(resolve => setTimeout(resolve, 200));
+            const targetsAfterOpen = window.vm.runtime.targets.length;
+            const openCancelPreservedProject = targetsAfterOpen > 0 && vmLoadProjectCalls === openCallsBeforeCancel;
+            await api.setMode('normal');
+
+            await api.setMode('fail-close');
+            await clickMenuItem(text => text.includes(filename));
+            await new Promise(resolve => setTimeout(resolve, 500));
+            const afterFailedReplace = await savedDigest();
+            const failedReplacementPreservedFile = afterFailedReplace.digest === updatedFile.digest;
+
+            await api.setMode('deny');
+            await clickMenuItem(text => text.includes(filename));
+            await new Promise(resolve => setTimeout(resolve, 300));
+            const afterDeniedWrite = await savedDigest();
+            const deniedWritePreservedFile = afterDeniedWrite.digest === updatedFile.digest;
+            await api.setMode('normal');
+
+            const operations = await api.read();
+            const result = {
+                fileName: operations.name,
+                fileByteLength: operations.byteLength,
+                initialFile,
+                updatedFile,
+                failedReplacementPreservedFile,
+                deniedWritePreservedFile,
+                saveCancelPreservedFile,
+                openCancelPreservedProject,
+                projectReloaded: vmLoadProjectResolved > 0 && loadInputMatchesSavedFile && containsExpectedBlocks(),
+                savedScratchAndSpikeBlocks: containsExpectedBlocks(),
+                costumeCount: media.costumes,
+                soundCount: media.sounds,
+                actualFilePickerFlow: true
+            };
+            if (!failedReplacementPreservedFile || !deniedWritePreservedFile ||
+                !saveCancelPreservedFile || !openCancelPreservedProject || !result.projectReloaded) {
+                throw new Error('Electron file operation smoke failed: ' + JSON.stringify(result));
+            }
+            return result;
+        })()`, true);
+        smokeProgress('actual SB3 save, open, cancel, and failure-preservation checks completed');
+        const simulatedDeviceId = `smoke-spike-${process.pid}`;
+        const simulatedSelectionResults = [];
+        const simulatedSessionIds = [];
+        for (let index = 0; index < 10; index++) {
+            const devices = index === 0 ? [
+                {deviceId: simulatedDeviceId, deviceName: 'SPIKE Prime (simulated)'}
+            ] : index < 5 ? [
+                {deviceId: simulatedDeviceId, deviceName: 'SPIKE Prime (simulated)'},
+                {deviceId: `${simulatedDeviceId}-essential`, deviceName: 'SPIKE Essential (simulated)'}
+            ] : [
+                {deviceId: `${simulatedDeviceId}-essential`, deviceName: 'SPIKE Essential (simulated)'}
+            ];
+            simulatedSessionIds.push(handleBluetoothSelectionRequest(
+                bluetoothQueue,
+                {preventDefault () {}},
+                devices,
+                selectedId => simulatedSelectionResults.push(selectedId)
+            ));
+        }
+        const simulatedBluetoothRequestId = simulatedSessionIds[0];
+        if (!simulatedBluetoothRequestId || simulatedSessionIds.some(id => id !== simulatedBluetoothRequestId)) {
+            throw new Error('Repeated Bluetooth discovery events were not kept in one picker session.');
+        }
+        const simulatedPickerWindow = bluetoothWindow;
+        if (!simulatedPickerWindow || simulatedPickerWindow.isDestroyed()) {
+            throw new Error('The simulated Bluetooth request did not open the real app picker window.');
+        }
+        await simulatedPickerWindow.webContents.executeJavaScript(`(async () => {
+            const deadline = Date.now() + 10000;
+            while (Date.now() < deadline) {
+                const candidate = [...document.querySelectorAll('.device')]
+                    .find(button => button.textContent.includes('SPIKE Essential (simulated)'));
+                const choices = document.querySelectorAll('.device');
+                if (candidate && choices.length === 1) {
+                    candidate.click();
+                    const connect = document.getElementById('connect');
+                    connect.click();
+                    connect.click();
+                    return true;
+                }
+                await new Promise(resolve => setTimeout(resolve, 25));
+            }
+            throw new Error('The simulated device was not rendered in the real Bluetooth picker.');
+        })()`);
+        const selectionDeadline = Date.now() + 10000;
+        while (simulatedSelectionResults.length !== 10 && Date.now() < selectionDeadline) {
+            await new Promise(resolve => setTimeout(resolve, 25));
+        }
+        if (simulatedSelectionResults.length !== 10 ||
+            simulatedSelectionResults.some(id => id !== `${simulatedDeviceId}-essential`)) {
+            const resultDetails = JSON.stringify(simulatedSelectionResults);
+            throw new Error(
+                `The Bluetooth picker did not settle all repeated callbacks: ${resultDetails}`
+            );
+        }
+        const simulatedCancelResults = [];
+        handleBluetoothSelectionRequest(bluetoothQueue, {preventDefault () {}}, [
+            {deviceId: `${simulatedDeviceId}-cancel`, deviceName: 'Cancel test device'}
+        ], selectedId => simulatedCancelResults.push(selectedId));
+        const cancelPickerWindow = bluetoothWindow;
+        if (!cancelPickerWindow || cancelPickerWindow.isDestroyed()) {
+            throw new Error('A subsequent Bluetooth selection request did not open a fresh picker session.');
+        }
+        await cancelPickerWindow.webContents.executeJavaScript(`(async () => {
+            const deadline = Date.now() + 10000;
+            while (Date.now() < deadline) {
+                const cancel = document.getElementById('cancel');
+                if (cancel && document.querySelector('.device')) {
+                    cancel.click();
+                    return true;
+                }
+                await new Promise(resolve => setTimeout(resolve, 25));
+            }
+            throw new Error('The real Bluetooth picker cancel button did not become available.');
+        })()`);
+        const cancelDeadline = Date.now() + 5000;
+        while (!simulatedCancelResults.length && Date.now() < cancelDeadline) {
+            await new Promise(resolve => setTimeout(resolve, 25));
+        }
+        if (simulatedCancelResults.length !== 1 || simulatedCancelResults[0] !== '') {
+            throw new Error('The real Bluetooth picker cancel action did not settle its request exactly once.');
+        }
+        result.bluetoothSelectionSimulation = {
+            repeatedDiscoveryEvents: simulatedSessionIds.length,
+            uniqueRequestSessions: new Set(simulatedSessionIds).size,
+            callbacksSettled: simulatedSelectionResults.length,
+            selectedDeviceId: simulatedSelectionResults[0],
+            cancelSettlements: simulatedCancelResults.length,
+            explicitCancelValue: simulatedCancelResults[0],
+            addedAndRemovedDeviceListObserved: true,
+            pickerWindowSelection: true
+        };
+        smokeProgress('application Bluetooth picker selection and cancellation checks completed');
         result.bluetoothChooserEventCount = bluetoothChooserEventCount;
         result.usbChooserEventCount = usbChooserEventCount;
         if (reportPath) fsSync.writeFileSync(reportPath, JSON.stringify(result, null, 2));
@@ -829,6 +1575,91 @@ if (hasSingleInstanceLock) {
         const info = await readBuildInfo();
         return openExternalReference(`https://github.com/NHtoyo/brickwright-jp/tree/${encodeURIComponent(info.commit)}`);
     });
+    const requireSmokeFileContext = event => {
+        if (process.env.BRICKWRIGHT_DESKTOP_SMOKE !== '1' ||
+            event.sender !== (mainWindow && mainWindow.webContents) ||
+            !isTrustedAppURL(event.sender.getURL())) {
+            throw new Error('Smoke file access is available only to the trusted development smoke window.');
+        }
+        const configuredRoot = process.env.BRICKWRIGHT_SMOKE_FILE_ROOT;
+        if (!configuredRoot) throw new Error('The smoke file root was not configured.');
+        const root = path.resolve(configuredRoot);
+        return {
+            root,
+            target: path.join(root, SMOKE_PROJECT_FILENAME)
+        };
+    };
+    ipcMain.handle('desktop:smoke-files-enabled', event => {
+        requireSmokeFileContext(event);
+        return true;
+    });
+    ipcMain.handle('desktop:smoke-files-get-mode', event => {
+        requireSmokeFileContext(event);
+        return smokeFileMode;
+    });
+    ipcMain.handle('desktop:smoke-files-set-mode', (event, mode) => {
+        requireSmokeFileContext(event);
+        if (!['normal', 'cancel', 'deny', 'fail-close'].includes(mode)) {
+            throw new Error('Unsupported smoke file mode.');
+        }
+        smokeFileMode = mode;
+        return true;
+    });
+    ipcMain.handle('desktop:smoke-files-begin-write', async event => {
+        const {root, target} = requireSmokeFileContext(event);
+        if (smokeFileMode === 'deny') throw new Error('EACCES: simulated save access denied');
+        const failClose = smokeFileMode === 'fail-close';
+        if (failClose) smokeFileMode = 'normal';
+        await fs.mkdir(root, {recursive: true});
+        const id = ++smokeFileSequence;
+        const temporary = path.join(root, `${SMOKE_PROJECT_FILENAME}.${id}.partial`);
+        const file = await fs.open(temporary, 'w');
+        smokeFileWriters.set(id, {file, temporary, target, failClose});
+        return {id, name: SMOKE_PROJECT_FILENAME};
+    });
+    ipcMain.handle('desktop:smoke-files-write', async (event, payload) => {
+        requireSmokeFileContext(event);
+        const writer = payload && smokeFileWriters.get(payload.id);
+        if (!writer || typeof payload.base64 !== 'string' || payload.base64.length > 16 * 1024 * 1024) {
+            throw new Error('Invalid smoke file write request.');
+        }
+        await writer.file.write(Buffer.from(payload.base64, 'base64'));
+        return true;
+    });
+    ipcMain.handle('desktop:smoke-files-close', async (event, id) => {
+        requireSmokeFileContext(event);
+        const writer = smokeFileWriters.get(id);
+        if (!writer) throw new Error('The smoke file writer is no longer active.');
+        smokeFileWriters.delete(id);
+        await writer.file.sync();
+        await writer.file.close();
+        if (writer.failClose) {
+            await fs.rm(writer.temporary, {force: true});
+            throw new Error('EIO: simulated atomic replacement failure');
+        }
+        await fs.rename(writer.temporary, writer.target);
+        return true;
+    });
+    ipcMain.handle('desktop:smoke-files-abort', async (event, id) => {
+        const {root} = requireSmokeFileContext(event);
+        const writer = smokeFileWriters.get(id);
+        if (!writer) return false;
+        smokeFileWriters.delete(id);
+        await writer.file.close().catch(() => {});
+        if (path.dirname(writer.temporary) !== root) throw new Error('Invalid smoke file path.');
+        await fs.rm(writer.temporary, {force: true});
+        return true;
+    });
+    ipcMain.handle('desktop:smoke-files-read', async event => {
+        const {target} = requireSmokeFileContext(event);
+        try {
+            const contents = await fs.readFile(target);
+            return {name: SMOKE_PROJECT_FILENAME, base64: contents.toString('base64'), byteLength: contents.length};
+        } catch (error) {
+            if (error && error.code === 'ENOENT') return null;
+            throw error;
+        }
+    });
     ipcMain.on('desktop:activity', (event, nextActivity) => {
         if (!isTrustedAppURL(event.sender.getURL()) || !nextActivity || typeof nextActivity !== 'object') return;
         activity = {
@@ -879,6 +1710,10 @@ if (hasSingleInstanceLock) {
     })
         .catch(error => {
             console.error('Brickwright failed to start:', error && error.stack ? error.stack : error);
+            if (process.env.BRICKWRIGHT_DESKTOP_SMOKE === '1') {
+                app.exit(1);
+                return;
+            }
             app.quit();
         });
 

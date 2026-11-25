@@ -151,7 +151,26 @@ const words = {
         diagnostics: 'Communication diagnostics',
         diagnosticsLog: 'Open diagnostics log',
         controllerSettings: 'Controller setup',
-        noConnectedDevices: 'No connected devices'
+        noConnectedDevices: 'No connected devices',
+        sensorDiagnostics: 'Sensor communication details',
+        sensorTargetInterval: 'Target interval',
+        sensorAverageInterval: 'Average receive interval',
+        sensorMedianInterval: 'Median receive interval',
+        sensorP95Interval: '95th percentile interval',
+        sensorEffectiveRate: 'Effective receive rate',
+        sensorLastSampleAge: 'Age of last sample',
+        sensorReadRequests: 'Read requests sent',
+        sensorQueueExpired: 'Queued reads expired',
+        sensorWriteFailed: 'BLE writes failed',
+        sensorNoSample: 'No response after write',
+        sensorNotifications: 'Unsolicited notifications',
+        sensorUnattributed: 'Unattributed samples',
+        sensorBackoff: 'Current poll interval',
+        sensorCommunicationState: 'Communication state',
+        sensorMode: 'Measurement mode',
+        sensorAttachment: 'Attachment ID',
+        sensorLastError: 'Last error',
+        sensorNoDiagnostics: 'No measurements yet'
     },
     ja: {
         title: 'LEGO ハブ',
@@ -279,7 +298,26 @@ const words = {
         diagnostics: '通信診断',
         diagnosticsLog: '診断ログを開く',
         controllerSettings: '制御プログラムの設定',
-        noConnectedDevices: '接続されている機器はありません'
+        noConnectedDevices: '接続されている機器はありません',
+        sensorDiagnostics: 'センサー通信の詳細',
+        sensorTargetInterval: '目標間隔',
+        sensorAverageInterval: '平均受信間隔',
+        sensorMedianInterval: '受信間隔の中央値',
+        sensorP95Interval: '受信間隔の95パーセンタイル',
+        sensorEffectiveRate: '実効受信頻度',
+        sensorLastSampleAge: '最終測定からの経過',
+        sensorReadRequests: '読出要求の送信数',
+        sensorQueueExpired: 'キュー期限切れ',
+        sensorWriteFailed: 'BLE書込失敗',
+        sensorNoSample: '書込後の無応答',
+        sensorNotifications: '自発通知',
+        sensorUnattributed: '帰属不明サンプル',
+        sensorBackoff: '現在のポーリング間隔',
+        sensorCommunicationState: '通信状態',
+        sensorMode: '測定モード',
+        sensorAttachment: '接続ID',
+        sensorLastError: '最終エラー',
+        sensorNoDiagnostics: '測定値はまだありません'
     }
 };
 
@@ -1092,6 +1130,59 @@ class SpikePrimeControlCenter extends React.Component {
         return <div className={styles.muted}>{this.getWords().lastUpdate.replace('{seconds}', seconds)}</div>;
     }
 
+    renderSensorDiagnostics (port, reading, snapshot, w) {
+        const diagnostics = snapshot && snapshot.diagnostics;
+        const schedulerPort = diagnostics && diagnostics.sensorScheduler &&
+            diagnostics.sensorScheduler.ports && diagnostics.sensorScheduler.ports[port];
+        const telemetry = schedulerPort || (reading && reading.sensorTelemetry);
+        if (!telemetry) return <div className={styles.muted}>{w.sensorNoDiagnostics}</div>;
+        const formatMs = value => {
+            if (!hasNumber(value)) return '—';
+            return `${Number(value).toFixed(1)} ms`;
+        };
+        const formatCount = value => {
+            if (!hasNumber(value)) return '—';
+            return String(value);
+        };
+        const formatHz = value => {
+            if (!hasNumber(value)) return '—';
+            return `${Number(value).toFixed(2)} Hz`;
+        };
+        const age = telemetry.lastSampleAgeMs ?? telemetry.latestSampleAgeMs ?? telemetry.staleAgeMs;
+        const entries = [
+            [w.sensorTargetInterval, formatMs(telemetry.targetIntervalMs)],
+            [w.sensorAverageInterval, formatMs(telemetry.averageIntervalMs)],
+            [w.sensorMedianInterval, formatMs(telemetry.medianIntervalMs)],
+            [w.sensorP95Interval, formatMs(telemetry.p95IntervalMs)],
+            [w.sensorEffectiveRate, formatHz(telemetry.effectiveHz)],
+            [w.sensorLastSampleAge, formatMs(age)],
+            [w.sensorReadRequests, formatCount(telemetry.pollsSent)],
+            [w.sensorQueueExpired, formatCount(telemetry.queuedExpirations)],
+            [w.sensorWriteFailed, formatCount(telemetry.writeFailures)],
+            [w.sensorNoSample, formatCount(telemetry.noSampleCount ?? telemetry.pollTimeouts)],
+            [w.sensorNotifications, formatCount(telemetry.spontaneousNotificationCount ?? telemetry.notificationCount)],
+            [w.sensorUnattributed, formatCount(telemetry.ambiguousResponseCount ?? telemetry.unattributedSampleCount)],
+            [w.sensorBackoff, formatMs(telemetry.currentPollIntervalMs)],
+            [w.sensorCommunicationState, telemetry.communicationState || telemetry.state || '—'],
+            [w.sensorMode, Number.isInteger(telemetry.mode) ? `Mode ${telemetry.mode}` : '—'],
+            [w.sensorAttachment, reading.attachmentId ?? telemetry.attachmentId ?? '—'],
+            [w.sensorLastError, telemetry.lastError || '—']
+        ];
+        return (
+            <details className={styles.sensorDiagnostics}>
+                <summary>{w.sensorDiagnostics}</summary>
+                <dl className={styles.sensorDiagnosticList}>
+                    {entries.map(([label, value]) => (
+                        <React.Fragment key={label}>
+                            <dt>{label}</dt>
+                            <dd>{String(value)}</dd>
+                        </React.Fragment>
+                    ))}
+                </dl>
+            </details>
+        );
+    }
+
     getPortFreshness (port, reading, snapshot) {
         const schedulerPort = snapshot && snapshot.diagnostics && snapshot.diagnostics.sensorScheduler &&
             snapshot.diagnostics.sensorScheduler.ports && snapshot.diagnostics.sensorScheduler.ports[port];
@@ -1355,6 +1446,8 @@ class SpikePrimeControlCenter extends React.Component {
                     {w.matrix}{': '}{reading.pixels ? reading.pixels.length : '—'}
                 </div> : null}
                 {attached ? this.renderLastUpdate(receivedAt) : null}
+                {type && effectiveModel === 'essential' ?
+                    this.renderSensorDiagnostics(port, reading, snapshot, w) : null}
             </div>
         );
     }

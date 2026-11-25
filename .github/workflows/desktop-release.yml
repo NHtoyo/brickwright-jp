@@ -22,6 +22,7 @@ jobs:
     runs-on: ubuntu-latest
     outputs:
       commit: ${{ steps.source.outputs.commit }}
+      web_artifact_digest: ${{ steps.web_artifact.outputs.artifact-digest }}
     env:
       RELEASE_VERSION_INPUT: ${{ github.event.inputs.version || github.ref_name }}
     steps:
@@ -63,6 +64,10 @@ jobs:
           NODE_ENV: production
           NODE_OPTIONS: --max-old-space-size=8192
         run: npm run build
+      - name: Prepare provenance-checked web runtime license data
+        env:
+          BRICKWRIGHT_BUILD_COMMIT: ${{ steps.source.outputs.commit }}
+        run: node desktop/scripts/generate-notices.mjs --web-only
       - name: Install a ChromeDriver matching the runner Chrome
         run: npm rebuild chromedriver --no-audit --no-fund
         env:
@@ -70,6 +75,7 @@ jobs:
       - run: npm run test:integration
       - run: npm run desktop:asset-inventory
       - uses: actions/upload-artifact@v4
+        id: web_artifact
         with:
           name: brickwright-release-web-${{ steps.source.outputs.commit }}
           path: |
@@ -83,7 +89,11 @@ jobs:
           BRICKWRIGHT_RELEASE_VERSION: ${{ github.event.inputs.version || github.ref_name }}
           BRICKWRIGHT_BUILD_COMMIT: ${{ steps.source.outputs.commit }}
       - run: npm run prepare:assets --prefix desktop
-      - run: node desktop/scripts/generate-notices.mjs
+      - name: Merge checked web and desktop license inventories
+        run: node desktop/scripts/generate-notices.mjs
+        env:
+          BRICKWRIGHT_BUILD_COMMIT: ${{ steps.source.outputs.commit }}
+          BRICKWRIGHT_WEB_ARTIFACT_SHA256: ${{ steps.web_artifact.outputs.artifact-digest }}
       - run: npm run test --prefix desktop
       - run: xvfb-run -a npm run smoke --prefix desktop
       - run: node desktop/scripts/generate-source-archive.mjs
@@ -143,7 +153,11 @@ jobs:
           BRICKWRIGHT_BUILD_COMMIT: ${{ steps.source.outputs.commit }}
       - run: npm ci --prefix desktop --no-audit --no-fund
       - run: npm run prepare:assets --prefix desktop
-      - run: node desktop/scripts/generate-notices.mjs
+      - name: Merge checked web and desktop license inventories
+        run: node desktop/scripts/generate-notices.mjs
+        env:
+          BRICKWRIGHT_BUILD_COMMIT: ${{ steps.source.outputs.commit }}
+          BRICKWRIGHT_WEB_ARTIFACT_SHA256: ${{ needs.quality-and-rights.outputs.web_artifact_digest }}
       - name: Build signed Windows installer
         shell: pwsh
         env:
@@ -217,7 +231,11 @@ jobs:
           BRICKWRIGHT_BUILD_COMMIT: ${{ steps.source.outputs.commit }}
       - run: npm ci --prefix desktop --no-audit --no-fund
       - run: npm run prepare:assets --prefix desktop
-      - run: node desktop/scripts/generate-notices.mjs
+      - name: Merge checked web and desktop license inventories
+        run: node desktop/scripts/generate-notices.mjs
+        env:
+          BRICKWRIGHT_BUILD_COMMIT: ${{ steps.source.outputs.commit }}
+          BRICKWRIGHT_WEB_ARTIFACT_SHA256: ${{ needs.quality-and-rights.outputs.web_artifact_digest }}
       - name: Build signed macOS universal DMG
         run: |
           release_version="${RELEASE_VERSION_INPUT#v}"

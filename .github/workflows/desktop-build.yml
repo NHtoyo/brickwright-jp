@@ -18,6 +18,8 @@ jobs:
   quality:
     if: github.event_name != 'pull_request' || github.event.pull_request.head.ref == 'work/spikeprime-control-center-ui'
     runs-on: ubuntu-latest
+    outputs:
+      web_artifact_digest: ${{ steps.web_artifact.outputs.artifact-digest }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -47,11 +49,13 @@ jobs:
           desktop/bluetooth-selector.js
           desktop/main.cjs
           desktop/preload.cjs
+          desktop/scripts/generate-notices.mjs
           desktop/scripts/smoke-test.cjs
           desktop/scripts/stage-desktop.mjs
           desktop/tests/activity-guard.test.cjs
           desktop/tests/bluetooth-selection.test.cjs
           desktop/tests/close-policy.test.cjs
+          desktop/tests/license-provenance.test.cjs
           desktop/tests/navigation.test.cjs
           desktop/tests/permission-policy.test.cjs
           desktop/tests/usb-device-policy.test.cjs
@@ -70,6 +74,11 @@ jobs:
           NODE_ENV: production
           NODE_OPTIONS: --max-old-space-size=8192
         run: npm run build
+      - name: Prepare provenance-checked web runtime license data
+        if: ${{ success() }}
+        env:
+          BRICKWRIGHT_BUILD_COMMIT: ${{ github.sha }}
+        run: node desktop/scripts/generate-notices.mjs --web-only
       - name: Install a ChromeDriver matching the runner Chrome
         run: npm rebuild chromedriver --no-audit --no-fund
         env:
@@ -82,6 +91,7 @@ jobs:
       - name: Publish the single tested web build for desktop jobs
         if: ${{ success() }}
         uses: actions/upload-artifact@v4
+        id: web_artifact
         with:
           name: brickwright-web-${{ github.sha }}
           path: |
@@ -168,6 +178,9 @@ jobs:
           npm run prepare:assets --prefix desktop
           node desktop/scripts/generate-notices.mjs
           node desktop/scripts/check-distribution-compliance.mjs
+        env:
+          BRICKWRIGHT_BUILD_COMMIT: ${{ github.sha }}
+          BRICKWRIGHT_WEB_ARTIFACT_SHA256: ${{ needs.quality.outputs.web_artifact_digest }}
       - name: Run desktop security and chooser tests
         run: npm run test --prefix desktop
       - name: Smoke test the secure app origin
@@ -278,6 +291,9 @@ jobs:
           npm run prepare:assets --prefix desktop
           node desktop/scripts/generate-notices.mjs
           node desktop/scripts/check-distribution-compliance.mjs
+        env:
+          BRICKWRIGHT_BUILD_COMMIT: ${{ github.sha }}
+          BRICKWRIGHT_WEB_ARTIFACT_SHA256: ${{ needs.quality.outputs.web_artifact_digest }}
       - name: Run desktop security and chooser tests
         run: npm run test --prefix desktop
       - name: Smoke test the secure app origin

@@ -164,6 +164,39 @@
     margin: 8px 0;
 }
 
+.sensor-diagnostics {
+    border-top: 1px solid #e2e8f0;
+    font-size: 0.72rem;
+    margin-top: 8px;
+    padding-top: 6px;
+}
+
+.sensor-diagnostics summary {
+    color: #475569;
+    cursor: pointer;
+    font-weight: 600;
+}
+
+.sensor-diagnostic-list {
+    display: grid;
+    gap: 3px 8px;
+    grid-template-columns: minmax(0, 1fr) auto;
+    margin: 6px 0 0;
+}
+
+.sensor-diagnostic-list dt {
+    color: #64748b;
+    min-width: 0;
+}
+
+.sensor-diagnostic-list dd {
+    font-variant-numeric: tabular-nums;
+    margin: 0;
+    max-width: 240px;
+    overflow-wrap: anywhere;
+    text-align: right;
+}
+
 .hub-button {
     align-items: center;
     background: transparent;

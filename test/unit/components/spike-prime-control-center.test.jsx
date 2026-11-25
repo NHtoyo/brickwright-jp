@@ -251,7 +251,7 @@ describe('SPIKE Prime control center', () => {
         expect(component.find('[aria-label^="A:"]').prop('aria-label')).toContain('0');
         expect(component.find('[aria-label^="F:"]')).toHaveLength(0);
         expect(component.find('[aria-label^="B:"]').prop('aria-label')).toContain('赤');
-        component.find('button[aria-label^="LEGO ハブ:"]').simulate('click');
+        component.find('button[aria-expanded]').simulate('click');
         expect(component.text()).toContain('古い値');
         expect(component.text()).not.toContain('10°');
         expect(component.text()).not.toContain('0 mm');
@@ -367,7 +367,7 @@ describe('SPIKE Prime control center', () => {
         const component = mount(<SpikePrimeControlCenter intl={{locale: 'ja-JP'}} vm={vm} />);
         expect(component.find('[aria-label^="A:"]').prop('aria-label')).toContain('まだ受信していません');
         expect(component.find('[aria-label^="A:"]').prop('aria-label')).not.toContain('1506°');
-        component.find('button[aria-label^="LEGO ハブ:"]').simulate('click');
+        component.find('button[aria-expanded]').simulate('click');
         expect(component.text()).toContain('APOS（0～359°）: —');
         expect(component.text()).toContain('POS（累積角度）: 1506 °');
         expect(component.text()).toContain('実測速度: 0 %');
@@ -401,7 +401,7 @@ describe('SPIKE Prime control center', () => {
         expect(component.find('[aria-label^="A:"]').prop('aria-label')).not.toContain('0°');
         expect(component.find('[aria-label^="B:"]')).toHaveLength(0);
         expect(component.text()).not.toContain('92');
-        component.find('button[aria-label^="LEGO ハブ:"]').simulate('click');
+        component.find('button[aria-expanded]').simulate('click');
         expect(component.text()).toContain('小型モーター');
         expect(component.text()).toContain('最終受信：約');
         expect(component.text()).toContain('古い値');
@@ -418,7 +418,7 @@ describe('SPIKE Prime control center', () => {
         const component = mount(
             <SpikePrimeControlCenter intl={{locale: 'ja-JP'}} vm={vm} />
         );
-        component.find('button[aria-label^="LEGO ハブ:"]').simulate('click');
+        component.find('button[aria-expanded]').simulate('click');
         await act(async () => {
             component.find('button').filterWhere(button => button.text() === 'ハブのプログラムを停止')
                 .simulate('click');
@@ -441,7 +441,7 @@ describe('SPIKE Prime control center', () => {
         const component = mount(
             <SpikePrimeControlCenter intl={{locale: 'ja-JP'}} vm={vm} />
         );
-        component.find('button[aria-label^="LEGO ハブ:"]').simulate('click');
+        component.find('button[aria-expanded]').simulate('click');
         await act(async () => {
             component.find('button').filterWhere(button => button.text() === 'ハブのプログラムを停止')
                 .simulate('click');
@@ -471,12 +471,70 @@ describe('SPIKE Prime control center', () => {
             <SpikePrimeControlCenter intl={{locale: 'ja-JP'}} vm={vm} />
         );
         expect(component.find('select[aria-label="単独実行の保存先"]')).toHaveLength(0);
-        component.find('button[aria-label^="LEGO ハブ:"]').simulate('click');
+        component.find('button[aria-expanded]').simulate('click');
         expect(component.find('select[aria-label="接続方式"]')).toHaveLength(1);
         expect(component.find('select[aria-label="制御プログラム用スロット"]')).toHaveLength(0);
         expect(component.text()).not.toContain('制御プログラムを導入');
         expect(component.text()).not.toContain('保存済みスロット0のプログラムを起動');
         expect(component.text()).toContain('通信診断');
+        component.unmount();
+    });
+
+    test('Essential port details show measured transport diagnostics without treating missing data as zero', () => {
+        snapshot = {
+            ...snapshot,
+            connected: true,
+            protocol: 'lwp3',
+            detectedHubModel: 'essential',
+            effectiveHubModel: 'essential',
+            availablePorts: ['A', 'B'],
+            portSensors: {
+                A: {
+                    connected: true,
+                    attachmentId: 17,
+                    deviceType: 0x30,
+                    type: 'motor',
+                    receivedAt: Date.now()
+                }
+            },
+            diagnostics: {
+                sensorScheduler: {
+                    ports: {
+                        A: {
+                            attachmentId: 17,
+                            mode: 3,
+                            targetIntervalMs: 25,
+                            averageIntervalMs: 24.5,
+                            medianIntervalMs: 24,
+                            p95IntervalMs: 32,
+                            effectiveHz: 40.82,
+                            lastSampleAgeMs: 12,
+                            pollsSent: 8,
+                            queuedExpirations: 1,
+                            writeFailures: 2,
+                            noSampleCount: 3,
+                            spontaneousNotificationCount: 6,
+                            ambiguousResponseCount: 4,
+                            currentPollIntervalMs: 50,
+                            communicationState: 'DEGRADED',
+                            lastError: 'sample timeout'
+                        }
+                    }
+                }
+            }
+        };
+        api.getState.mockImplementation(() => snapshot);
+        const component = mount(<SpikePrimeControlCenter intl={{locale: 'ja-JP'}} vm={vm} />);
+        component.find('button[aria-expanded]').simulate('click');
+        expect(component.find('summary').filterWhere(summary => summary.text() === 'センサー通信の詳細')).toHaveLength(1);
+        expect(component.text()).toContain('平均受信間隔');
+        expect(component.text()).toContain('24.5 ms');
+        expect(component.text()).toContain('書込後の無応答');
+        expect(component.text()).toContain('自発通知');
+        expect(component.text()).toContain('帰属不明サンプル');
+        expect(component.text()).toContain('Mode 3');
+        expect(component.text()).toContain('17');
+        expect(component.text()).not.toContain('0 Hz');
         component.unmount();
     });
 });

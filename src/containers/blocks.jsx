@@ -534,7 +534,8 @@ class Blocks extends React.Component {
         const toolbox = workspace && workspace.toolbox_;
         if (!toolbox) return;
         const containerRect = this.blocksContainer && this.blocksContainer.getBoundingClientRect();
-        const containerWidth = containerRect && containerRect.width > 0 ? containerRect.width : window.innerWidth;
+        const layoutWidth = containerRect && containerRect.width > 0 ? containerRect.width : window.innerWidth;
+        const containerWidth = Math.min(layoutWidth, window.innerWidth || layoutWidth);
         const effectiveWidth = clampSpikePaletteWidth(requestedWidth, containerWidth);
         const categoryRect = toolbox.HtmlDiv && toolbox.HtmlDiv.getBoundingClientRect();
         const categoryWidth = categoryRect && categoryRect.width > 0 ? categoryRect.width : 0;
@@ -568,6 +569,11 @@ class Blocks extends React.Component {
         this.schedulePaletteBoundaryMeasure();
     }
 
+    getPaletteAvailableWidth () {
+        const layoutWidth = (this.blocksContainer && this.blocksContainer.clientWidth) || window.innerWidth;
+        return Math.min(layoutWidth, window.innerWidth || layoutWidth);
+    }
+
     setBlocksContainer (container) {
         this.blocksContainer = container;
     }
@@ -584,7 +590,7 @@ class Blocks extends React.Component {
             const handleOffset = getSpikePaletteBoundaryOffset(containerRect, flyoutRect, this.props.isRtl);
             if (handleOffset === null) return;
             this.lastMeasuredPaletteWidth = Math.round(handleOffset + (SPIKE_PALETTE_HANDLE_WIDTH / 2));
-            const containerWidth = containerRect.width;
+            const containerWidth = Math.min(containerRect.width, window.innerWidth || containerRect.width);
             const canResize = containerWidth >= SPIKE_PALETTE_WORKSPACE_MIN + SPIKE_PALETTE_WIDTH_MIN +
                 SPIKE_PALETTE_HANDLE_WIDTH;
             const measuredHandleOffset = handleOffset;
@@ -599,7 +605,14 @@ class Blocks extends React.Component {
     handlePaletteResizePointerDown (event) {
         if (event.button !== 0 || !this.state.paletteResizeEnabled) return;
         event.preventDefault();
-        const width = this.lastMeasuredPaletteWidth || this.state.paletteWidth;
+        // The last DOM measurement is asynchronous and can still describe the
+        // previous drag when a user starts another drag immediately. React state
+        // is updated synchronously with the active resize and is the current
+        // committed width for the next pointer gesture.
+        const width = clampSpikePaletteWidth(
+            Number.isFinite(this.state.paletteWidth) ? this.state.paletteWidth : this.lastMeasuredPaletteWidth,
+            this.getPaletteAvailableWidth()
+        );
         this.paletteResizeDrag = {
             pointerId: event.pointerId,
             startX: event.clientX,
@@ -621,7 +634,7 @@ class Blocks extends React.Component {
         const direction = this.props.isRtl ? -1 : 1;
         const width = clampSpikePaletteWidth(
             drag.startWidth + ((event.clientX - drag.startX) * direction),
-            (this.blocksContainer && this.blocksContainer.clientWidth) || window.innerWidth
+            this.getPaletteAvailableWidth()
         );
         if (width === drag.width) return;
         drag.width = width;
@@ -668,7 +681,7 @@ class Blocks extends React.Component {
         const direction = (event.key === 'ArrowRight' ? 1 : -1) * (this.props.isRtl ? -1 : 1);
         const width = clampSpikePaletteWidth(
             this.state.paletteWidth + (direction * 10),
-            (this.blocksContainer && this.blocksContainer.clientWidth) || window.innerWidth
+            this.getPaletteAvailableWidth()
         );
         this.requestedPaletteWidth = width;
         this.lastCommittedPaletteWidth = width;
@@ -1233,7 +1246,7 @@ class Blocks extends React.Component {
                         aria-label={intl.formatMessage(messages.PALETTE_RESIZE_LABEL)}
                         aria-orientation="vertical"
                         aria-valuemax={Math.min(480, Math.max(210,
-                            ((this.blocksContainer && this.blocksContainer.clientWidth) || window.innerWidth) -
+                            this.getPaletteAvailableWidth() -
                                 SPIKE_PALETTE_WORKSPACE_MIN - SPIKE_PALETTE_HANDLE_WIDTH))}
                         aria-valuemin={210}
                         aria-valuenow={this.state.paletteWidth}

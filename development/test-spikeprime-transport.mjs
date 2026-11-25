@@ -392,6 +392,29 @@ async function waitUntil(predicate, message, attempts = 100) {
   assert.fail(message);
 }
 
+async function settleWithFakeClock(promises, clock, maxSteps = 500) {
+  let settledCount = 0;
+  const settled = promises.map((promise) => Promise.resolve(promise).then(
+    () => { settledCount += 1; },
+    () => { settledCount += 1; }
+  ));
+  for (let step = 0; settledCount < promises.length && step < maxSteps; step++) {
+    await tick();
+    if (settledCount === promises.length) break;
+    const nextDue = Math.min(...[...clock._tasks.values()].map(task => task.due));
+    if (!Number.isFinite(nextDue)) {
+      await tick();
+      if (settledCount < promises.length && clock._tasks.size === 0) {
+        assert.fail("fake-clock promises are pending without a scheduled timer");
+      }
+      continue;
+    }
+    clock.advance(Math.max(1, nextDue - clock._now));
+  }
+  assert.equal(settledCount, promises.length, "all fake-clock operations settle");
+  await Promise.all(settled);
+}
+
 function setup({
   failRequestWrite = false,
   failWriteMessageType = null,
@@ -5891,6 +5914,124 @@ test("Essential sensor feeds update color, distance, and force reporters and hat
   assert.equal(ext.whenForceSensor({ PORT: "A", STATE: "pressed" }), true);
 });
 
+test("Essential Port Information requests enforce rolling hub and per-port limits at GATT writes", async () => {
+  const state = setup({hubKind: "essential"});
+  await connectEssential(state);
+  const {device, ext, clock} = state;
+  const essential = ext._peripheral._essential;
+  essential._devices.A = {type: "sensor", attachmentId: "rate-A"};
+  essential._devices.B = {type: "sensor", attachmentId: "rate-B"};
+  const writes = [];
+  const originalWrite = device.rx.writeValueWithoutResponse.bind(device.rx);
+  device.rx.writeValueWithoutResponse = async packet => {
+    const message = Array.from(packet);
+    if (message[2] === 0x21 && message[4] === 0) {
+      writes.push({port: message[3] === 0 ? "A" : "B", at: clock._now});
+    }
+    await originalWrite(packet);
+  };
+
+  const requests = [
+    ...Array.from({length: 31}, () => "A"),
+    ...Array.from({length: 20}, () => "B"),
+  ].map(port => essential._send(
+    [5, 0, 0x21, port === "A" ? 0 : 1, 0],
+    {expiresInMs: 10000}
+  ));
+  await settleWithFakeClock(requests, clock);
+
+  const maximumWithinRollingWindow = (entries, port = null) => {
+    const selected = port ? entries.filter(entry => entry.port === port) : entries;
+    return Math.max(0, ...selected.map(start =>
+      selected.filter(entry => entry.at >= start.at && entry.at - start.at < 1000).length
+    ));
+  };
+  assert.equal(writes.length, 51, "all nonexpired demands eventually reach the transport");
+  assert.ok(maximumWithinRollingWindow(writes) <= 40, "hub never exceeds 40 writes in a rolling second");
+  assert.ok(maximumWithinRollingWindow(writes, "A") <= 30, "port A never exceeds 30 writes in a rolling second");
+  assert.ok(maximumWithinRollingWindow(writes, "B") <= 30, "port B never exceeds 30 writes in a rolling second");
+  assert.ok(writes.some(write => write.at >= 1000), "rate-limited requests are deferred until capacity returns");
+});
+
+test("Essential motor output bypasses a rate-limited sensor read without exceeding the read limit", async () => {
+  const state = setup({hubKind: "essential"});
+  await connectEssential(state);
+  const {device, ext, clock} = state;
+  const essential = ext._peripheral._essential;
+  essential._devices.A = {type: "motor", attachmentId: "priority-A"};
+  const originalWrite = device.rx.writeValueWithoutResponse.bind(device.rx);
+  const writeOrder = [];
+  let releaseFirstWrite;
+  let signalFirstWrite;
+  const firstWriteStarted = new Promise(resolve => { signalFirstWrite = resolve; });
+  const firstWriteGate = new Promise(resolve => { releaseFirstWrite = resolve; });
+  device.rx.writeValueWithoutResponse = async packet => {
+    const message = Array.from(packet);
+    writeOrder.push({message, at: clock._now});
+    if (writeOrder.length === 1) {
+      signalFirstWrite();
+      await firstWriteGate;
+    }
+    await originalWrite(packet);
+  };
+
+  const firstRead = essential._send([5, 0, 0x21, 0, 0], {expiresInMs: 5000});
+  await firstWriteStarted;
+  const queuedReads = Array.from({length: 30}, () => essential._send(
+    [5, 0, 0x21, 0, 0], {expiresInMs: 5000}
+  ));
+  const motorCommand = essential._output("A", 0x01, [0], false);
+  releaseFirstWrite();
+  await settleWithFakeClock([firstRead, ...queuedReads, motorCommand], clock);
+
+  const motorIndex = writeOrder.findIndex(entry => entry.message[2] === 0x81);
+  assert.ok(motorIndex >= 0, "motor output is present in the GATT write log");
+  assert.ok(motorIndex < writeOrder.length - 1, "motor output is not queued behind deferred sensor reads");
+  assert.equal(writeOrder[motorIndex].at, 1000, "first blocked read consumes the per-port window before remaining reads");
+  const readWrites = writeOrder.filter(entry => entry.message[2] === 0x21 && entry.message[4] === 0);
+  assert.ok(readWrites.length <= 31, "only the 30-per-second quota plus the initial write is emitted");
+});
+
+test("Essential recovery requires five uninterrupted seconds of valid frames", async () => {
+  const state = setup({hubKind: "essential"});
+  await connectEssential(state);
+  const {device, ext, clock} = state;
+  device.emitLWP3([7, 0, 0x04, 0, 0x01, 0x30, 0]);
+  await tick();
+  await acknowledgeEssentialApos(state, 0);
+  device.emitLWP3([6, 0, 0x45, 0, 0, 0]);
+  await tick();
+
+  const essential = ext._peripheral._essential;
+  const poll = essential._sensorPollStates.A;
+  poll.activeUntil = essential._monotonicNow() + 20000;
+  poll.currentPollIntervalMs = 200;
+  poll.communicationState = "RECOVERY";
+  poll.consecutiveTimeouts = 4;
+  poll.stableSince = essential._monotonicNow() - 6000;
+  poll.lastValidFrameAt = essential._monotonicNow() - 1000;
+  poll.nextDueAt = Infinity;
+  device.emitLWP3([6, 0, 0x45, 0, 1, 0]);
+  await tick();
+  assert.equal(poll.stableSince, essential._monotonicNow(), "a frame after a one-second gap restarts stability");
+  assert.equal(poll.currentPollIntervalMs, 200, "one recovered frame does not reduce backoff");
+
+  clock.advance(5000);
+  essential._runSensorPollScheduler();
+  assert.equal(poll.stableSince, null, "the scheduler expires a stale recovery interval");
+  device.emitLWP3([6, 0, 0x45, 0, 2, 0]);
+  await tick();
+  assert.equal(poll.currentPollIntervalMs, 200, "a single frame after stale expiry is insufficient");
+
+  for (let sample = 1; sample <= 50; sample++) {
+    clock.advance(100);
+    device.emitLWP3([6, 0, 0x45, 0, sample & 0xff, 0]);
+    await tick();
+  }
+  assert.equal(poll.currentPollIntervalMs, 100, "five seconds of continuous valid frames halves a 200 ms backoff");
+  assert.equal(poll.communicationState, "RECOVERY", "a remaining backoff stage is not reported as fully normal");
+});
+
 test("Essential polling is demand-aware, fair, bounded, and reports recovery", async () => {
   const state = setup({hubKind: "essential"});
   await connectEssential(state);
@@ -5917,6 +6058,10 @@ test("Essential polling is demand-aware, fair, bounded, and reports recovery", a
   const readsBefore = device.writes.filter(message => message[2] === 0x21).length;
   essential._runSensorPollScheduler();
   await tick();
+  if (!pollA.pending) {
+    clock.advance(34);
+    await tick();
+  }
   assert.ok(pollA.pending, "round-robin begins with A");
   essential._runSensorPollScheduler();
   assert.equal(pollA.pollsSent, 1, "the same port never has two reads in flight");
@@ -6009,6 +6154,55 @@ test("Essential queued sensor reads do not start the sample timeout before GATT 
   assert.equal(poll.communicationState, "NORMAL");
 });
 
+test("Essential detachment cancels a queued sensor read before its GATT write", async () => {
+  const state = setup({hubKind: "essential"});
+  await connectEssential(state);
+  const {device, ext} = state;
+  device.emitLWP3([7, 0, 0x04, 0, 0x01, 0x30, 0]);
+  await tick();
+  await acknowledgeEssentialApos(state, 0);
+  device.emitLWP3([6, 0, 0x45, 0, 0, 0]);
+  await tick();
+  const essential = ext._peripheral._essential;
+  const poll = essential._sensorPollStates.A;
+  if (essential._sensorPollTimer) state.clock.clearTimeout(essential._sensorPollTimer);
+  essential._sensorPollTimer = null;
+  poll.nextDueAt = Infinity;
+
+  let releaseBlockedWrite;
+  let signalBlockedWrite;
+  const blockedWriteStarted = new Promise(resolve => { signalBlockedWrite = resolve; });
+  const blockedWriteGate = new Promise(resolve => { releaseBlockedWrite = resolve; });
+  const originalWrite = device.rx.writeValueWithoutResponse.bind(device.rx);
+  const baselineWrites = device.writes.length;
+  let blockNextWrite = true;
+  device.rx.writeValueWithoutResponse = async packet => {
+    if (blockNextWrite) {
+      blockNextWrite = false;
+      signalBlockedWrite();
+      await blockedWriteGate;
+    }
+    await originalWrite(packet);
+  };
+
+  const blocker = essential._send([5, 0, 0x22, 1, 0x80], {priority: 100});
+  await blockedWriteStarted;
+  const queuedPoll = essential._sendSensorPoll(poll);
+  await tick();
+  const queuedRequest = poll.pending;
+  assert.equal(queuedRequest.state, "QUEUED");
+  device.emitLWP3([5, 0, 0x04, 0, 0x00]);
+  await tick();
+  assert.equal(queuedRequest.state, "CANCELLED");
+  assert.equal(essential._sensorPollStates.A, undefined, "detached port state is removed");
+  releaseBlockedWrite();
+  await Promise.all([blocker, queuedPoll]);
+  const staleReads = device.writes.slice(baselineWrites)
+    .map(message => Uint8Array.from(message))
+    .filter(message => message[2] === 0x21 && message[3] === 0);
+  assert.equal(staleReads.length, 0, "the cancelled queued request never reaches the GATT characteristic");
+});
+
 test("Essential distance mode switches validate DISTL/DISTS and publish only fresh in-range samples", async () => {
   const state = setup({hubKind: "essential"});
   await connectEssential(state);
@@ -6036,6 +6230,14 @@ test("Essential distance mode switches validate DISTL/DISTS and publish only fre
   device.emitLWP3([6, 0, 0x45, portId, 50, 0]);
   await tick();
   assert.equal(ext.getDistance({PORT: "B"}), 5, "50 mm is the inclusive lower limit");
+  for (const [millimeters, expectedCm] of [[49, ""], [50, 5], [400, 40], [2000, 200], [2001, ""]]) {
+    device.emitLWP3([6, 0, 0x45, portId, millimeters & 0xff, millimeters >> 8]);
+    await tick();
+    assert.equal(ext.getDistance({PORT: "B"}), expectedCm,
+      `DISTL ${millimeters} mm uses the documented 50..2000 mm range`);
+    assert.equal(ext._peripheral.portValues.B.distanceMM,
+      millimeters >= 50 && millimeters <= 2000 ? millimeters : null);
+  }
 
   const switchToDists = ext._peripheral.setDistanceSensorMode("B", 1);
   await waitUntil(() => device.writes.some(message =>
@@ -6060,11 +6262,18 @@ test("Essential distance mode switches validate DISTL/DISTS and publish only fre
   device.emitLWP3([6, 0, 0x45, portId, 300 & 0xff, 300 >> 8]);
   await tick();
   assert.equal(ext.getDistance({PORT: "B"}), 30);
+  device.emitLWP3([6, 0, 0x45, portId, 50, 0]);
+  await tick();
+  assert.equal(ext.getDistance({PORT: "B"}), 5, "DISTS 50 mm is the inclusive lower limit");
   device.emitLWP3([6, 0, 0x45, portId, 301 & 0xff, 301 >> 8]);
   await tick();
   assert.equal(ext.getDistance({PORT: "B"}), "", "DISTS values over 300 mm are out of range");
   assert.equal(ext._peripheral.portValues.B.distanceMM, null);
   assert.equal(ext._peripheral.portValues.B.rawValue, 301, "raw sample remains diagnostic");
+  device.emitLWP3([6, 0, 0x45, portId, 49, 0]);
+  await tick();
+  assert.equal(ext.getDistance({PORT: "B"}), "", "DISTS 49 mm is below the documented range");
+  assert.equal(ext._peripheral.portValues.B.distanceMM, null);
 
   // A second request arriving while the first mode's 0x47 is pending is
   // serialized and the last requested mode wins.
@@ -6092,6 +6301,115 @@ test("Essential distance mode switches validate DISTL/DISTS and publish only fre
   device.emitLWP3([10, 0, 0x47, portId, 1, ...finalDists.slice(5)]);
   await Promise.all([switchToDistl, latestRequest]);
   assert.equal(ext._peripheral._essential._devices.B.distanceMode, 1);
+});
+
+test("Essential distance mode request cannot configure a replacement attachment", async () => {
+  const state = setup({hubKind: "essential"});
+  await connectEssential(state);
+  const {device, ext} = state;
+  const portId = 1;
+  device.emitLWP3([7, 0, 0x04, portId, 0x01, 0x3e, 0]);
+  await tick();
+  await waitUntil(() => device.writes.some(message =>
+    message[2] === 0x22 && message[3] === portId && message[4] === 0 && message[5] === 0x80
+  ), "initial DISTL format query");
+  emitEssentialModeMetadata(state, portId, 0, {
+    name: "DISTL", dataSets: 1, dataType: 1, decimals: 1,
+    symbol: "cm", min: 0, max: 250,
+  });
+  await waitUntil(() => device.writes.some(message =>
+    message[2] === 0x41 && message[3] === portId && message[4] === 0
+  ), "initial DISTL mode setup");
+  const initialSetup = device.writes.filter(message =>
+    message[2] === 0x41 && message[3] === portId && message[4] === 0
+  ).at(-1);
+  device.emitLWP3([10, 0, 0x47, portId, 0, ...initialSetup.slice(5)]);
+  await tick();
+
+  const writesBeforeSwitch = device.writes.length;
+  const staleSwitch = ext._peripheral.setDistanceSensorMode("B", 1);
+  const staleSwitchOutcome = staleSwitch.then(() => null, error => error);
+  await waitUntil(() => device.writes.slice(writesBeforeSwitch).some(message =>
+    message[2] === 0x22 && message[3] === portId && message[4] === 1 && message[5] === 0x80
+  ), "replacement-race DISTS metadata query");
+  const oldAttachmentId = ext._peripheral._essential._devices.B.attachmentId;
+  device.emitLWP3([5, 0, 0x04, portId, 0x00]);
+  await tick();
+  device.emitLWP3([7, 0, 0x04, portId, 0x01, 0x3e, 0]);
+  await tick();
+  const newDevice = ext._peripheral._essential._devices.B;
+  assert.notEqual(newDevice.attachmentId, oldAttachmentId);
+  const replacementAttachmentId = newDevice.attachmentId;
+  const error = await staleSwitchOutcome;
+  assert.match(error.message, /detached|changed/i);
+  await tick();
+  assert.equal(ext._peripheral._essential._devices.B.attachmentId, replacementAttachmentId);
+  assert.equal(ext._peripheral._essential._devices.B.distanceMode, 0,
+    "the old request does not apply its DISTS target to the replacement sensor");
+  assert.equal(ext._peripheral._essential._devices.B.requestedDistanceMode, 0,
+    "the old request does not replace the new attachment's requested mode");
+  assert.equal(ext._peripheral._essential._devices.B.distanceModeStatus, "reading-mode-metadata");
+});
+
+test("Essential distance rollback stops when the original sensor is replaced", async () => {
+  const state = setup({hubKind: "essential"});
+  await connectEssential(state);
+  const {device, ext, clock} = state;
+  const portId = 1;
+  device.emitLWP3([7, 0, 0x04, portId, 0x01, 0x3e, 0]);
+  await tick();
+  await waitUntil(() => device.writes.some(message =>
+    message[2] === 0x22 && message[3] === portId && message[4] === 0 && message[5] === 0x80
+  ), "initial DISTL format query");
+  emitEssentialModeMetadata(state, portId, 0, {
+    name: "DISTL", dataSets: 1, dataType: 1, decimals: 1,
+    symbol: "cm", min: 0, max: 250,
+  });
+  await waitUntil(() => device.writes.some(message =>
+    message[2] === 0x41 && message[3] === portId && message[4] === 0
+  ), "initial DISTL mode setup");
+  const initialSetup = device.writes.filter(message =>
+    message[2] === 0x41 && message[3] === portId && message[4] === 0
+  ).at(-1);
+  device.emitLWP3([10, 0, 0x47, portId, 0, ...initialSetup.slice(5)]);
+  await tick();
+
+  const modeOneWritesBefore = device.writes.filter(message =>
+    message[2] === 0x41 && message[3] === portId && message[4] === 1
+  ).length;
+  const oldModeSwitch = ext._peripheral.setDistanceSensorMode("B", 1);
+  const oldModeOutcome = oldModeSwitch.then(() => null, error => error);
+  await waitUntil(() => device.writes.some(message =>
+    message[2] === 0x22 && message[3] === portId && message[4] === 1 && message[5] === 0x80
+  ), "DISTS format query");
+  emitEssentialModeMetadata(state, portId, 1, {
+    name: "DISTS", dataSets: 1, dataType: 1, decimals: 1,
+    symbol: "cm", min: 0, max: 32,
+  });
+  await waitUntil(() => device.writes.filter(message =>
+    message[2] === 0x41 && message[3] === portId && message[4] === 1
+  ).length > modeOneWritesBefore, "DISTS mode setup awaiting its acknowledgement");
+
+  clock.advance(1201);
+  await waitUntil(() => device.writes.filter(message =>
+    message[2] === 0x41 && message[3] === portId && message[4] === 0
+  ).length > 1, "rollback begins on the original sensor");
+  const baselineWrites = device.writes.length;
+  device.emitLWP3([5, 0, 0x04, portId, 0x00]);
+  await tick();
+  device.emitLWP3([7, 0, 0x04, portId, 0x01, 0x3e, 0]);
+  await tick();
+  const replacement = ext._peripheral._essential._devices.B;
+  const replacementId = replacement.attachmentId;
+  const error = await oldModeOutcome;
+  assert.match(error.message, /acknowledgement timed out/i);
+  const staleModeWrites = device.writes.slice(baselineWrites).filter(message =>
+    message[2] === 0x41 && message[3] === portId && message[4] !== 0
+  );
+  assert.equal(staleModeWrites.length, 0, "the stale operation never configures a mode on the replacement");
+  assert.equal(ext._peripheral._essential._devices.B.attachmentId, replacementId);
+  assert.equal(ext._peripheral._essential._devices.B.distanceMode, 0);
+  assert.equal(ext._peripheral._essential._devices.B.requestedDistanceMode, 0);
 });
 
 test("Essential RGB I mode decodes exact RAW values and normalizes getRawColor255", async () => {
@@ -6153,6 +6471,8 @@ test("Essential RGB I mode decodes exact RAW values and normalizes getRawColor25
   assert.equal(ext.getRawColor255({PORT: "A", CHANNEL: "red"}), 0);
   assert.equal(ext.getRawColor255({PORT: "A", CHANNEL: "green"}), 128);
   assert.equal(ext.getRawColor255({PORT: "A", CHANNEL: "blue"}), 255);
+  assert.equal(ext.getColor({PORT: "A"}), "",
+    "fresh RAW samples do not make the previous COLOR value look current");
   assert.equal(ext.getRawColor255({PORT: "A", CHANNEL: "green"}), 128,
     "a later RAW reporter does not start a concurrent mode request");
   assert.equal(rgbValueWrites.length, 1, "RAW demand holds mode 5 instead of resending setup");
@@ -6167,8 +6487,41 @@ test("Essential RGB I mode decodes exact RAW values and normalizes getRawColor25
   device.emitLWP3([5, 0, 0x45, portId, 8]);
   await tick();
   assert.equal(essential._portValues.A.color, 8);
+  assert.equal(ext.getRawColor255({PORT: "A", CHANNEL: "red"}), "",
+    "fresh COLOR samples do not make the previous RAW value look current");
   assert.equal(essential._sensorEdges.has("color:A:orange"), false,
     "the first COLOR sample after returning from RGB I is only a new baseline");
+});
+
+test("Essential RAW color remains metadata-pending until all four mode-5 descriptors arrive", async () => {
+  const state = setup({hubKind: "essential"});
+  await connectEssential(state);
+  const {device, ext} = state;
+  const portId = 0;
+  device.emitLWP3([7, 0, 0x04, portId, 0x01, 0x3d, 0]);
+  await tick();
+  assert.equal(ext._peripheral.portValues.A.rawColorStatus, "metadata-pending");
+
+  device.emitLWP3([11, 0, 0x44, portId, 5, 0, ...Buffer.from("RGB I")]);
+  await tick();
+  assert.equal(ext._peripheral.portValues.A.rawColorStatus, "metadata-pending",
+    "NAME alone must not classify the format as unsupported");
+
+  device.emitLWP3([10, 0, 0x44, portId, 5, 0x80, 4, 1, 0, 0]);
+  await tick();
+  assert.equal(ext._peripheral.portValues.A.rawColorStatus, "metadata-pending",
+    "NAME and VALUE FORMAT still wait for SI range and symbol metadata");
+
+  const range = Buffer.alloc(8);
+  range.writeFloatLE(0, 0);
+  range.writeFloatLE(1024, 4);
+  device.emitLWP3([14, 0, 0x44, portId, 5, 3, ...range]);
+  await tick();
+  assert.equal(ext._peripheral.portValues.A.rawColorStatus, "metadata-pending",
+    "the missing RAW symbol keeps metadata pending");
+  device.emitLWP3([9, 0, 0x44, portId, 5, 4, ...Buffer.from("RAW")]);
+  await tick();
+  assert.equal(ext._peripheral.portValues.A.rawColorStatus, "available");
 });
 
 test("Essential output feedback records bounded motor-command response timing", async () => {
