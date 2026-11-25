@@ -895,20 +895,29 @@ const createMainWindow = async () => {
                         const root = candidate.getSvgRoot();
                         if (!root || !flyoutRect) return false;
                         const rect = root.getBoundingClientRect();
-                        const centerX = rect.left + rect.width / 2;
-                        const centerY = rect.top + rect.height / 2;
-                        return rect.width > 0 && rect.height > 0 && centerX >= flyoutRect.left &&
-                            centerX <= flyoutRect.right && centerY >= flyoutRect.top && centerY <= flyoutRect.bottom;
+                        return rect.width > 0 && rect.height > 0 && rect.right > flyoutRect.left &&
+                            rect.left < flyoutRect.right && rect.bottom > flyoutRect.top &&
+                            rect.top < flyoutRect.bottom;
                     });
                     const block = blockModel && blockModel.getSvgRoot();
                     const workspace = document.querySelector('.blocklyMainBackground');
                     if (!block || !workspace) return null;
                     const blockRect = block.getBoundingClientRect();
                     const workspaceRect = workspace.getBoundingClientRect();
-                    const start = [0.18, 0.32, 0.5, 0.68, 0.82].flatMap(xRatio =>
-                        [0.16, 0.84, 0.34, 0.66, 0.5].map(yRatio => ({
-                            x: Math.round(blockRect.left + blockRect.width * xRatio),
-                            y: Math.round(blockRect.top + blockRect.height * yRatio)
+                    const visibleBlockRect = {
+                        left: Math.max(blockRect.left, flyoutRect.left) + 2,
+                        right: Math.min(blockRect.right, flyoutRect.right) - 2,
+                        top: Math.max(blockRect.top, flyoutRect.top) + 2,
+                        bottom: Math.min(blockRect.bottom, flyoutRect.bottom) - 2
+                    };
+                    if (visibleBlockRect.right <= visibleBlockRect.left ||
+                        visibleBlockRect.bottom <= visibleBlockRect.top) return null;
+                    const start = [0.2, 0.35, 0.5, 0.65, 0.8].flatMap(xRatio =>
+                        [0.18, 0.82, 0.35, 0.65, 0.5].map(yRatio => ({
+                            x: Math.round(visibleBlockRect.left +
+                                (visibleBlockRect.right - visibleBlockRect.left) * xRatio),
+                            y: Math.round(visibleBlockRect.top +
+                                (visibleBlockRect.bottom - visibleBlockRect.top) * yRatio)
                         }))
                     ).find(point => {
                         const hit = document.elementFromPoint(point.x, point.y);
@@ -953,6 +962,15 @@ const createMainWindow = async () => {
                             .filter(element => element.getBoundingClientRect().width > 0)
                             .map(element => element.className),
                         flyoutTypes: flyout ? flyout.getTopBlocks(false).map(block => block.type).slice(0, 40) : [],
+                        flyoutCandidateBlocks: flyout ? flyout.getTopBlocks(false)
+                            .filter(block => block.type.startsWith(${JSON.stringify(expectedPrefix)}))
+                            .slice(0, 12).map(block => {
+                                const root = block.getSvgRoot();
+                                const rect = root && root.getBoundingClientRect();
+                                return {type: block.type, rect: rect && {
+                                    left: rect.left, right: rect.right, top: rect.top, bottom: rect.bottom
+                                }};
+                            }) : [],
                         flyoutBounds: (() => {
                             const rect = document.querySelector('.blocklyFlyoutBackground')?.getBoundingClientRect();
                             return rect && {left: rect.left, right: rect.right, top: rect.top, bottom: rect.bottom};
