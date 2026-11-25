@@ -612,6 +612,12 @@ const createMainWindow = async () => {
     await mainWindow.loadURL(`${APP_ORIGIN}/editor.html`);
 
     if (process.env.BRICKWRIGHT_DESKTOP_SMOKE === '1') {
+        // Electron drops synthetic input for hidden BrowserWindows on some CI
+        // platforms. The smoke test exercises real Blockly mouse interactions,
+        // so make the test window visible and focused before sending input.
+        mainWindow.show();
+        mainWindow.focus();
+        mainWindow.webContents.focus();
         smokeProgress('editor loaded; checking VM, SPIKE extension, and palette');
         const reportPath = process.env.BRICKWRIGHT_SMOKE_REPORT;
         if (process.env.BRICKWRIGHT_SMOKE_REOPEN === '1') {
@@ -831,7 +837,8 @@ const createMainWindow = async () => {
                     .catch(() => 0)
             };
         })()`);
-        const dragWorkspaceBlock = async (categorySelector, label) => {
+        const dragWorkspaceBlock = async (categorySelector, label, expectedPrefix) => {
+            expectedPrefix = expectedPrefix || (label.startsWith('SPIKE') ? 'spikeprime_' : 'motion_');
             const before = await mainWindow.webContents.executeJavaScript(`(() => {
                 const target = window.vm.runtime.targets.find(candidate => !candidate.isStage);
                 return target ? Object.values(target.blocks._blocks).filter(block => block.topLevel).length : -1;
@@ -882,7 +889,7 @@ const createMainWindow = async () => {
                         mainWorkspace.getFlyout().getWorkspace();
                     const flyoutRect = document.querySelector('.blocklyFlyoutBackground') &&
                         document.querySelector('.blocklyFlyoutBackground').getBoundingClientRect();
-                    const prefix = ${JSON.stringify(label.startsWith('SPIKE') ? 'spikeprime_' : 'motion_')};
+                    const prefix = ${JSON.stringify(expectedPrefix)};
                     const blockModel = flyoutWorkspace && flyoutWorkspace.getTopBlocks(false).find(candidate => {
                         if (!candidate.type.startsWith(prefix)) return false;
                         const root = candidate.getSvgRoot();
@@ -975,7 +982,31 @@ const createMainWindow = async () => {
                 if (!created) await new Promise(resolve => setTimeout(resolve, 50));
             }
             if (!created || created.length === 0) {
-                throw new Error(`The real ${label} block drag did not add a workspace block.`);
+                const after = await mainWindow.webContents.executeJavaScript(`(() => {
+                    const target = window.vm.runtime.targets.find(candidate => !candidate.isStage);
+                    const workspace = window.ScratchBlocks && window.ScratchBlocks.getMainWorkspace();
+                    return {
+                        topLevelVMBlocks: target ? Object.values(target.blocks._blocks)
+                            .filter(block => block.topLevel).map(block => ({id: block.id, opcode: block.opcode})) : [],
+                        workspaceBlocks: workspace ? workspace.getAllBlocks(false)
+                            .map(block => ({id: block.id, type: block.type})) : [],
+                        startHit: (() => {
+                            const element = document.elementFromPoint(${points.start.x}, ${points.start.y});
+                            return element && {
+                                tag: element.tagName,
+                                className: String(element.getAttribute('class') || '')
+                            };
+                        })()
+                    };
+                })()`);
+                throw new Error(`The real ${label} block drag did not add a workspace block: ${JSON.stringify({
+                    before,
+                    after,
+                    start: points.start,
+                    end: points.end,
+                    category: points.selectedCategoryId,
+                    blockTypes: points.visibleFlyoutTypes
+                })}`);
             }
             return {created,
                 start: points.start,
@@ -998,7 +1029,7 @@ const createMainWindow = async () => {
             const workspace = window.ScratchBlocks && window.ScratchBlocks.getMainWorkspace();
             const sprite = window.vm.runtime.targets.find(target => !target.isStage && target.blocks);
             const spikeModel = sprite && Object.values(sprite.blocks._blocks)
-                .find(block => /spikeprime_.*motorRunFor/i.test(block.opcode));
+                .find(block => /spikeprime_.*motor/i.test(block.opcode));
             const spikeBlock = workspace && spikeModel && workspace.getBlockById(spikeModel.id);
             const flagBlock = workspace && workspace.getAllBlocks(false)
                 .find(block => block.type === 'event_whenflagclicked' && block.nextConnection &&
