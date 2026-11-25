@@ -839,13 +839,18 @@ const createMainWindow = async () => {
             const categoryPoint = await mainWindow.webContents.executeJavaScript(`(async () => {
                 const selector = ${JSON.stringify(categorySelector)};
                 const visibleCategory = () => [...document.querySelectorAll(selector)]
-                    .find(element => element.getBoundingClientRect().width > 0 &&
-                        element.getBoundingClientRect().height > 0);
-                if (!visibleCategory()) {
-                    const paletteKind = selector.includes('bw-spike') ? 'spike' : 'scratch';
-                    const toggle = [...document.querySelectorAll('input[type="checkbox"]')]
-                        .find(element => element.value === paletteKind);
-                    if (toggle && !toggle.checked) toggle.click();
+                    .find(element => {
+                        const rect = element.getBoundingClientRect();
+                        const style = getComputedStyle(element);
+                        return rect.width > 0 && rect.height > 0 && style.visibility !== 'hidden' &&
+                            style.display !== 'none' && Number(style.opacity) > 0;
+                    });
+                const paletteKind = selector.includes('bw-spike') ? 'spike' : 'scratch';
+                const toggle = [...document.querySelectorAll('input[type="checkbox"]')]
+                    .find(element => element.value === paletteKind);
+                if (toggle && !toggle.checked) {
+                    toggle.click();
+                    await new Promise(resolve => setTimeout(resolve, 100));
                 }
                 const deadline = Date.now() + 5000;
                 while (!visibleCategory() && Date.now() < deadline) {
@@ -886,12 +891,15 @@ const createMainWindow = async () => {
                     const blockRect = block.getBoundingClientRect();
                     const workspaceRect = workspace.getBoundingClientRect();
                     const start = {
-                        x: Math.round(blockRect.left + blockRect.width / 2),
+                        // Start on the solid left edge rather than an input field in the block center.
+                        x: Math.round(blockRect.left + Math.min(12, Math.max(6, blockRect.width * 0.08))),
                         y: Math.round(blockRect.top + blockRect.height / 2)
                     };
                     const end = {
-                        x: Math.round(workspaceRect.left + Math.max(220, workspaceRect.width * 0.35)),
-                        y: Math.round(workspaceRect.top + Math.max(140, workspaceRect.height * 0.35))
+                        x: Math.round(workspaceRect.left + Math.min(workspaceRect.width - 80,
+                            Math.max(160, workspaceRect.width * 0.35))),
+                        y: Math.round(workspaceRect.top + Math.min(workspaceRect.height - 80,
+                            Math.max(140, workspaceRect.height * 0.35)))
                     };
                     const selectedCategoryId = mainWorkspace && mainWorkspace.toolbox_ &&
                         mainWorkspace.toolbox_.getSelectedCategoryId();
@@ -909,8 +917,9 @@ const createMainWindow = async () => {
             }
             if (!points) throw new Error(`No visible ${label} block was available for a real drag.`);
             mainWindow.webContents.sendInputEvent({type: 'mouseMove', ...points.start});
-            await new Promise(resolve => setTimeout(resolve, 30));
+            await new Promise(resolve => setTimeout(resolve, 60));
             mainWindow.webContents.sendInputEvent({type: 'mouseDown', ...points.start, button: 'left', clickCount: 1});
+            await new Promise(resolve => setTimeout(resolve, 60));
             const steps = 10;
             for (let step = 1; step <= steps; step++) {
                 mainWindow.webContents.sendInputEvent({
@@ -918,8 +927,9 @@ const createMainWindow = async () => {
                     x: points.start.x + Math.round((points.end.x - points.start.x) * step / steps),
                     y: points.start.y + Math.round((points.end.y - points.start.y) * step / steps)
                 });
-                await new Promise(resolve => setTimeout(resolve, 15));
+                await new Promise(resolve => setTimeout(resolve, 30));
             }
+            await new Promise(resolve => setTimeout(resolve, 60));
             mainWindow.webContents.sendInputEvent({type: 'mouseUp', ...points.end, button: 'left', clickCount: 1});
             let created = null;
             const dropDeadline = Date.now() + 8000;
