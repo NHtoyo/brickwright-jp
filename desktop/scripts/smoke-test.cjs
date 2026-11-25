@@ -54,8 +54,10 @@ child.on('exit', code => {
             'Chromium must expose navigator.usb in the app:// secure context');
         assert.equal(result.devicePickerSmoke.bluetooth.outcome, 'rejected',
             'the Bluetooth requestDevice call must return from the application picker cancellation');
-        assert.ok(result.bluetoothChooserEventCount > 0,
-            'a real Electron Web Bluetooth request must reach the picker event');
+        if (result.bluetoothChooserEventCount === 0) {
+            assert.equal(result.devicePickerSmoke.bluetooth.errorName, 'NotFoundError',
+                'without a Bluetooth adapter or discoverable device, Web Bluetooth must report no available candidate');
+        }
         assert.equal(result.devicePickerSmoke.usb.outcome, 'rejected',
             'the USB requestDevice call must return from the application picker cancellation');
         if (result.usbChooserEventCount === 0) {
@@ -71,7 +73,10 @@ child.on('exit', code => {
         assert.equal(result.spikeRouterRegistered, true,
             'SPIKE control center must share the registered VM HubRouter');
         assert.ok(result.spikeBlockCount > 0, 'SPIKE block metadata must be registered in the real Scratch VM');
-        assert.equal(result.paletteWidth, 280, 'fresh desktop profiles use the requested 280px default palette width');
+        const responsiveMaximum = Math.max(210, result.viewportWidth - 360 - 8);
+        const expectedPaletteWidth = Math.max(210, Math.min(280, responsiveMaximum));
+        assert.equal(result.paletteWidth, expectedPaletteWidth,
+            'fresh desktop profiles use the requested palette width, clamped to preserve workspace space');
         assert.ok(result.paletteCenterErrorPx <= 2, 'resize handle center must match the rendered flyout boundary');
         assert.equal(result.paletteHitAreaClear, true, 'resize hit area must not cover palette blocks');
         assert.equal(result.paletteHasWorkspaceReserve, true,

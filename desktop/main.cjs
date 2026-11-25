@@ -724,6 +724,7 @@ const createMainWindow = async () => {
                 spikeRouterRegistered: Boolean(router && router.instanceId),
                 spikeBlockCount: spikeCategory && Array.isArray(spikeCategory.blocks) ? spikeCategory.blocks.length : 0,
                 spikeSourceURL: extensionURLs && extensionURLs.spikeprime || null,
+                viewportWidth: window.innerWidth,
                 paletteWidth: resizeHandle ? Number(resizeHandle.getAttribute('aria-valuenow')) : null,
                 paletteCenterErrorPx: Number.isFinite(paletteBoundaryX) && Number.isFinite(handleCenterX) ?
                     Math.abs(handleCenterX - paletteBoundaryX) : null,
