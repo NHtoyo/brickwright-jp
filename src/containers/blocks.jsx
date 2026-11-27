@@ -11,6 +11,7 @@ import VM from 'scratch-vm';
 import log from '../lib/log.js';
 import Prompt from './prompt.jsx';
 import BlocksComponent from '../components/blocks/blocks.jsx';
+import paletteStyles from '../components/blocks/palette-mode.css';
 import ExtensionLibrary from './extension-library.jsx';
 import extensionData from '../lib/libraries/extensions/index.jsx';
 import CustomProcedures from './custom-procedures.jsx';
@@ -44,6 +45,29 @@ import AddonHooks from '../addons/hooks.js';
 import LoadScratchBlocksHOC from '../lib/tw-load-scratch-blocks-hoc.jsx';
 import {findTopBlock} from '../lib/backpack/code-payload.js';
 import {gentlyRequestPersistentStorage} from '../lib/tw-persistent-storage.js';
+import {
+    getSpikePaletteModel,
+    setSpikePaletteModel,
+    isPaletteMode,
+    getPaletteVisibility,
+    updatePaletteMode
+} from '../lib/palette-mode';
+import {getSpikeBlockColors} from '../lib/spike-toolbox-categories';
+import {
+    clampSpikePaletteWidth,
+    getStoredSpikePaletteWidth,
+    getSpikePaletteBoundaryOffset,
+    SPIKE_PALETTE_HANDLE_WIDTH,
+    SPIKE_PALETTE_WORKSPACE_MIN,
+    SPIKE_PALETTE_WIDTH_MIN,
+    storeSpikePaletteWidth
+} from '../lib/spike-palette-width';
+import {
+    installSpikeMotorPortPicker,
+    setSpikePortLanguageProvider,
+    setSpikePortStateProvider
+} from '../lib/spike-motor-port-picker';
+import '../components/gui/spike-motor-port-picker.css';
 
 // TW: Strings we add to scratch-blocks are localized here
 const messages = defineMessages({
@@ -70,6 +94,56 @@ const messages = defineMessages({
         // eslint-disable-next-line max-len
         description: 'Button in extension list to learn how to use the "return" block from the Custom Reporters extension.',
         id: 'tw.blocks.PROCEDURES_DOCS'
+    },
+    PALETTE_SCRATCH: {
+        defaultMessage: 'Scratch',
+        description: 'Show Scratch categories in the block palette',
+        id: 'gui.blocks.paletteScratch'
+    },
+    PALETTE_SPIKE: {
+        defaultMessage: 'SPIKE',
+        description: 'Show SPIKE categories in the block palette',
+        id: 'gui.blocks.paletteSpike'
+    },
+    PALETTE_MODE_LABEL: {
+        defaultMessage: 'Block palette',
+        description: 'Accessible label for the Scratch/SPIKE palette mode selector',
+        id: 'gui.blocks.paletteModeLabel'
+    },
+    SPIKE_PALETTE_LABEL: {
+        defaultMessage: 'SPIKE blocks',
+        description: 'Choose which SPIKE hub model blocks to show',
+        id: 'gui.blocks.spikePaletteLabel'
+    },
+    SPIKE_PALETTE_AUTO: {
+        defaultMessage: 'Auto',
+        description: 'Automatically select SPIKE blocks for the connected hub',
+        id: 'gui.blocks.spikePaletteAuto'
+    },
+    SPIKE_PALETTE_AUTO_DETECTED: {
+        defaultMessage: 'Auto ({model})',
+        description: 'Automatic SPIKE palette selection with detected model',
+        id: 'gui.blocks.spikePaletteAutoDetected'
+    },
+    SPIKE_PALETTE_PRIME: {
+        defaultMessage: 'SPIKE Prime',
+        description: 'Show SPIKE Prime blocks',
+        id: 'gui.blocks.spikePalettePrime'
+    },
+    SPIKE_PALETTE_ESSENTIAL: {
+        defaultMessage: 'SPIKE Basic',
+        description: 'Show SPIKE Basic blocks',
+        id: 'gui.blocks.spikePaletteEssential'
+    },
+    SPIKE_PALETTE_ALL: {
+        defaultMessage: 'All blocks',
+        description: 'Show all SPIKE blocks regardless of hub model',
+        id: 'gui.blocks.spikePaletteAll'
+    },
+    PALETTE_RESIZE_LABEL: {
+        defaultMessage: 'Resize block palette',
+        description: 'Accessible label for the draggable block palette divider',
+        id: 'gui.blocks.paletteResize'
     }
 });
 
@@ -85,6 +159,66 @@ const addFunctionListener = (object, property, callback) => {
 const DroppableBlocks = DropAreaHOC([
     DragConstants.BACKPACK_CODE
 ])(BlocksComponent);
+
+const paletteOptions = [
+    {
+        id: 'scratch',
+        label: messages.PALETTE_SCRATCH
+    },
+    {
+        id: 'spike',
+        label: messages.PALETTE_SPIKE
+    }
+];
+
+const getPaletteMode = target => {
+    const mode = target && target.sprite && target.sprite.brickwrightPaletteMode;
+    return isPaletteMode(mode) ? mode : 'both';
+};
+
+const ESSENTIAL_SUPPORTED_BLOCK_OPCODES = [
+    'connectHub', 'disconnectHub', 'isConnected', 'getHubType', 'getFirmwareVersion',
+    'getConnectionMode', 'getCommunicationDiagnostics', 'getCommunicationDiagnosticsSummary',
+    'openCommunicationDiagnosticsLog', 'setConnectionMode', 'setMovementMotors', 'moveForward',
+    'steer', 'motorPairMove', 'startTank', 'setMovementSpeed', 'stopMovement', 'motorRunFor',
+    'motorRunToPosition', 'motorStart', 'motorStop', 'startMotor', 'stopMotor', 'motorSetSpeed',
+    'motorStartPower', 'motorSetStopAction', 'getPosition', 'getRelativePosition',
+    'getAbsolutePosition', 'getSpeed', 'resetMotorPosition', 'setMatrix3x3ColorGrid',
+    'setMatrix3x3Custom', 'setMatrix3x3SolidColor', 'clearMatrix3x3', 'setLightMatrixPixel',
+    'getBatteryLevel', 'getTimer', 'resetTimer', 'getDistance', 'getDistanceIn', 'getColor',
+    'getForce', 'isForceSensorPressed', 'whenColor', 'isColor', 'whenForceSensor'
+];
+
+const formatSpikeCategoryLabels = locale => {
+    const isJapanese = /^ja(?:-|$)/i.test(locale || '');
+    return isJapanese ? {
+        spikePrefix: 'SPIKE',
+        motor: 'モーター',
+        movement: '移動',
+        light: 'ライト',
+        sound: '音',
+        events: 'イベント',
+        control: '制御',
+        sensors: 'センサー',
+        operators: '演算',
+        variables: '変数',
+        myBlocks: 'マイブロック',
+        other: 'その他'
+    } : {
+        spikePrefix: 'SPIKE',
+        motor: 'Motors',
+        movement: 'Movement',
+        light: 'Lights',
+        sound: 'Sound',
+        events: 'Events',
+        control: 'Control',
+        sensors: 'Sensors',
+        operators: 'Operators',
+        variables: 'Variables',
+        myBlocks: 'My Blocks',
+        other: 'Other'
+    };
+};
 
 class Blocks extends React.Component {
     constructor (props) {
@@ -109,6 +243,18 @@ class Blocks extends React.Component {
             'handlePromptCallback',
             'handlePromptClose',
             'handleCustomProceduresClose',
+            'handlePaletteModeChange',
+            'handleSpikePaletteModelChange',
+            'handlePaletteResizePointerDown',
+            'handlePaletteResizePointerMove',
+            'handlePaletteResizePointerUp',
+            'handlePaletteResizePointerCancel',
+            'handlePaletteResizeKeyDown',
+            'handlePaletteViewportResize',
+            'applyPaletteWidth',
+            'setBlocksContainer',
+            'schedulePaletteBoundaryMeasure',
+            'restorePaletteResizeStyles',
             'onScriptGlowOn',
             'onScriptGlowOff',
             'onBlockGlowOn',
@@ -116,6 +262,7 @@ class Blocks extends React.Component {
             'handleMonitorsUpdate',
             'handleExtensionAdded',
             'handleBlocksInfoUpdate',
+            'handleSpikePrimeModelChange',
             'onTargetsUpdate',
             'onVisualReport',
             'onWorkspaceUpdate',
@@ -128,14 +275,39 @@ class Blocks extends React.Component {
         this.ScratchBlocks.statusButtonCallback = this.handleConnectionModalStart;
         this.ScratchBlocks.recordSoundCallback = this.handleOpenSoundRecorder;
 
+        this.requestedPaletteWidth = getStoredSpikePaletteWidth();
+        const initialPaletteWidth = clampSpikePaletteWidth(this.requestedPaletteWidth, window.innerWidth);
         this.state = {
-            prompt: null
+            prompt: null,
+            paletteMode: getPaletteMode(props.vm.editingTarget),
+            spikePaletteModel: getSpikePaletteModel(),
+            detectedHubModel: null,
+            paletteWidth: initialPaletteWidth,
+            paletteHandleOffset: initialPaletteWidth - (SPIKE_PALETTE_HANDLE_WIDTH / 2),
+            paletteResizeEnabled: true
         };
+        this.paletteResizeDrag = null;
+        this.paletteResizeBodyStyles = null;
+        this.paletteLayoutFrame = null;
+        this.paletteResizeObserver = null;
+        this.lastCommittedPaletteWidth = this.requestedPaletteWidth;
+        this.lastMeasuredPaletteWidth = this.state.paletteWidth;
         this.onTargetsUpdate = debounce(this.onTargetsUpdate, 100);
         this.toolboxUpdateQueue = [];
     }
+
     componentDidMount () {
         this.ScratchBlocks = VMScratchBlocks(this.props.vm, this.props.useCatBlocks);
+        installSpikeMotorPortPicker(this.ScratchBlocks);
+        const vm = this.props.vm;
+        setSpikePortLanguageProvider(this.ScratchBlocks, () => this.props.locale || vm.getLocale());
+        setSpikePortStateProvider(this.ScratchBlocks, () => {
+            const runtime = vm.runtime;
+            const router = runtime.peripheralExtensions && runtime.peripheralExtensions.spikeprime;
+            const api = runtime.brickwrightSpikePrimeControl ||
+                (router && typeof router.getControlCenterAPI === 'function' ? router.getControlCenterAPI() : null);
+            return api && typeof api.getState === 'function' ? api.getState() : null;
+        });
         this.ScratchBlocks.prompt = this.handlePromptStart;
         this.ScratchBlocks.statusButtonCallback = this.handleConnectionModalStart;
         this.ScratchBlocks.recordSoundCallback = this.handleOpenSoundRecorder;
@@ -165,6 +337,19 @@ class Blocks extends React.Component {
             Blocks.defaultOptions
         );
         this.workspace = this.ScratchBlocks.inject(this.blocks, workspaceConfig);
+        this.applyPaletteWidth(this.state.paletteWidth);
+        window.addEventListener('resize', this.handlePaletteViewportResize);
+        if (typeof ResizeObserver !== 'undefined') {
+            this.paletteResizeObserver = new ResizeObserver(() => {
+                this.handlePaletteViewportResize();
+                this.schedulePaletteBoundaryMeasure();
+            });
+            if (this.blocksContainer) this.paletteResizeObserver.observe(this.blocksContainer);
+            if (this.workspace.toolbox_ && this.workspace.toolbox_.HtmlDiv) {
+                this.paletteResizeObserver.observe(this.workspace.toolbox_.HtmlDiv);
+            }
+        }
+        this.schedulePaletteBoundaryMeasure();
         AddonHooks.blocklyWorkspace = this.workspace;
 
         // Register buttons under new callback keys for creating variables,
@@ -222,7 +407,7 @@ class Blocks extends React.Component {
         // nothing. See lib/bw-debug/block-menu.js.
         import(/* webpackChunkName: "bw-debug-menu" */ '../lib/bw-debug/block-menu.js')
             .then(({installBreakpointMenu}) => {
-                if (!this.workspace) return;   // unmounted while loading
+                if (!this.workspace) return; // unmounted while loading
                 this.breakpointMenu = installBreakpointMenu(
                     this.ScratchBlocks, this.props.vm, () => this.props.locale);
                 // Blockly rebuilds a block's SVG on load, drag and undo, so the
@@ -253,6 +438,12 @@ class Blocks extends React.Component {
     shouldComponentUpdate (nextProps, nextState) {
         return (
             this.state.prompt !== nextState.prompt ||
+            this.state.paletteWidth !== nextState.paletteWidth ||
+            this.state.paletteHandleOffset !== nextState.paletteHandleOffset ||
+            this.state.paletteResizeEnabled !== nextState.paletteResizeEnabled ||
+            this.state.paletteMode !== nextState.paletteMode ||
+            this.state.spikePaletteModel !== nextState.spikePaletteModel ||
+            this.state.detectedHubModel !== nextState.detectedHubModel ||
             this.props.isVisible !== nextProps.isVisible ||
             this._renderedToolboxXML !== nextProps.toolboxXML ||
             this.props.extensionLibraryVisible !== nextProps.extensionLibraryVisible ||
@@ -263,7 +454,7 @@ class Blocks extends React.Component {
             this.props.customStageSize !== nextProps.customStageSize
         );
     }
-    componentDidUpdate (prevProps) {
+    componentDidUpdate (prevProps, prevState) {
         // If any modals are open, call hideChaff to close z-indexed field editors
         if (this.props.anyModalVisible && !prevProps.anyModalVisible) {
             this.ScratchBlocks.hideChaff();
@@ -275,6 +466,9 @@ class Blocks extends React.Component {
         if (this.props.isVisible && this.props.toolboxXML !== this._renderedToolboxXML) {
             this.requestToolboxUpdate();
         }
+        if (this.props.isRtl !== prevProps.isRtl || this.props.isVisible !== prevProps.isVisible) {
+            this.schedulePaletteBoundaryMeasure();
+        }
 
         if (this.props.isVisible === prevProps.isVisible) {
             if (
@@ -283,6 +477,10 @@ class Blocks extends React.Component {
             ) {
                 // force workspace to redraw for the new stage size
                 window.dispatchEvent(new Event('resize'));
+            }
+            if (this.props.isRtl !== prevProps.isRtl ||
+                this.state.paletteWidth !== prevState.paletteWidth) {
+                this.applyPaletteWidth(this.state.paletteWidth);
             }
             return;
         }
@@ -300,11 +498,23 @@ class Blocks extends React.Component {
             }
 
             window.dispatchEvent(new Event('resize'));
+            this.applyPaletteWidth(this.state.paletteWidth);
         } else {
             this.workspace.setVisible(false);
         }
     }
     componentWillUnmount () {
+        window.removeEventListener('resize', this.handlePaletteViewportResize);
+        if (this.paletteResizeObserver) {
+            this.paletteResizeObserver.disconnect();
+            this.paletteResizeObserver = null;
+        }
+        if (this.paletteLayoutFrame !== null) {
+            window.cancelAnimationFrame(this.paletteLayoutFrame);
+            this.paletteLayoutFrame = null;
+        }
+        this.paletteResizeDrag = null;
+        this.restorePaletteResizeStyles();
         if (this.breakpointMenu) {
             this.breakpointMenu.uninstall();
             this.breakpointMenu = null;
@@ -318,6 +528,169 @@ class Blocks extends React.Component {
         this.props.vm.clearFlyoutBlocks();
 
         AddonHooks.blocklyWorkspace = null;
+    }
+    applyPaletteWidth (requestedWidth) {
+        const workspace = this.workspace;
+        const toolbox = workspace && workspace.toolbox_;
+        if (!toolbox) return;
+        const containerRect = this.blocksContainer && this.blocksContainer.getBoundingClientRect();
+        const layoutWidth = containerRect && containerRect.width > 0 ? containerRect.width : window.innerWidth;
+        const containerWidth = Math.min(layoutWidth, window.innerWidth || layoutWidth);
+        const effectiveWidth = clampSpikePaletteWidth(requestedWidth, containerWidth);
+        const categoryRect = toolbox.HtmlDiv && toolbox.HtmlDiv.getBoundingClientRect();
+        const categoryWidth = categoryRect && categoryRect.width > 0 ? categoryRect.width : 0;
+        const flyoutWidth = Math.max(0, effectiveWidth - categoryWidth);
+        const widthChanged = Math.abs((Number(toolbox.width) || 0) - effectiveWidth) > 0.5;
+        const flyoutWidthChanged = toolbox.flyout_ &&
+            Math.abs((Number(toolbox.flyout_.DEFAULT_WIDTH) || 0) - flyoutWidth) > 0.5;
+        if (widthChanged) toolbox.width = effectiveWidth;
+        if (toolbox.flyout_ && flyoutWidthChanged) toolbox.flyout_.DEFAULT_WIDTH = flyoutWidth;
+        if (widthChanged || flyoutWidthChanged) {
+            if (toolbox.flyout_) {
+                toolbox.flyout_.position();
+                toolbox.flyout_.reflow();
+            }
+            toolbox.position();
+            workspace.resize();
+        }
+        this.effectivePaletteWidth = effectiveWidth;
+        const initialHandleOffset = effectiveWidth - (SPIKE_PALETTE_HANDLE_WIDTH / 2);
+        if (this.state.paletteHandleOffset !== initialHandleOffset) {
+            this.setState({paletteHandleOffset: initialHandleOffset});
+        }
+        const canResize = containerWidth >= SPIKE_PALETTE_WORKSPACE_MIN + SPIKE_PALETTE_WIDTH_MIN +
+            SPIKE_PALETTE_HANDLE_WIDTH;
+        if (canResize !== this.state.paletteResizeEnabled) {
+            this.setState({paletteResizeEnabled: canResize});
+        }
+        if (effectiveWidth !== this.state.paletteWidth && !this.paletteResizeDrag) {
+            this.setState({paletteWidth: effectiveWidth});
+        }
+        this.schedulePaletteBoundaryMeasure();
+    }
+
+    getPaletteAvailableWidth () {
+        const layoutWidth = (this.blocksContainer && this.blocksContainer.clientWidth) || window.innerWidth;
+        return Math.min(layoutWidth, window.innerWidth || layoutWidth);
+    }
+
+    setBlocksContainer (container) {
+        this.blocksContainer = container;
+    }
+
+    schedulePaletteBoundaryMeasure () {
+        if (this.paletteLayoutFrame !== null || !this.workspace) return;
+        this.paletteLayoutFrame = window.requestAnimationFrame(() => {
+            this.paletteLayoutFrame = null;
+            const flyoutBackground = this.workspace && this.workspace.getParentSvg &&
+                this.workspace.getParentSvg().querySelector('.blocklyFlyoutBackground');
+            const containerRect = this.blocksContainer && this.blocksContainer.getBoundingClientRect();
+            const flyoutRect = flyoutBackground && flyoutBackground.getBoundingClientRect();
+            if (!containerRect || !flyoutRect || containerRect.width <= 0 || flyoutRect.width <= 0) return;
+            const handleOffset = getSpikePaletteBoundaryOffset(containerRect, flyoutRect, this.props.isRtl);
+            if (handleOffset === null) return;
+            this.lastMeasuredPaletteWidth = Math.round(handleOffset + (SPIKE_PALETTE_HANDLE_WIDTH / 2));
+            const containerWidth = Math.min(containerRect.width, window.innerWidth || containerRect.width);
+            const canResize = containerWidth >= SPIKE_PALETTE_WORKSPACE_MIN + SPIKE_PALETTE_WIDTH_MIN +
+                SPIKE_PALETTE_HANDLE_WIDTH;
+            const measuredHandleOffset = handleOffset;
+            const updates = {};
+            if (Math.abs((this.state.paletteHandleOffset || 0) - measuredHandleOffset) > 0) {
+                updates.paletteHandleOffset = measuredHandleOffset;
+            }
+            if (this.state.paletteResizeEnabled !== canResize) updates.paletteResizeEnabled = canResize;
+            if (Object.keys(updates).length) this.setState(updates);
+        });
+    }
+    handlePaletteResizePointerDown (event) {
+        if (event.button !== 0 || !this.state.paletteResizeEnabled) return;
+        event.preventDefault();
+        // The last DOM measurement is asynchronous and can still describe the
+        // previous drag when a user starts another drag immediately. React state
+        // is updated synchronously with the active resize and is the current
+        // committed width for the next pointer gesture.
+        const width = clampSpikePaletteWidth(
+            Number.isFinite(this.state.paletteWidth) ? this.state.paletteWidth : this.lastMeasuredPaletteWidth,
+            this.getPaletteAvailableWidth()
+        );
+        this.paletteResizeDrag = {
+            pointerId: event.pointerId,
+            startX: event.clientX,
+            startWidth: width,
+            width
+        };
+        this.paletteResizeBodyStyles = {
+            cursor: document.body.style.cursor,
+            userSelect: document.body.style.userSelect
+        };
+        document.body.style.cursor = 'col-resize';
+        document.body.style.userSelect = 'none';
+        if (event.currentTarget.setPointerCapture) event.currentTarget.setPointerCapture(event.pointerId);
+    }
+
+    handlePaletteResizePointerMove (event) {
+        const drag = this.paletteResizeDrag;
+        if (!drag || drag.pointerId !== event.pointerId) return;
+        const direction = this.props.isRtl ? -1 : 1;
+        const width = clampSpikePaletteWidth(
+            drag.startWidth + ((event.clientX - drag.startX) * direction),
+            this.getPaletteAvailableWidth()
+        );
+        if (width === drag.width) return;
+        drag.width = width;
+        this.setState({paletteWidth: width}, () => this.applyPaletteWidth(width));
+    }
+
+    restorePaletteResizeStyles () {
+        if (this.paletteResizeBodyStyles) {
+            document.body.style.cursor = this.paletteResizeBodyStyles.cursor;
+            document.body.style.userSelect = this.paletteResizeBodyStyles.userSelect;
+            this.paletteResizeBodyStyles = null;
+        }
+    }
+
+    handlePaletteResizePointerUp (event) {
+        const drag = this.paletteResizeDrag;
+        if (!drag || (event && typeof event.pointerId !== 'undefined' && drag.pointerId !== event.pointerId)) return;
+        this.paletteResizeDrag = null;
+        this.restorePaletteResizeStyles();
+        if (drag.width !== drag.startWidth) {
+            this.lastCommittedPaletteWidth = drag.width;
+            this.requestedPaletteWidth = drag.width;
+            storeSpikePaletteWidth(drag.width);
+        }
+        this.schedulePaletteBoundaryMeasure();
+        if (event && event.currentTarget && event.currentTarget.hasPointerCapture &&
+            event.currentTarget.hasPointerCapture(event.pointerId)) {
+            event.currentTarget.releasePointerCapture(event.pointerId);
+        }
+    }
+
+    handlePaletteResizePointerCancel () {
+        const drag = this.paletteResizeDrag;
+        if (!drag) return;
+        this.paletteResizeDrag = null;
+        this.restorePaletteResizeStyles();
+        this.setState({paletteWidth: clampSpikePaletteWidth(this.lastCommittedPaletteWidth)}, () =>
+            this.applyPaletteWidth(this.lastCommittedPaletteWidth));
+    }
+
+    handlePaletteResizeKeyDown (event) {
+        if (!['ArrowLeft', 'ArrowRight'].includes(event.key)) return;
+        event.preventDefault();
+        const direction = (event.key === 'ArrowRight' ? 1 : -1) * (this.props.isRtl ? -1 : 1);
+        const width = clampSpikePaletteWidth(
+            this.state.paletteWidth + (direction * 10),
+            this.getPaletteAvailableWidth()
+        );
+        this.requestedPaletteWidth = width;
+        this.lastCommittedPaletteWidth = width;
+        storeSpikePaletteWidth(width);
+        this.setState({paletteWidth: width}, () => this.applyPaletteWidth(width));
+    }
+
+    handlePaletteViewportResize () {
+        this.applyPaletteWidth(this.requestedPaletteWidth);
     }
     requestToolboxUpdate () {
         clearTimeout(this.toolboxUpdateTimeout);
@@ -363,6 +736,8 @@ class Blocks extends React.Component {
         const queue = this.toolboxUpdateQueue;
         this.toolboxUpdateQueue = [];
         queue.forEach(fn => fn());
+        this.applyPaletteWidth(this.state.paletteWidth);
+        this.schedulePaletteBoundaryMeasure();
     }
 
     withToolboxUpdates (fn) {
@@ -393,6 +768,12 @@ class Blocks extends React.Component {
         this.props.vm.addListener('BLOCKSINFO_UPDATE', this.handleBlocksInfoUpdate);
         this.props.vm.addListener('PERIPHERAL_CONNECTED', this.handleStatusButtonUpdate);
         this.props.vm.addListener('PERIPHERAL_DISCONNECTED', this.handleStatusButtonUpdate);
+        const runtime = this.props.vm.runtime;
+        const router = runtime.peripheralExtensions && runtime.peripheralExtensions.spikeprime;
+        const api = runtime.brickwrightSpikePrimeControl ||
+            (router && typeof router.getControlCenterAPI === 'function' ? router.getControlCenterAPI() : null);
+        this.spikeModelChangeEvent = (api && api.modelChangeEvent) || 'brickwrightSpikePrimeModelChange';
+        this.props.vm.runtime.on(this.spikeModelChangeEvent, this.handleSpikePrimeModelChange);
     }
     detachVM () {
         this.props.vm.removeListener('SCRIPT_GLOW_ON', this.onScriptGlowOn);
@@ -407,6 +788,10 @@ class Blocks extends React.Component {
         this.props.vm.removeListener('BLOCKSINFO_UPDATE', this.handleBlocksInfoUpdate);
         this.props.vm.removeListener('PERIPHERAL_CONNECTED', this.handleStatusButtonUpdate);
         this.props.vm.removeListener('PERIPHERAL_DISCONNECTED', this.handleStatusButtonUpdate);
+        this.props.vm.runtime.removeListener(
+            this.spikeModelChangeEvent || 'brickwrightSpikePrimeModelChange',
+            this.handleSpikePrimeModelChange
+        );
     }
 
     updateToolboxBlockValue (id, value) {
@@ -422,6 +807,14 @@ class Blocks extends React.Component {
     }
 
     onTargetsUpdate () {
+        const editingTarget = this.props.vm.editingTarget || this.props.vm.runtime.getTargetForStage();
+        const paletteMode = getPaletteMode(editingTarget);
+        if (paletteMode !== this.state.paletteMode) {
+            this.setState({paletteMode}, () => {
+                const toolboxXML = this.getToolboxXML();
+                if (toolboxXML) this.props.updateToolboxState(toolboxXML);
+            });
+        }
         if (this.props.vm.editingTarget && this.workspace.getFlyout()) {
             ['glide', 'move', 'set'].forEach(prefix => {
                 this.updateToolboxBlockValue(`${prefix}x`, Math.round(this.props.vm.editingTarget.x).toString());
@@ -472,6 +865,35 @@ class Blocks extends React.Component {
             const stageCostumes = stage.getCostumes();
             const targetCostumes = target.getCostumes();
             const targetSounds = target.getSounds();
+            const router = runtime.peripheralExtensions && runtime.peripheralExtensions.spikeprime;
+            const controlAPI = runtime.brickwrightSpikePrimeControl ||
+                (router && typeof router.getControlCenterAPI === 'function' ? router.getControlCenterAPI() : null);
+            let controlState = null;
+            let supportedSpikeBlockOpcodes = null;
+            if (controlAPI) {
+                try {
+                    if (typeof controlAPI.getState === 'function') controlState = controlAPI.getState();
+                    if (['essential', 'prime'].includes(this.state.spikePaletteModel)) {
+                        supportedSpikeBlockOpcodes = typeof controlAPI.getSupportedBlockOpcodes === 'function' ?
+                            controlAPI.getSupportedBlockOpcodes(this.state.spikePaletteModel) :
+                            (this.state.spikePaletteModel === 'essential' ? ESSENTIAL_SUPPORTED_BLOCK_OPCODES : null);
+                        if (this.state.spikePaletteModel === 'essential' &&
+                            !Array.isArray(supportedSpikeBlockOpcodes)) {
+                            supportedSpikeBlockOpcodes = ESSENTIAL_SUPPORTED_BLOCK_OPCODES;
+                        }
+                    } else if (this.state.spikePaletteModel === 'auto' && controlState && controlState.connected &&
+                        Array.isArray(controlState && controlState.supportedBlockOpcodes)) {
+                        supportedSpikeBlockOpcodes = controlState.supportedBlockOpcodes;
+                    }
+                } catch (error) {
+                    // Model capability metadata is optional; a transient API
+                    // failure must not hide the whole Blockly toolbox.
+                    supportedSpikeBlockOpcodes = null;
+                }
+            }
+            if (this.state.spikePaletteModel === 'essential' && !Array.isArray(supportedSpikeBlockOpcodes)) {
+                supportedSpikeBlockOpcodes = ESSENTIAL_SUPPORTED_BLOCK_OPCODES;
+            }
             const dynamicBlocksXML = injectExtensionCategoryTheme(
                 this.props.vm.runtime.getBlocksXML(target),
                 this.props.theme
@@ -480,7 +902,10 @@ class Blocks extends React.Component {
                 targetCostumes[targetCostumes.length - 1].name,
                 stageCostumes[stageCostumes.length - 1].name,
                 targetSounds.length > 0 ? targetSounds[targetSounds.length - 1].name : '',
-                this.props.theme.getBlockColors()
+                this.props.theme.getBlockColors(),
+                getPaletteMode(target),
+                Array.isArray(supportedSpikeBlockOpcodes) ? supportedSpikeBlockOpcodes : null,
+                formatSpikeCategoryLabels(this.props.locale)
             );
         } catch {
             return null;
@@ -559,7 +984,12 @@ class Blocks extends React.Component {
                     if (blockInfo.info && blockInfo.info.isDynamic) {
                         dynamicBlocksInfo.push(blockInfo);
                     } else if (blockInfo.json) {
-                        staticBlocksJson.push(injectExtensionBlockTheme(blockInfo.json, this.props.theme));
+                        const themedBlock = injectExtensionBlockTheme(blockInfo.json, this.props.theme);
+                        if (themedBlock.type && themedBlock.type.startsWith('spikeprime_')) {
+                            const opcode = themedBlock.type.slice('spikeprime_'.length);
+                            Object.assign(themedBlock, getSpikeBlockColors(opcode));
+                        }
+                        staticBlocksJson.push(themedBlock);
                     }
                     // otherwise it's a non-block entry such as '---'
                 });
@@ -600,6 +1030,25 @@ class Blocks extends React.Component {
         // @todo Later we should replace this to avoid all the warnings from redefining blocks.
         this.handleExtensionAdded(categoryInfo);
     }
+    handleSpikePrimeModelChange () {
+        const runtime = this.props.vm.runtime;
+        const router = runtime.peripheralExtensions && runtime.peripheralExtensions.spikeprime;
+        const api = runtime.brickwrightSpikePrimeControl ||
+            (router && typeof router.getControlCenterAPI === 'function' ? router.getControlCenterAPI() : null);
+        let detectedHubModel = null;
+        try {
+            const snapshot = api && typeof api.getState === 'function' ? api.getState() : null;
+            detectedHubModel = snapshot && snapshot.connected &&
+                (snapshot.detectedHubModel || snapshot.effectiveHubModel) ?
+                (snapshot.detectedHubModel || snapshot.effectiveHubModel) : null;
+        } catch (error) {
+            detectedHubModel = null;
+        }
+        this.setState({detectedHubModel}, () => {
+            const toolboxXML = this.getToolboxXML();
+            if (toolboxXML) this.props.updateToolboxState(toolboxXML);
+        });
+    }
     handleCategorySelected (categoryId) {
         const extension = extensionData.find(ext => ext.extensionId === categoryId);
         if (extension && extension.launchPeripheralConnectionFlow) {
@@ -608,6 +1057,7 @@ class Blocks extends React.Component {
 
         this.withToolboxUpdates(() => {
             this.workspace.toolbox_.setSelectedCategoryById(categoryId);
+            this.schedulePaletteBoundaryMeasure();
         });
     }
     setBlocks (blocks) {
@@ -631,6 +1081,7 @@ class Blocks extends React.Component {
     }
     handleStatusButtonUpdate () {
         this.ScratchBlocks.refreshStatusButtons(this.workspace);
+        this.handleSpikePrimeModelChange();
     }
     handleOpenSoundRecorder () {
         this.props.onOpenSoundRecorder();
@@ -686,6 +1137,29 @@ class Blocks extends React.Component {
         this.workspace.enableProcedureReturns();
         this.requestToolboxUpdate();
     }
+    handlePaletteModeChange (event) {
+        const {value: palette, checked} = event.currentTarget;
+        const mode = updatePaletteMode(this.state.paletteMode, palette, checked);
+        if (!isPaletteMode(mode)) return;
+        if (mode === this.state.paletteMode) return;
+        const target = this.props.vm.editingTarget || this.props.vm.runtime.getTargetForStage();
+        if (!target || !target.sprite) return;
+        target.sprite.brickwrightPaletteMode = mode;
+        this.props.vm.runtime.emitProjectChanged();
+        this.setState({paletteMode: mode}, () => {
+            const toolboxXML = this.getToolboxXML();
+            if (toolboxXML) this.props.updateToolboxState(toolboxXML);
+        });
+    }
+    handleSpikePaletteModelChange (event) {
+        const spikePaletteModel = event.target.value;
+        if (!['auto', 'prime', 'essential', 'all'].includes(spikePaletteModel)) return;
+        setSpikePaletteModel(spikePaletteModel);
+        this.setState({spikePaletteModel}, () => {
+            const toolboxXML = this.getToolboxXML();
+            if (toolboxXML) this.props.updateToolboxState(toolboxXML);
+        });
+    }
     render () {
         /* eslint-disable no-unused-vars */
         const {
@@ -697,6 +1171,7 @@ class Blocks extends React.Component {
             options,
             stageSize,
             vm,
+            intl,
             isRtl,
             isVisible,
             onActivateColorPicker,
@@ -715,13 +1190,84 @@ class Blocks extends React.Component {
             ...props
         } = this.props;
         /* eslint-enable no-unused-vars */
+        const modelLabel = this.state.detectedHubModel === 'essential' ?
+            intl.formatMessage(messages.SPIKE_PALETTE_ESSENTIAL) :
+            this.state.detectedHubModel === 'prime' ? intl.formatMessage(messages.SPIKE_PALETTE_PRIME) : null;
         return (
             <React.Fragment>
-                <DroppableBlocks
-                    componentRef={this.setBlocks}
-                    onDrop={this.handleDrop}
-                    {...props}
-                />
+                <div
+                    className={paletteStyles.blocksContainer}
+                    ref={this.setBlocksContainer}
+                >
+                    <div
+                        className={paletteStyles.paletteModeControl}
+                        role="group"
+                        aria-label={intl.formatMessage(messages.PALETTE_MODE_LABEL)}
+                    >
+                        {paletteOptions.map(({id, label}) => (
+                            <label
+                                key={id}
+                                className={paletteStyles.paletteToggle}
+                            >
+                                <input
+                                    type="checkbox"
+                                    value={id}
+                                    checked={getPaletteVisibility(this.state.paletteMode)[id]}
+                                    aria-label={intl.formatMessage(label)}
+                                    onChange={this.handlePaletteModeChange}
+                                />
+                                <span>{intl.formatMessage(label)}</span>
+                            </label>
+                        ))}
+                        <label className={paletteStyles.modelSelect}>
+                            <select
+                                aria-label={intl.formatMessage(messages.SPIKE_PALETTE_LABEL)}
+                                title={intl.formatMessage(messages.SPIKE_PALETTE_LABEL)}
+                                onChange={this.handleSpikePaletteModelChange}
+                                value={this.state.spikePaletteModel}
+                            >
+                                <option value="auto">{modelLabel ?
+                                    intl.formatMessage(messages.SPIKE_PALETTE_AUTO_DETECTED, {model: modelLabel}) :
+                                    intl.formatMessage(messages.SPIKE_PALETTE_AUTO)}</option>
+                                <option value="prime">{intl.formatMessage(messages.SPIKE_PALETTE_PRIME)}</option>
+                                <option value="essential">
+                                    {intl.formatMessage(messages.SPIKE_PALETTE_ESSENTIAL)}
+                                </option>
+                                <option value="all">{intl.formatMessage(messages.SPIKE_PALETTE_ALL)}</option>
+                            </select>
+                        </label>
+                    </div>
+                    <DroppableBlocks
+                        componentRef={this.setBlocks}
+                        onDrop={this.handleDrop}
+                        {...props}
+                    />
+                    {this.state.paletteResizeEnabled ? <div
+                        aria-label={intl.formatMessage(messages.PALETTE_RESIZE_LABEL)}
+                        aria-orientation="vertical"
+                        aria-valuemax={Math.min(480, Math.max(210,
+                            this.getPaletteAvailableWidth() -
+                                SPIKE_PALETTE_WORKSPACE_MIN - SPIKE_PALETTE_HANDLE_WIDTH))}
+                        aria-valuemin={210}
+                        aria-valuenow={this.state.paletteWidth}
+                        className={paletteStyles.paletteResizeHandle}
+                        onKeyDown={this.handlePaletteResizeKeyDown}
+                        onLostPointerCapture={this.handlePaletteResizePointerCancel}
+                        onPointerCancel={this.handlePaletteResizePointerCancel}
+                        onPointerDown={this.handlePaletteResizePointerDown}
+                        onPointerMove={this.handlePaletteResizePointerMove}
+                        onPointerUp={this.handlePaletteResizePointerUp}
+                        role="separator"
+                        style={{insetInlineStart: `${this.state.paletteHandleOffset}px`}}
+                        tabIndex={0}
+                        title={intl.formatMessage(messages.PALETTE_RESIZE_LABEL)}
+                    >
+                        <span
+                            aria-hidden="true"
+                            className={paletteStyles.paletteResizeHitArea}
+                        />
+                    </div> : null}
+                </div>
                 {this.state.prompt ? (
                     <Prompt
                         defaultValue={this.state.prompt.defaultValue}

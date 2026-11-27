@@ -1,0 +1,93 @@
+diff --git a/node_modules/scratch-vm/src/extension-support/extension-manager.js b/node_modules/scratch-vm/src/extension-support/extension-manager.js
+index 5268ad9..40b3513 100644
+--- a/node_modules/scratch-vm/src/extension-support/extension-manager.js
++++ b/node_modules/scratch-vm/src/extension-support/extension-manager.js
+@@ -189,7 +189,16 @@ class ExtensionManager {
+                 parsedURL.protocol === 'https:' ||
+                 parsedURL.protocol === 'http:' ||
+                 parsedURL.protocol === 'data:' ||
+-                parsedURL.protocol === 'file:'
++                parsedURL.protocol === 'file:' ||
++                (parsedURL.protocol === 'app:' &&
++                    parsedURL.hostname === 'brickwright' &&
++                    !parsedURL.username &&
++                    !parsedURL.password &&
++                    !parsedURL.port &&
++                    parsedURL.pathname === '/extensions/CrispStrobe/legospike_turbowarp_transpile.js' &&
++                    !parsedURL.hash &&
++                    Array.from(parsedURL.searchParams.keys()).every(key => key === 'bwSpikeBuild') &&
++                    parsedURL.searchParams.getAll('bwSpikeBuild').length <= 1)
+             );
+         } catch (e) {
+             return false;
+diff --git a/node_modules/scratch-vm/src/serialization/sb3.js b/node_modules/scratch-vm/src/serialization/sb3.js
+index 66854a0..fbe2941 100644
+--- a/node_modules/scratch-vm/src/serialization/sb3.js
++++ b/node_modules/scratch-vm/src/serialization/sb3.js
+@@ -555,6 +555,9 @@ const serializeTarget = function (target, extensions) {
+     let targetExtensions = [];
+     obj.isStage = target.isStage;
+     obj.name = obj.isStage ? 'Stage' : target.name;
++    if (target.brickwrightPaletteMode === 'scratch' || target.brickwrightPaletteMode === 'spike') {
++        obj.brickwrightPaletteMode = target.brickwrightPaletteMode;
++    }
+     const vars = serializeVariables(target.variables);
+     obj.variables = vars.variables;
+     obj.lists = vars.lists;
+@@ -1165,6 +1168,9 @@ const parseScratchObject = function (object, runtime, extensions, zip, assets) {
+     if (Object.prototype.hasOwnProperty.call(object, 'name')) {
+         sprite.name = object.name;
+     }
++    if (object.brickwrightPaletteMode === 'scratch' || object.brickwrightPaletteMode === 'spike') {
++        sprite.brickwrightPaletteMode = object.brickwrightPaletteMode;
++    }
+     if (Object.prototype.hasOwnProperty.call(object, 'blocks')) {
+         deserializeBlocks(object.blocks);
+         // Take a second pass to create objects and add extensions
+diff --git a/node_modules/scratch-vm/src/sprites/rendered-target.js b/node_modules/scratch-vm/src/sprites/rendered-target.js
+index eeb029f..df2c0f9 100644
+--- a/node_modules/scratch-vm/src/sprites/rendered-target.js
++++ b/node_modules/scratch-vm/src/sprites/rendered-target.js
+@@ -1073,7 +1073,7 @@ class RenderedTarget extends Target {
+      */
+     toJSON () {
+         const costumes = this.getCostumes();
+-        return {
++        const result = {
+             id: this.id,
+             name: this.getName(),
+             isStage: this.isStage,
+@@ -1099,6 +1099,11 @@ class RenderedTarget extends Target {
+             videoState: this.videoState
+ 
+         };
++        // Omit the default to keep ordinary Scratch projects unchanged.
++        if (this.sprite.brickwrightPaletteMode !== 'both') {
++            result.brickwrightPaletteMode = this.sprite.brickwrightPaletteMode;
++        }
++        return result;
+     }
+ 
+     /**
+diff --git a/node_modules/scratch-vm/src/sprites/sprite.js b/node_modules/scratch-vm/src/sprites/sprite.js
+index a38fa12..914c153 100644
+--- a/node_modules/scratch-vm/src/sprites/sprite.js
++++ b/node_modules/scratch-vm/src/sprites/sprite.js
+@@ -27,6 +27,9 @@ class Sprite {
+          * @type {string}
+          */
+         this.name = '';
++        // Brickwright's editor-only palette selection belongs to the sprite,
++        // not to an individual block or the browser's local storage.
++        this.brickwrightPaletteMode = 'both';
+         /**
+          * List of costumes for this sprite.
+          * Each entry is an object, e.g.,
+@@ -137,6 +140,7 @@ class Sprite {
+ 
+     duplicate () {
+         const newSprite = new Sprite(null, this.runtime);
++        newSprite.brickwrightPaletteMode = this.brickwrightPaletteMode;
+         const blocksContainer = this.blocks._blocks;
+         const originalBlocks = Object.keys(blocksContainer).map(key => blocksContainer[key]);
+         const copiedBlocks = JSON.parse(JSON.stringify(originalBlocks));

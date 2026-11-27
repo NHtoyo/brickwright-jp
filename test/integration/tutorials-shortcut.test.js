@@ -1,19 +1,13 @@
 import path from 'path';
 import SeleniumHelper from '../helpers/selenium-helper';
 
-const {
-    clickText,
-    findByXpath,
-    getDriver,
-    loadUri
-} = new SeleniumHelper();
+const {getDriver, loadUri} = new SeleniumHelper();
 
 const uri = path.resolve(__dirname, '../../build/index.html?tutorial=all');
-const uriPrefix = path.resolve(__dirname, '../../build/index.html?tutorial=');
 
 let driver;
 
-describe('Working with shortcut to Tutorials library', () => {
+describe('Retired Tutorials shortcuts', () => {
     beforeAll(() => {
         driver = getDriver();
     });
@@ -22,17 +16,11 @@ describe('Working with shortcut to Tutorials library', () => {
         await driver.quit();
     });
 
-    test('opens with the Tutorial Library showing', async () => {
+    test('legacy tutorial shortcuts do not show removed tutorial content', async () => {
         await loadUri(uri);
-        // make sure there is a tutorial visible that doesn't have a shortcut
-        await clickText('Make It Spin');
-        await findByXpath('//div[contains(@class, "step-video")]');
+        const videoSteps = await driver.executeScript(
+            'return document.querySelectorAll(".step-video").length;'
+        );
+        expect(videoSteps).toBe(0);
     });
-
-    test('can open hidden tutorials', async () => {
-        await loadUri(`${uriPrefix}whatsnew`);
-        // should open the tutorial video immediately
-        await findByXpath('//div[contains(@class, "step-video")]');
-    });
-    // @todo navigating cards, etc.
 });

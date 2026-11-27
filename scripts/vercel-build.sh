@@ -6,11 +6,9 @@ set -e
 # + buildCommand + outputDirectory there override anything in the dashboard.
 # This script remains as a fallback so existing setups don't break.
 
-# Skip the flaky upstream micro:bit firmware download; stub the generated
-# import so webpack can resolve it. (vercel.json's installCommand also
-# uses --ignore-scripts so prepublish.mjs never runs in the first place.)
-mkdir -p src/generated
-printf 'module.exports = "";\n' > src/generated/microbit-hex-url.cjs
+# Restore the verified micro:bit firmware import. The prepublish script caches
+# the pinned archive and fails the build if the download or hash check fails.
+npm run prepublish
 
 CI=true NODE_OPTIONS='--max-old-space-size=8192' ./node_modules/.bin/webpack --bail
 

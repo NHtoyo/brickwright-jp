@@ -18,6 +18,8 @@ import {
     getExtensionGallerySources,
     getExtensionResourceURL,
     identifyExtensionSource,
+    filterStandardSpikeGalleryDuplicates,
+    isStandardSpikeExtensionId,
     NH_TOYO_DEV_EXTENSION_SOURCE_ID,
     ORIGINAL_EXTENSION_SOURCE_ID
 } from '../lib/extension-gallery-sources';
@@ -361,7 +363,9 @@ class ExtensionLibrary extends React.PureComponent {
             this.state.galleryError ||
             this.state.galleryTimedOut
         ) {
-            library = extensionLibraryContent.map(toLibraryItem);
+            library = filterStandardSpikeGalleryDuplicates(
+                extensionLibraryContent
+            ).map(toLibraryItem);
             library.push('---');
             if (
                 this.state.gallery &&
@@ -372,6 +376,7 @@ class ExtensionLibrary extends React.PureComponent {
                 library.push(
                     ...this.state.gallery
                         .filter(i => i.extensionId !== 'faceSensing')
+                        .filter(i => !isStandardSpikeExtensionId(i.extensionId))
                         .map(i =>
                             translateGalleryItem(i, locale, this.props.intl)
                         )

@@ -314,7 +314,7 @@ const SBFileUploaderHOC = function (WrappedComponent) {
     };
     SBFileUploaderComponent.defaultProps = {
         showOpenFilePicker: typeof showOpenFilePicker === 'function' && !navigator.userAgent.includes('Android') ?
-            window.showOpenFilePicker.bind(window) :
+            options => window.showOpenFilePicker(options) :
             null
     };
     const mapStateToProps = (state, ownProps) => {

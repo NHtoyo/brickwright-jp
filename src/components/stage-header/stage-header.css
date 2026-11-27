@@ -37,6 +37,12 @@
     padding-bottom: $space;
 }
 
+.hardware-controls {
+    align-items: center;
+    display: flex;
+    flex-shrink: 0;
+}
+
 .stage-size-row {
     display: flex;
 }

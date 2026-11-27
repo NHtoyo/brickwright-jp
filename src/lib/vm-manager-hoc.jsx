@@ -14,6 +14,7 @@ import {
     projectError
 } from '../reducers/project-state';
 import log from './log';
+import {installStandardSpikeExtensionResolver} from './spike-prime-extension-loader';
 
 /**
  * List of fonts that could be used by security prompts.
@@ -33,6 +34,10 @@ const vmManagerHOC = function (WrappedComponent) {
     class VMManager extends React.Component {
         constructor (props) {
             super(props);
+            // Run before the editor's project loaders mount. A project's stale
+            // extensionURLs entry must never select another implementation of
+            // the standard `spikeprime` ID.
+            installStandardSpikeExtensionResolver(props.vm);
             bindAll(this, [
                 'loadProject'
             ]);

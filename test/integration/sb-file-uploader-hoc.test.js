@@ -27,7 +27,7 @@ describe('Loading scratch gui', () => {
     });
 
     test('Loading project file from computer succeeds, without opening failure alert', async () => {
-        await loadUri(uri);
+        await loadUri(uri, {width: 1200, legacyFilePicker: true});
         await clickXpath(FILE_MENU_XPATH);
         await clickText('Load from your computer');
         const input = await findByXpath('//input[@accept=".sb,.sb2,.sb3"]');
@@ -37,7 +37,7 @@ describe('Loading scratch gui', () => {
     });
 
     test('Loading project file from computer gives project the filename from file', async () => {
-        await loadUri(uri);
+        await loadUri(uri, {width: 1200, legacyFilePicker: true});
         await clickXpath(FILE_MENU_XPATH);
         await clickText('Load from your computer');
         const input = await findByXpath('//input[@accept=".sb,.sb2,.sb3"]');
@@ -47,7 +47,7 @@ describe('Loading scratch gui', () => {
     });
 
     test('Load sb3 project with a missing svg costume', async () => {
-        await loadUri(uri);
+        await loadUri(uri, {width: 1200, legacyFilePicker: true});
         await clickXpath(FILE_MENU_XPATH);
         await clickText('Load from your computer');
         const input = await findByXpath('//input[@accept=".sb,.sb2,.sb3"]');
@@ -58,7 +58,7 @@ describe('Loading scratch gui', () => {
     });
 
     test('Load sb3 project with an invalid svg costume', async () => {
-        await loadUri(uri);
+        await loadUri(uri, {width: 1200, legacyFilePicker: true});
         await clickXpath(FILE_MENU_XPATH);
         await clickText('Load from your computer');
         const input = await findByXpath('//input[@accept=".sb,.sb2,.sb3"]');
@@ -69,7 +69,7 @@ describe('Loading scratch gui', () => {
     });
 
     test('Load sb2 project with a missing svg costume', async () => {
-        await loadUri(uri);
+        await loadUri(uri, {width: 1200, legacyFilePicker: true});
         await clickXpath(FILE_MENU_XPATH);
         await clickText('Load from your computer');
         const input = await findByXpath('//input[@accept=".sb,.sb2,.sb3"]');
@@ -80,7 +80,7 @@ describe('Loading scratch gui', () => {
     });
 
     test('Load sb2 project with an invalid svg costume', async () => {
-        await loadUri(uri);
+        await loadUri(uri, {width: 1200, legacyFilePicker: true});
         await clickXpath(FILE_MENU_XPATH);
         await clickText('Load from your computer');
         const input = await findByXpath('//input[@accept=".sb,.sb2,.sb3"]');
@@ -91,7 +91,7 @@ describe('Loading scratch gui', () => {
     });
 
     test('Load sb3 project with a missing bmp costume', async () => {
-        await loadUri(uri);
+        await loadUri(uri, {width: 1200, legacyFilePicker: true});
         await clickXpath(FILE_MENU_XPATH);
         await clickText('Load from your computer');
         const input = await findByXpath('//input[@accept=".sb,.sb2,.sb3"]');
@@ -102,7 +102,7 @@ describe('Loading scratch gui', () => {
     });
 
     test('Load sb3 project with an invalid bmp costume', async () => {
-        await loadUri(uri);
+        await loadUri(uri, {width: 1200, legacyFilePicker: true});
         await clickXpath(FILE_MENU_XPATH);
         await clickText('Load from your computer');
         const input = await findByXpath('//input[@accept=".sb,.sb2,.sb3"]');

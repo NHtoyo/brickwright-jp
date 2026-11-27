@@ -15,6 +15,13 @@ const {
 } = new SeleniumHelper();
 
 const uri = path.resolve(__dirname, '../../build/index.html');
+const FILE_MENU_XPATH = '//div[contains(@class, "menu-bar_menu-bar-item")]' +
+    '[*[contains(@class, "menu-bar_collapsible-label")]//*[text()="File"]]';
+
+const addSoundFromLibrary = async name => {
+    await clickXpath('//button[@aria-label="Choose a Sound"]');
+    await clickText(name, scope.modal);
+};
 
 let driver;
 
@@ -31,20 +38,11 @@ describe('Working with sounds', () => {
         await loadUri(uri);
         await clickText('Sounds');
 
-        // Delete the sound
-        await rightClickText('Meow', scope.soundsTab);
-        await driver.sleep(500); // Wait a moment for context menu; only needed for local testing
-        await clickText('delete', scope.soundsTab);
-
-        // Add it back
-        await clickXpath('//button[@aria-label="Choose a Sound"]');
-        let el = await findByXpath("//input[@placeholder='Search']");
-        await el.sendKeys('meow');
-        await clickText('Meow', scope.modal); // Should close the modal
+        await addSoundFromLibrary('Meow');
 
         // Add a new sound
         await clickXpath('//button[@aria-label="Choose a Sound"]');
-        el = await findByXpath("//input[@placeholder='Search']");
+        const el = await findByXpath("//input[@placeholder='Search']");
         await el.sendKeys('chom');
         await clickText('Chomp'); // Should close the modal, then click the sounds in the selector
         await findByXpath("//input[@value='Chomp']"); // Should show editor for new sound
@@ -77,6 +75,7 @@ describe('Working with sounds', () => {
     test('Duplicating a sound', async () => {
         await loadUri(uri);
         await clickText('Sounds');
+        await addSoundFromLibrary('Meow');
 
         await rightClickText('Meow', scope.soundsTab);
         await clickText('duplicate', scope.soundsTab);
@@ -95,8 +94,8 @@ describe('Working with sounds', () => {
 
         // Add a sound so this sprite has 2 sounds.
         await clickText('Sounds');
-        await clickXpath('//button[@aria-label="Choose a Sound"]');
-        await clickText('A Bass'); // Closes the modal
+        await addSoundFromLibrary('Meow');
+        await addSoundFromLibrary('A Bass');
 
         // Now add a sprite with only one sound.
         await clickXpath('//button[@aria-label="Choose a Sprite"]');
@@ -136,6 +135,7 @@ describe('Working with sounds', () => {
     test('Copy to new button adds a new sound', async () => {
         await loadUri(uri);
         await clickText('Sounds');
+        await addSoundFromLibrary('Meow');
         await clickText('Copy to New', scope.soundsTab);
         await clickText('Meow2', scope.soundsTab);
 
@@ -146,6 +146,7 @@ describe('Working with sounds', () => {
     test('Copy and pasting within a sound changes its duration', async () => {
         await loadUri(uri);
         await clickText('Sounds');
+        await addSoundFromLibrary('Meow');
         await findByText('0.85', scope.soundsTab); // Original meow sound duration
         await clickText('Copy', scope.soundsTab);
         await clickText('Paste', scope.soundsTab);
@@ -156,10 +157,16 @@ describe('Working with sounds', () => {
     });
 
     test('Can copy a sound from a sprite and paste into a sound on the stage', async () => {
-        await loadUri(uri);
+        await loadUri(uri, {width: 1200, legacyFilePicker: true});
+        await clickXpath(FILE_MENU_XPATH);
+        await clickText('Load from your computer');
+        const input = await findByXpath('//input[@accept=".sb,.sb2,.sb3"]');
+        await input.sendKeys(path.resolve(__dirname, '../fixtures/project1.sb3'));
+        await findByText('project1-sprite');
         await clickText('Sounds');
         await clickText('Copy', scope.soundsTab); // Copy the meow sound
         await clickXpath('//span[text()="Stage"]');
+        await clickText('Sounds');
         await findByText('0.02', scope.soundsTab); // Original pop sound duration
         await clickText('Paste', scope.soundsTab);
         await findByText('0.87', scope.soundsTab); // Duration of pop + meow sound
@@ -173,6 +180,7 @@ describe('Working with sounds', () => {
 
         await loadUri(uri);
         await clickText('Sounds');
+        await addSoundFromLibrary('Meow');
         const el = await findByXpath('//button[@aria-label="Choose a Sound"]');
         await el.sendKeys(Key.chord(cmdCtrl, 'a')); // Select all
         await findByText('0.85', scope.soundsTab); // Meow sound duration

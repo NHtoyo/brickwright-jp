@@ -24,8 +24,8 @@ describe('Loading scratch gui', () => {
         await driver.quit();
     });
 
-    test('Switching small/large stage after highlighting and deleting sprite', async () => {
-        await loadUri(uri);
+    test('Switching small/full stage after highlighting and deleting sprite', async () => {
+        await loadUri(uri, {width: 1200});
 
         // Highlight the sprite
         await clickText('Sprite1', scope.spriteTile);
@@ -37,8 +37,9 @@ describe('Loading scratch gui', () => {
         // Go to small stage mode
         await clickXpath('//button[@title="Switch to small stage"]');
 
-        // Confirm app still working
-        await clickXpath('//button[@title="Switch to large stage"]');
+        // Brickwright's default stage sizing exposes the small and full-stage modes.
+        // Confirm the other available stage mode still works after deleting a sprite.
+        await clickXpath('//button[@title="Switch to full stage"]');
 
         const logs = await getLogs();
         await expect(logs).toEqual([]);

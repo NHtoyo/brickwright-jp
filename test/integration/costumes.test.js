@@ -74,8 +74,8 @@ describe('Working with costumes', () => {
         await clickText('duplicate', scope.costumesTab);
         await new Promise(resolve => setTimeout(resolve, 1000)); // Wait for duplication to finish
 
-        // Make sure the duplicated costume is named correctly.
-        await clickText('costume3', scope.costumesTab);
+        // The default Brickwright project has one costume, so its first duplicate is costume2.
+        await clickText('costume2', scope.costumesTab);
 
         const logs = await getLogs();
         await expect(logs).toEqual([]);
@@ -84,6 +84,13 @@ describe('Working with costumes', () => {
     test('Converting bitmap/vector in paint editor', async () => {
         await loadUri(uri);
         await clickText('Costumes');
+
+        // The default Brickwright project has one costume. Duplicate it so this
+        // test covers both vector and bitmap assets without assuming Scratch's
+        // older two-costume starter project.
+        await rightClickText('costume1', scope.costumesTab);
+        await clickText('duplicate', scope.costumesTab);
+        await clickText('costume2', scope.costumesTab);
 
         // Convert the first costume to bitmap.
         await clickText('costume1', scope.costumesTab);

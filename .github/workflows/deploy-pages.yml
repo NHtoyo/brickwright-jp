@@ -36,15 +36,21 @@ jobs:
         with:
           node-version-file: .nvmrc
           cache: npm
+      - uses: actions/cache@v4
+        with:
+          path: ~/.cache/brickwright/microbit
+          key: microbit-firmware-${{ hashFiles('scripts/prepublish.mjs') }}
 
-      # See node.js.yml for why these flags/stubs are needed.
+      # --ignore-scripts avoids running network downloads implicitly during install.
       - name: Install
         run: npm ci --ignore-scripts --include=dev --no-audit --no-fund
 
-      - name: Stub micro:bit firmware URL
-        run: |
-          mkdir -p src/generated
-          printf "module.exports = '';\n" > src/generated/microbit-hex-url.cjs
+      # Keep production SB3 serialization consistent with the source editor.
+      - name: Apply Brickwright scratch-vm patch
+        run: npx patch-package --error-on-fail
+
+      - name: Fetch and verify micro:bit firmware URL
+        run: npm run prepublish
 
       - name: Build
         env:

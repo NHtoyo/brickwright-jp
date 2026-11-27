@@ -1,0 +1,75 @@
+appId: org.brickwright.editor
+productName: Brickwright
+copyright: Copyright © 2026 Brickwright contributors
+afterSign: scripts/notarize.cjs
+directories:
+  output: dist
+  buildResources: assets
+files:
+  - main.cjs
+  - app-protocol.cjs
+  - navigation.cjs
+  - permission-policy.cjs
+  - close-policy.cjs
+  - bluetooth-selection.cjs
+  - usb-device-policy.cjs
+  - activity-guard.cjs
+  - preload.cjs
+  - bluetooth-selector-preload.cjs
+  - package.json
+  - build/**
+  - assets/brickwright.ico
+  - assets/brickwright.icns
+  - assets/brickwright.png
+  - '!assets/source/**'
+asar: true
+asarUnpack:
+  - build/**/*.wasm
+  - build/**/*.node
+win:
+  icon: assets/brickwright.ico
+  target:
+    - target: nsis
+      arch:
+        - x64
+  artifactName: Brickwright-Setup-${version}-win-x64.${ext}
+nsis:
+  oneClick: false
+  allowToChangeInstallationDirectory: true
+  createDesktopShortcut: true
+  createStartMenuShortcut: true
+mac:
+  icon: assets/brickwright.icns
+  target:
+    - target: dmg
+      arch:
+        - universal
+  artifactName: Brickwright-${version}-mac-universal.${ext}
+  category: public.app-category.education
+  hardenedRuntime: true
+  gatekeeperAssess: false
+  entitlements: assets/entitlements.mac.plist
+  entitlementsInherit: assets/entitlements.mac.plist
+  extendInfo:
+    NSBluetoothAlwaysUsageDescription: BrickwrightはLEGO互換Bluetooth機器との通信にBluetoothを使用します。
+    NSBluetoothPeripheralUsageDescription: BrickwrightはLEGO互換Bluetooth機器との通信にBluetoothを使用します。
+    NSCameraUsageDescription: Brickwrightはカメラを使うブロックとビデオモーション検知にカメラを使用します。
+    NSMicrophoneUsageDescription: Brickwrightは録音と音量検知にマイクを使用します。
+    CFBundleDisplayName: Brickwright
+    LSApplicationCategoryType: public.app-category.education
+  extraResources:
+    - from: assets/mac-localizations
+      to: .
+publish:
+  provider: github
+  owner: NHtoyo
+  repo: brickwright-jp
+  releaseType: release
+forceCodeSigning: false
+electronFuses:
+  runAsNode: false
+  enableCookieEncryption: true
+  enableNodeOptionsEnvironmentVariable: false
+  enableNodeCliInspectArguments: false
+  enableEmbeddedAsarIntegrityValidation: true
+  onlyLoadAppFromAsar: true
