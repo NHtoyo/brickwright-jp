@@ -6,6 +6,11 @@ on:
   pull_request:
     types: [opened, reopened]
   workflow_dispatch:
+    inputs:
+      existing_run_id:
+        description: Successful build run to republish without rebuilding (compliance-only updates)
+        required: false
+        type: string
 
 concurrency:
   group: desktop-build-${{ github.event.pull_request.head.ref || github.ref_name }}
@@ -34,6 +39,7 @@ jobs:
     needs: [app-impact]
     if: >-
       (github.event_name != 'pull_request' || github.event.pull_request.head.ref == 'work/spikeprime-control-center-ui')
+      && (github.event_name != 'workflow_dispatch' || inputs.existing_run_id == '')
       && needs.app-impact.outputs.needed == 'true'
     runs-on: ubuntu-latest
     outputs:
@@ -144,6 +150,7 @@ jobs:
     needs: [quality, app-impact]
     if: >-
       (github.event_name != 'pull_request' || github.event.pull_request.head.ref == 'work/spikeprime-control-center-ui')
+      && (github.event_name != 'workflow_dispatch' || inputs.existing_run_id == '')
       && needs.app-impact.outputs.needed == 'true'
       && needs.quality.result == 'success'
     runs-on: windows-latest
@@ -243,6 +250,10 @@ jobs:
         env:
           BASE_SHA: ${{ github.event.before || github.event.pull_request.base.sha }}
         run: |
+          if [[ "${{ inputs.existing_run_id }}" != "" ]]; then
+            echo "needed=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
           if [[ -z "$BASE_SHA" || "$BASE_SHA" =~ ^0+$ ]]; then
             echo "needed=true" >> "$GITHUB_OUTPUT"
             exit 0
@@ -257,10 +268,73 @@ jobs:
           done < <(git diff --name-only "$BASE_SHA" "$GITHUB_SHA")
           echo "needed=$needed" >> "$GITHUB_OUTPUT"
 
+  resolve-release-source:
+    needs: [release-tooling, app-impact]
+    if: >-
+      github.event_name != 'pull_request'
+      && github.repository == 'NHtoyo/brickwright-jp'
+      && github.ref == 'refs/heads/work/spikeprime-control-center-ui'
+      && needs.release-tooling.result == 'success'
+    runs-on: ubuntu-latest
+    permissions:
+      actions: read
+      contents: read
+    outputs:
+      run_id: ${{ steps.source.outputs.run_id }}
+      run_number: ${{ steps.source.outputs.run_number }}
+      commit: ${{ steps.source.outputs.commit }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - id: source
+        name: Select and validate the package build to publish
+        env:
+          GH_TOKEN: ${{ github.token }}
+          EXISTING_RUN_ID: ${{ inputs.existing_run_id }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ -z "$EXISTING_RUN_ID" ]]; then
+            echo "run_id=$GITHUB_RUN_ID" >> "$GITHUB_OUTPUT"
+            echo "run_number=$GITHUB_RUN_NUMBER" >> "$GITHUB_OUTPUT"
+            echo "commit=$GITHUB_SHA" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          run="$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$EXISTING_RUN_ID")"
+          test "$(jq -r '.status' <<<"$run")" = "completed"
+          test "$(jq -r '.conclusion' <<<"$run")" = "success"
+          test "$(jq -r '.head_branch' <<<"$run")" = "work/spikeprime-control-center-ui"
+          test "$(jq -r '.head_repository.full_name' <<<"$run")" = "$GITHUB_REPOSITORY"
+          case "$(jq -r '.path' <<<"$run")" in
+            .github/workflows/desktop-build.yml*) ;;
+            *) echo "Run $EXISTING_RUN_ID was not produced by desktop-build.yml" >&2; exit 1 ;;
+          esac
+          source_sha="$(jq -r '.head_sha' <<<"$run")"
+          source_number="$(jq -r '.run_number' <<<"$run")"
+          git cat-file -e "$source_sha^{commit}"
+          while IFS= read -r changed; do
+            case "$changed" in
+              .github/workflows/desktop-build.yml|README.md|TRADEMARK|docs/*|desktop/README.md|desktop/compliance/*|desktop/licenses/*|desktop/scripts/check-asset-rights-for-release.mjs|desktop/scripts/check-distribution-compliance.mjs|desktop/tests/*|test/*) ;;
+              *) echo "Cannot reuse run $EXISTING_RUN_ID because packaged/app source changed: $changed" >&2; exit 1 ;;
+            esac
+          done < <(git diff --name-only "$source_sha" "$GITHUB_SHA")
+
+          artifacts="$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$EXISTING_RUN_ID/artifacts?per_page=100")"
+          for name in "brickwright-windows-$source_number-$source_sha" "brickwright-macos-$source_number-$source_sha" "brickwright-source-$source_number-$source_sha"; do
+            jq -e --arg name "$name" '.artifacts[] | select(.name == $name and .expired == false)' <<<"$artifacts" >/dev/null
+          done
+          echo "run_id=$EXISTING_RUN_ID" >> "$GITHUB_OUTPUT"
+          echo "run_number=$source_number" >> "$GITHUB_OUTPUT"
+          echo "commit=$source_sha" >> "$GITHUB_OUTPUT"
+
   macos:
     needs: [quality, app-impact]
     if: >-
       (github.event_name != 'pull_request' || github.event.pull_request.head.ref == 'work/spikeprime-control-center-ui')
+      && (github.event_name != 'workflow_dispatch' || inputs.existing_run_id == '')
       && needs.app-impact.outputs.needed == 'true'
       && needs.quality.result == 'success'
     runs-on: macos-latest
@@ -344,18 +418,27 @@ jobs:
           retention-days: 30
 
   publish-development-release:
-    needs: [release-tooling, quality, app-impact, windows, macos]
+    needs: [release-tooling, quality, app-impact, windows, macos, resolve-release-source]
     if: >-
+      always()
+      &&
       github.event_name != 'pull_request'
       && github.repository == 'NHtoyo/brickwright-jp'
       && github.ref == 'refs/heads/work/spikeprime-control-center-ui'
-      && needs.app-impact.outputs.needed == 'true'
-      && needs.quality.result == 'success'
       && needs.release-tooling.result == 'success'
-      && needs.windows.result == 'success'
-      && needs.macos.result == 'success'
+      && needs.resolve-release-source.result == 'success'
+      && (
+        (inputs.existing_run_id != '')
+        || (
+          needs.app-impact.outputs.needed == 'true'
+          && needs.quality.result == 'success'
+          && needs.windows.result == 'success'
+          && needs.macos.result == 'success'
+        )
+      )
     runs-on: ubuntu-latest
     permissions:
+      actions: read
       contents: write
     steps:
       - uses: actions/checkout@v4
@@ -365,21 +448,27 @@ jobs:
         run: node desktop/scripts/check-asset-rights-for-release.mjs
       - uses: actions/download-artifact@v4
         with:
-          name: brickwright-windows-${{ github.run_number }}-${{ github.sha }}
+          name: brickwright-windows-${{ needs.resolve-release-source.outputs.run_number }}-${{ needs.resolve-release-source.outputs.commit }}
           path: release-input/windows
+          run-id: ${{ needs.resolve-release-source.outputs.run_id }}
+          github-token: ${{ github.token }}
       - uses: actions/download-artifact@v4
         with:
-          name: brickwright-macos-${{ github.run_number }}-${{ github.sha }}
+          name: brickwright-macos-${{ needs.resolve-release-source.outputs.run_number }}-${{ needs.resolve-release-source.outputs.commit }}
           path: release-input/macos
+          run-id: ${{ needs.resolve-release-source.outputs.run_id }}
+          github-token: ${{ github.token }}
       - uses: actions/download-artifact@v4
         with:
-          name: brickwright-source-${{ github.run_number }}-${{ github.sha }}
+          name: brickwright-source-${{ needs.resolve-release-source.outputs.run_number }}-${{ needs.resolve-release-source.outputs.commit }}
           path: release-input/source
+          run-id: ${{ needs.resolve-release-source.outputs.run_id }}
+          github-token: ${{ github.token }}
       - name: Verify provenance and prepare public development release assets
         shell: bash
         env:
-          BUILD_COMMIT: ${{ github.sha }}
-          BUILD_NUMBER: ${{ github.run_number }}
+          BUILD_COMMIT: ${{ needs.resolve-release-source.outputs.commit }}
+          BUILD_NUMBER: ${{ needs.resolve-release-source.outputs.run_number }}
         run: |
           set -euo pipefail
           version="0.1.0-dev.${BUILD_NUMBER}"
@@ -412,6 +501,12 @@ jobs:
           cp "$source_manifest" "$out/source-manifest.json"
           cp LICENSE TRADEMARK "$out/"
           cp desktop/licenses/MPL-2.0.txt "$out/"
+          cp desktop/licenses/Scratch-GUI-BSD-3-Clause.txt "$out/"
+          cp desktop/licenses/source-assets/* "$out/"
+          cp desktop/licenses/package-supplemental/* "$out/"
+          cp desktop/licenses/electron/LICENSE "$out/Electron-LICENSE"
+          cp desktop/licenses/electron/LICENSES.chromium.html "$out/Electron-LICENSES.chromium.html"
+          cp desktop/compliance/asset-distribution-review.md desktop/compliance/brand-review.md "$out/"
           cp release-input/windows/build/desktop/licenses/GPL-3.0.txt "$out/"
           cp release-input/windows/build/desktop/licenses/THIRD_PARTY_LICENSES.txt "$out/"
           cp release-input/windows/build/desktop/licenses/THIRD_PARTY_LICENSES.json "$out/"
@@ -425,7 +520,10 @@ jobs:
           mkdir -p "$out/license-bundle"
           cp "$out/LICENSE" "$out/TRADEMARK" "$out/GPL-3.0.txt" "$out/MPL-2.0.txt" \
             "$out/THIRD_PARTY_LICENSES.txt" "$out/THIRD_PARTY_LICENSES.json" \
-            "$out/ASSET_RIGHTS_STATUS.txt" "$out/assets-rights.json" "$out/omggif-1.0.9.txt" "$out/license-bundle/"
+            "$out/ASSET_RIGHTS_STATUS.txt" "$out/assets-rights.json" "$out/omggif-1.0.9.txt" \
+            "$out/Scratch-GUI-BSD-3-Clause.txt" "$out/asset-distribution-review.md" "$out/brand-review.md" \
+            "$out/Electron-LICENSE" "$out/Electron-LICENSES.chromium.html" "$out/license-bundle/"
+          find "$out" -maxdepth 1 -type f \( -name '*MIT.txt' -o -name '*OFL-1.1.txt' -o -name '*attribution.txt' -o -name '*0.5.3-LICENSE.txt' \) -exec cp {} "$out/license-bundle/" \;
           cp -R "$out/licenses/third-party" "$out/license-bundle/"
           (cd "$out/license-bundle" && zip -qr "$out/Brickwright-licenses.zip" .)
           cat > "$out/RELEASE-NOTES-JA.md" <<EOF
@@ -438,17 +536,16 @@ jobs:
           WindowsはEXEを実行してください。開発版のためSmartScreen警告が表示されることがあります。
           macOSはDMGを開き、BrickwrightをApplicationsへ移動してください。未公証のためOSのセキュリティ警告が表示されることがあります。OS全体の保護機能を無効にしないでください。
 
-          対応ソース、マニフェスト、GPL/MPL・第三者ライセンス通知・素材権利台帳を添付しています。素材権利台帳は公開時点の確認根拠を記録します。未確認の素材が残っている場合は公開処理を停止します。
+          対応ソース、マニフェスト、GPL/MPL・第三者/Electronライセンス通知、素材権利台帳、素材配布範囲・ブランド確認書を添付しています。個別のUNVERIFIED台帳値は権利侵害の認定ではありません。配布確認はファイルハッシュ・出典グループ・ライセンス通知の範囲で記録しています。
 
           自動テストとWindows/macOSパッケージ起動試験は成功しています。SPIKE実機との通信は未検証です。
           LEGO GroupおよびScratch Foundationの公式製品ではありません。
           EOF
           (cd "$out" && find . -maxdepth 1 -type f ! -name 'SHA256SUMS*.txt' -print0 | sort -z | xargs -0 sha256sum > SHA256SUMS.txt)
-          (cd "$out" && sha256sum ./Brickwright-Windows.exe ./Brickwright-macOS.dmg ./Brickwright-source.tar.gz \
-            ./source-manifest.json ./Brickwright-licenses.zip ./LICENSE ./TRADEMARK ./GPL-3.0.txt ./MPL-2.0.txt \
-            ./THIRD_PARTY_LICENSES.txt ./THIRD_PARTY_LICENSES.json ./ASSET_RIGHTS_STATUS.txt ./assets-rights.json \
-            ./omggif-1.0.9.txt > SHA256SUMS-latest.txt)
+          (cd "$out" && find . -maxdepth 1 -type f ! -name 'SHA256SUMS-latest.txt' -print0 | sort -z | xargs -0 sha256sum > SHA256SUMS-latest.txt)
           echo "VERSION=$version" >> "$GITHUB_ENV"
+          echo "BUILD_COMMIT=$BUILD_COMMIT" >> "$GITHUB_ENV"
+          echo "BUILD_NUMBER=$BUILD_NUMBER" >> "$GITHUB_ENV"
           echo "OUT=$out" >> "$GITHUB_ENV"
       - name: Publish versioned pre-release
         env:
@@ -456,13 +553,16 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          tag="dev.${GITHUB_RUN_NUMBER}"
+          tag="dev.${BUILD_NUMBER}"
           installer="$(find "$OUT" -maxdepth 1 -name 'Brickwright-Setup-*-win-x64.exe' -print -quit)"
           image="$(find "$OUT" -maxdepth 1 -name 'Brickwright-*-mac-universal.dmg' -print -quit)"
           source="$(find "$OUT" -maxdepth 1 -name 'Brickwright-*-source.tar.gz' -print -quit)"
           assets=("$installer" "$image" "$source" "$OUT/source-manifest.json" "$OUT/LICENSE" "$OUT/TRADEMARK"
             "$OUT/GPL-3.0.txt" "$OUT/MPL-2.0.txt" "$OUT/THIRD_PARTY_LICENSES.txt" "$OUT/THIRD_PARTY_LICENSES.json"
             "$OUT/ASSET_RIGHTS_STATUS.txt" "$OUT/assets-rights.json" "$OUT/omggif-1.0.9.txt" "$OUT/Brickwright-licenses.zip"
+            "$OUT/Scratch-GUI-BSD-3-Clause.txt" "$OUT/asset-distribution-review.md" "$OUT/brand-review.md"
+            "$OUT/Electron-LICENSE" "$OUT/Electron-LICENSES.chromium.html" "$OUT/color-convert-0.5.3-LICENSE.txt"
+            "$OUT/seti-ui-custom-icon-MIT.txt" "$OUT/turbowarp-extension-icons-attribution.txt" "$OUT/Londrina-OFL-1.1.txt"
             "$OUT/SHA256SUMS.txt" "$OUT/RELEASE-NOTES-JA.md")
           if gh release view "$tag" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
             ref="$(gh api "repos/$GITHUB_REPOSITORY/git/ref/tags/$tag")"
@@ -471,10 +571,10 @@ jobs:
             if [[ "$ref_type" == "tag" ]]; then
               ref_sha="$(gh api "repos/$GITHUB_REPOSITORY/git/tags/$ref_sha" --jq .object.sha)"
             fi
-            test "$ref_sha" = "$GITHUB_SHA"
+            test "$ref_sha" = "$BUILD_COMMIT"
             gh release upload "$tag" "${assets[@]}" --repo "$GITHUB_REPOSITORY" --clobber
           else
-            gh release create "$tag" "${assets[@]}" --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" \
+            gh release create "$tag" "${assets[@]}" --repo "$GITHUB_REPOSITORY" --target "$BUILD_COMMIT" \
               --prerelease --title "Brickwright $VERSION" --notes-file "$OUT/RELEASE-NOTES-JA.md"
           fi
       - name: Publish or update the dev-latest channel after the versioned release exists
@@ -490,14 +590,20 @@ jobs:
               "$OUT/Brickwright-source.tar.gz" "$OUT/source-manifest.json" "$OUT/LICENSE" "$OUT/TRADEMARK" \
               "$OUT/GPL-3.0.txt" "$OUT/MPL-2.0.txt" "$OUT/THIRD_PARTY_LICENSES.txt" "$OUT/THIRD_PARTY_LICENSES.json" \
               "$OUT/ASSET_RIGHTS_STATUS.txt" "$OUT/assets-rights.json" "$OUT/omggif-1.0.9.txt" "$OUT/Brickwright-licenses.zip" \
+              "$OUT/Scratch-GUI-BSD-3-Clause.txt" "$OUT/asset-distribution-review.md" "$OUT/brand-review.md" \
+              "$OUT/Electron-LICENSE" "$OUT/Electron-LICENSES.chromium.html" "$OUT/color-convert-0.5.3-LICENSE.txt" \
+              "$OUT/seti-ui-custom-icon-MIT.txt" "$OUT/turbowarp-extension-icons-attribution.txt" "$OUT/Londrina-OFL-1.1.txt" \
               "$OUT/SHA256SUMS-latest.txt" --repo "$GITHUB_REPOSITORY" --clobber
-            gh api "repos/$GITHUB_REPOSITORY/git/refs/tags/dev-latest" -X PATCH -f sha="$GITHUB_SHA" -F force=true
+            gh api "repos/$GITHUB_REPOSITORY/git/refs/tags/dev-latest" -X PATCH -f sha="$BUILD_COMMIT" -F force=true
             gh release edit dev-latest --repo "$GITHUB_REPOSITORY" --title "Brickwright Development Latest" --notes-file "$alias_notes"
           else
             gh release create dev-latest "$OUT/Brickwright-Windows.exe" "$OUT/Brickwright-macOS.dmg" \
               "$OUT/Brickwright-source.tar.gz" "$OUT/source-manifest.json" "$OUT/LICENSE" "$OUT/TRADEMARK" \
               "$OUT/GPL-3.0.txt" "$OUT/MPL-2.0.txt" "$OUT/THIRD_PARTY_LICENSES.txt" "$OUT/THIRD_PARTY_LICENSES.json" \
               "$OUT/ASSET_RIGHTS_STATUS.txt" "$OUT/assets-rights.json" "$OUT/omggif-1.0.9.txt" "$OUT/Brickwright-licenses.zip" \
-              "$OUT/SHA256SUMS-latest.txt" --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" \
+              "$OUT/Scratch-GUI-BSD-3-Clause.txt" "$OUT/asset-distribution-review.md" "$OUT/brand-review.md" \
+              "$OUT/Electron-LICENSE" "$OUT/Electron-LICENSES.chromium.html" "$OUT/color-convert-0.5.3-LICENSE.txt" \
+              "$OUT/seti-ui-custom-icon-MIT.txt" "$OUT/turbowarp-extension-icons-attribution.txt" "$OUT/Londrina-OFL-1.1.txt" \
+              "$OUT/SHA256SUMS-latest.txt" --repo "$GITHUB_REPOSITORY" --target "$BUILD_COMMIT" \
               --prerelease --title "Brickwright Development Latest" --notes-file "$alias_notes"
           fi

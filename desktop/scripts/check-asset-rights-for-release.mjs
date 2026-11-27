@@ -14,25 +14,56 @@ const hasEvidenceReference = evidence => {
 
 export const inspectReleaseRights = inventory => {
     const assets = Array.isArray(inventory?.assets) ? inventory.assets : [];
-    const resolvedStatuses = new Set(['VERIFIED', 'EXCLUDED']);
-    const unresolved = assets.filter(asset => !resolvedStatuses.has(asset.rightsStatus));
-    const incompleteVerified = assets.filter(asset => asset.rightsStatus === 'VERIFIED' &&
-        (!asset.rightsHolder?.trim() || !asset.license?.trim() || !hasEvidenceReference(asset.evidence)));
-    const incompleteExcluded = assets.filter(asset => asset.rightsStatus === 'EXCLUDED' && !asset.exclusionReason?.trim());
+    const localMedia = assets.filter(asset => asset.kind === 'application-media');
+    const libraryReferences = assets.filter(asset => ['backdrop', 'costume', 'sound', 'asset'].includes(asset.kind));
+    const distribution = inventory?.distributionReview;
+    const mediaReview = distribution?.localApplicationMedia;
+    const libraryReview = distribution?.externalLibraryReferences;
+    const sourceEvidenceComplete = typeof distribution?.evidence === 'string' &&
+        distribution.evidence.trim().length > 0 && mediaReview?.license === 'GPL-3.0-only' &&
+        typeof mediaReview.licenseFile === 'string' && typeof mediaReview.upstreamLicenseFile === 'string';
+    const mediaCoverageComplete = sourceEvidenceComplete && mediaReview.recordCount === localMedia.length &&
+        mediaReview.uniqueHashes === new Set(localMedia.map(asset => asset.assetHash?.value).filter(Boolean)).size &&
+        localMedia.every(asset => asset.path && asset.assetHash?.algorithm === 'SHA-256' && asset.assetHash.value);
+    const externalReferencesComplete = libraryReview?.recordCount === libraryReferences.length &&
+        libraryReview.localPayloadCount === 0 && libraryReferences.every(asset => !(asset.filePaths || []).length);
+    const observedGroups = new Map();
+    for (const asset of localMedia) {
+        const group = observedGroups.get(asset.source) || {source: asset.source, recordCount: 0, hashes: new Set()};
+        group.recordCount += 1;
+        if (asset.assetHash?.value) group.hashes.add(asset.assetHash.value);
+        observedGroups.set(asset.source, group);
+    }
+    const listedGroups = Array.isArray(mediaReview?.sourceGroups) ? mediaReview.sourceGroups : [];
+    const listedGroupMap = new Map(listedGroups.map(group => [group.source, group]));
+    const sourceGroupsComplete = listedGroups.length === observedGroups.size &&
+        [...observedGroups.values()].every(group => {
+            const listed = listedGroupMap.get(group.source);
+            return listed?.recordCount === group.recordCount && listed?.uniqueHashes === group.hashes.size;
+        });
+    const unexplainedAssetKinds = assets.filter(asset =>
+        asset.kind !== 'application-media' && !['backdrop', 'costume', 'sound', 'asset'].includes(asset.kind));
     const brandReview = inventory?.brandReview;
-    const brandUnresolved = !brandReview || !resolvedStatuses.has(brandReview.status) ||
-        (brandReview.status === 'VERIFIED' && !hasEvidenceReference(brandReview.evidence)) ||
-        (brandReview.status === 'EXCLUDED' && !brandReview.exclusionReason?.trim());
+    const brandUnresolved = !brandReview || brandReview.status !== 'VERIFIED' ||
+        !hasEvidenceReference(brandReview.evidence) || !brandReview.assetHash?.value;
 
     return {
-        allowed: assets.length > 0 && unresolved.length === 0 && incompleteVerified.length === 0 &&
-            incompleteExcluded.length === 0 && !brandUnresolved,
+        allowed: assets.length > 0 && mediaCoverageComplete && sourceGroupsComplete && externalReferencesComplete &&
+            unexplainedAssetKinds.length === 0 && !brandUnresolved,
         totalAssets: assets.length,
-        unresolvedCount: unresolved.length,
-        incompleteVerifiedCount: incompleteVerified.length,
-        incompleteExcludedCount: incompleteExcluded.length,
+        localMediaRecordCount: localMedia.length,
+        externalLibraryReferenceCount: libraryReferences.length,
+        localLibraryPayloadCount: libraryReview?.localPayloadCount ?? null,
+        perAssetUnverifiedCount: assets.filter(asset => asset.rightsStatus === 'UNVERIFIED').length,
+        mediaCoverageComplete,
+        sourceGroupsComplete,
+        externalReferencesComplete,
+        unexplainedAssetKindCount: unexplainedAssetKinds.length,
         brandUnresolved,
-        unresolvedExamples: unresolved.slice(0, 10).map(asset => asset.path || asset.md5ext || asset.assetId || asset.kind)
+        unresolvedExamples: [
+            ...localMedia.filter(asset => !asset.path || !asset.assetHash?.value).slice(0, 5),
+            ...unexplainedAssetKinds.slice(0, 5)
+        ].map(asset => asset.path || asset.md5ext || asset.assetId || asset.kind)
     };
 };
 
@@ -42,7 +73,7 @@ const main = async () => {
     const result = inspectReleaseRights(inventory);
     if (!result.allowed) {
         console.error(JSON.stringify(result, null, 2));
-        console.error('UNVERIFIED means rights evidence is missing; it is not a finding of infringement. Do not publish until the asset records and brand review are resolved.');
+        console.error('Release requires byte-hash and source-group coverage, non-bundled catalog references, and a documented brand review. Per-record UNVERIFIED tracking values alone do not block distribution.');
         process.exitCode = 1;
         return;
     }

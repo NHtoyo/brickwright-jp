@@ -12,6 +12,14 @@ The name says it: a *wright* — a maker (ship*wright*, play*wright*) — who bo
 
 **Try it now:** <https://crispstrobe.github.io/brickwright/> · <https://brickwright.vercel.app/>
 
+## Desktop downloads
+
+Development installers are public GitHub Release downloads; no GitHub account is required.
+
+- [Windows 64-bit installer](https://github.com/NHtoyo/brickwright-jp/releases/download/dev-latest/Brickwright-Windows.exe)
+- [macOS universal disk image](https://github.com/NHtoyo/brickwright-jp/releases/download/dev-latest/Brickwright-macOS.dmg)
+- [Latest development release and source](https://github.com/NHtoyo/brickwright-jp/releases/tag/dev-latest)
+
 Built on [TurboWarp's `scratch-gui`](https://github.com/TurboWarp/scratch-gui) (GPL-3.0); the
 block ⇄ code compiler is [sb3-creator](https://github.com/CrispStrobe/sb3-creator). Issues,
 feature requests, and PRs are welcome — [open one here](https://github.com/CrispStrobe/brickwright/issues).

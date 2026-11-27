@@ -2,6 +2,7 @@ import {access, readFile} from 'node:fs/promises';
 import {createHash} from 'node:crypto';
 import path from 'node:path';
 import {fileURLToPath} from 'node:url';
+import {inspectReleaseRights} from './check-asset-rights-for-release.mjs';
 
 const desktopDir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const repoRoot = path.resolve(desktopDir, '..');
@@ -14,7 +15,17 @@ const main = async () => {
         path.join(repoRoot, 'LICENSE'),
         path.join(desktopDir, 'licenses', 'MPL-2.0.txt'),
         path.join(desktopDir, 'about.html'),
-        path.join(desktopDir, 'compliance', 'assets-rights.json')
+        path.join(desktopDir, 'compliance', 'assets-rights.json'),
+        path.join(desktopDir, 'compliance', 'asset-distribution-review.md'),
+        path.join(desktopDir, 'compliance', 'brand-review.md'),
+        path.join(desktopDir, 'licenses', 'Scratch-GUI-BSD-3-Clause.txt'),
+        path.join(desktopDir, 'licenses', 'source-assets', 'seti-ui-custom-icon-MIT.txt'),
+        path.join(desktopDir, 'licenses', 'source-assets', 'turbowarp-extension-icons-attribution.txt'),
+        path.join(desktopDir, 'licenses', 'source-assets', 'Londrina-OFL-1.1.txt'),
+        path.join(desktopDir, 'licenses', 'package-supplemental', 'color-convert-0.5.3-LICENSE.txt'),
+        path.join(desktopDir, 'licenses', 'package-supplemental', 'omggif-1.0.9-LICENSE.txt'),
+        path.join(desktopDir, 'licenses', 'electron', 'LICENSE'),
+        path.join(desktopDir, 'licenses', 'electron', 'LICENSES.chromium.html')
     ]) {
         try { await access(file); } catch (error) { errors.push(`Missing required file: ${path.relative(repoRoot, file)}`); }
     }
@@ -34,10 +45,16 @@ const main = async () => {
 
     const assets = JSON.parse(await readFile(path.join(desktopDir, 'compliance', 'assets-rights.json'), 'utf8'));
     const unverifiedAssets = (assets.assets || []).filter(asset => asset.rightsStatus === 'UNVERIFIED');
-    const brandReviewStatus = assets.brandReview && assets.brandReview.status;
     const invalidAssets = (assets.assets || []).filter(asset => !['VERIFIED', 'UNVERIFIED', 'EXCLUDED'].includes(asset.rightsStatus));
     if (invalidAssets.length) errors.push(`${invalidAssets.length} media entries have an invalid rights status.`);
     if (unverifiedAssets.length) warnings.push(`${unverifiedAssets.length} media entries remain UNVERIFIED.`);
+    const rightsReview = inspectReleaseRights(assets);
+    if (!rightsReview.allowed) errors.push(`Release asset distribution review is incomplete: ${JSON.stringify(rightsReview)}`);
+    if (assets.brandReview?.assetHash?.value) {
+        const iconBytes = await readFile(path.join(repoRoot, assets.brandReview.appIcon));
+        const iconHash = createHash('sha256').update(iconBytes).digest('hex');
+        if (iconHash !== assets.brandReview.assetHash.value) errors.push('Brand review hash does not match the app icon bytes.');
+    } else errors.push('Brand review does not identify the reviewed app icon hash.');
 
     const licenseManifestPath = path.join(desktopDir, 'build', 'desktop', 'licenses', 'THIRD_PARTY_LICENSES.json');
     let licenseManifest = null;
@@ -69,8 +86,8 @@ const main = async () => {
 
     for (const message of warnings) console.warn(`::warning::Distribution compliance: ${message}`);
     for (const message of errors) console.error(`::error::Distribution compliance: ${message}`);
-    if (releaseMode && (unverifiedAssets.length || unknownLicenses.length || missingLicenseTexts.length || missingElectronNotices.length || brandReviewStatus !== 'VERIFIED')) {
-        errors.push(`Formal release blocked: ${unverifiedAssets.length} unverified media rights, ${unknownLicenses.length} unknown package licenses, ${missingLicenseTexts.length} missing package license texts, ${missingElectronNotices.length} missing Electron notices, and app-icon brand review is ${brandReviewStatus || 'missing'}.`);
+    if (releaseMode && (unknownLicenses.length || missingLicenseTexts.length || missingElectronNotices.length)) {
+        errors.push(`Release blocked: ${unknownLicenses.length} unknown package licenses, ${missingLicenseTexts.length} missing package license texts, and ${missingElectronNotices.length} missing Electron notices.`);
     }
     if (!releaseMode) {
         console.log(`Development package audit: ${errors.length ? 'FAILED' : 'WARNINGS/READY'}; formal release gate remains strict.`);

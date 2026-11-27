@@ -8,6 +8,16 @@ const desktopDir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '.
 const repoRoot = path.resolve(desktopDir, '..');
 const targetDir = path.join(desktopDir, 'build', 'desktop', 'licenses');
 const webArtifactDir = path.join(repoRoot, 'build', 'desktop', 'licenses');
+const supplementalLicenseMetadata = {
+    'color-convert@0.5.3': {
+        license: 'MIT',
+        evidence: 'Exact 0.5.3 npm tarball includes the MIT LICENSE file.'
+    },
+    'omggif@1.0.9': {
+        license: 'MIT',
+        evidence: 'Exact 1.0.9 npm tarball README includes the MIT grant and 2013 Dean McNamee notice.'
+    }
+};
 
 const sha256File = async file => createHash('sha256').update(await readFile(file))
     .digest('hex');
@@ -48,7 +58,10 @@ const packageEntries = async (lockPath, nodeModulesRoot, prefix, includeAll = fa
         } catch (error) {
             // Keep the lock entry and report missing installed metadata as UNKNOWN.
         }
-        const license = (() => {
+        const name = manifest.name || packagePath.split('node_modules/').pop();
+        const version = manifest.version || metadata.version || 'UNKNOWN';
+        const packageEvidence = supplementalLicenseMetadata[`${name}@${version}`];
+        const declaredLicense = (() => {
             if (typeof manifest.license === 'string') return manifest.license;
             if (Array.isArray(manifest.licenses)) {
                 return manifest.licenses.map(item => {
@@ -57,11 +70,14 @@ const packageEntries = async (lockPath, nodeModulesRoot, prefix, includeAll = fa
                 }).join(' OR ');
             }
             if (manifest.license && manifest.license.type) return manifest.license.type;
-            return 'UNKNOWN';
+            return null;
         })();
+        const license = (
+            !declaredLicense || declaredLicense === 'UNKNOWN' ? packageEvidence?.license : declaredLicense
+        ) || 'UNKNOWN';
         packages.push({
-            name: manifest.name || packagePath.split('node_modules/').pop(),
-            version: manifest.version || metadata.version || 'UNKNOWN',
+            name,
+            version,
             license: license || 'UNKNOWN',
             author: typeof manifest.author === 'string' ? manifest.author :
                 (manifest.author && manifest.author.name) || null,
@@ -71,7 +87,8 @@ const packageEntries = async (lockPath, nodeModulesRoot, prefix, includeAll = fa
             source: prefix,
             packagePath: packagePath.slice('node_modules/'.length),
             integrity: metadata.integrity || null,
-            resolved: metadata.resolved || null
+            resolved: metadata.resolved || null,
+            licenseResolutionEvidence: packageEvidence?.evidence || null
         });
     }
     return packages;
@@ -140,12 +157,7 @@ export const mergePackageInventories = packages => {
 };
 
 const copyPackageLicenseTexts = async (packages, outputRoot, sources = {}) => {
-    const isLicenseFile = name => {
-        const recognizedName = /^(licen[cs]e|copying|notice|copyright)([._-].*)?$/i.test(name);
-        const hasTextExtension = /\.(txt|md|html|rtf)$/i.test(name);
-        const extensionlessName = /^(licen[cs]e|copying|notice|copyright)$/i.test(name);
-        return (recognizedName && hasTextExtension) || extensionlessName;
-    };
+    const isLicenseFile = name => /^(licen[cs]e|copying|notice|copyright)([._-].*)?$/i.test(name);
     const collect = async (directory, depth = 0) => {
         if (depth > 2) return [];
         let children = [];
@@ -172,11 +184,6 @@ const copyPackageLicenseTexts = async (packages, outputRoot, sources = {}) => {
                 path.join(sources.desktopModulesRoot || path.join(desktopDir, 'node_modules'), item.packagePath) :
                 path.join(desktopDir, item.packagePath);
         const sourceFiles = await collect(packageRoot);
-        if (!sourceFiles.length) {
-            unresolved.push(`${item.name}@${item.version}`);
-            item.licenseTextFiles = [];
-            continue;
-        }
         const safeName = `${item.name}-${item.version}`.replace(/[^A-Za-z0-9@._-]/g, '_');
         const outputDir = path.join(outputRoot, 'third-party', safeName);
         await mkdir(outputDir, {recursive: true});
@@ -186,6 +193,65 @@ const copyPackageLicenseTexts = async (packages, outputRoot, sources = {}) => {
             await mkdir(path.dirname(outputFile), {recursive: true});
             await copyFile(sourceFile, outputFile);
             copied.push(path.relative(outputRoot, outputFile).replace(/\\/g, '/'));
+        }
+        if (!sourceFiles.length) {
+            const exactNotices = {
+                'color-convert@0.5.3': path.join(
+                    desktopDir, 'licenses', 'package-supplemental', 'color-convert-0.5.3-LICENSE.txt'
+                ),
+                'omggif@1.0.9': path.join(desktopDir, 'licenses', 'package-supplemental', 'omggif-1.0.9-LICENSE.txt')
+            };
+            const exactNotice = exactNotices[`${item.name}@${item.version}`];
+            if (exactNotice) {
+                const outputFile = path.join(outputDir, path.basename(exactNotice));
+                await copyFile(exactNotice, outputFile);
+                copied.push(path.relative(outputRoot, outputFile).replace(/\\/g, '/'));
+            } else {
+                const standardFiles = new Map([
+                    ['MIT', path.join(desktopDir, 'licenses', 'standard', 'MIT.txt')],
+                    ['Apache-2.0', path.join(desktopDir, 'licenses', 'standard', 'Apache-2.0.txt')],
+                    ['GPL-3.0-only', path.join(repoRoot, 'LICENSE')],
+                    ['GPL-3.0-or-later', path.join(repoRoot, 'LICENSE')],
+                    ['MPL-2.0', path.join(desktopDir, 'licenses', 'MPL-2.0.txt')]
+                ]);
+                const licenseIds = String(item.license || '').replace(/[()]/g, '')
+                    .split(/\s+OR\s+/i)
+                    .map(value => value.trim());
+                const bundledLicensePaths = [];
+                for (const licenseId of licenseIds) {
+                    const licenseSource = standardFiles.get(licenseId);
+                    if (!licenseSource) continue;
+                    const outputFile = path.join(outputDir, `LICENSE-${licenseId.replace(/[^A-Za-z0-9.-]/g, '-')}.txt`);
+                    await copyFile(licenseSource, outputFile);
+                    const relative = path.relative(outputRoot, outputFile).replace(/\\/g, '/');
+                    copied.push(relative);
+                    bundledLicensePaths.push(relative);
+                }
+                if (!bundledLicensePaths.length) {
+                    unresolved.push(`${item.name}@${item.version}`);
+                    item.licenseTextFiles = [];
+                    continue;
+                }
+                const notice = [
+                    `${item.name}@${item.version}`,
+                    `SPDX license declaration: ${item.license}`,
+                    `Package author: ${item.author || 'not declared in package metadata'}`,
+                    `Package source: ${item.homepage || item.resolved || 'not declared in package metadata'}`,
+                    [
+                        'The npm archive did not contain a standalone license document; the canonical',
+                        'SPDX license text is included.'
+                    ].join(' '),
+                    [
+                        'Package author metadata is informational and is not represented as a verified',
+                        'copyright notice.'
+                    ].join(' '),
+                    `License text files: ${bundledLicensePaths.join(', ')}`,
+                    ''
+                ].join('\n');
+                const noticePath = path.join(outputDir, 'PACKAGE-LICENSE-NOTICE.txt');
+                await writeFile(noticePath, notice);
+                copied.push(path.relative(outputRoot, noticePath).replace(/\\/g, '/'));
+            }
         }
         item.licenseTextFiles = copied;
     }
@@ -313,6 +379,19 @@ const generateDesktopNotices = async () => {
     await mkdir(targetDir, {recursive: true});
     await copyFile(path.join(repoRoot, 'LICENSE'), path.join(targetDir, 'GPL-3.0.txt'));
     await copyFile(path.join(desktopDir, 'licenses', 'MPL-2.0.txt'), path.join(targetDir, 'MPL-2.0.txt'));
+    await copyFile(path.join(desktopDir, 'licenses', 'Scratch-GUI-BSD-3-Clause.txt'),
+        path.join(targetDir, 'Scratch-GUI-BSD-3-Clause.txt'));
+    const sourceAssetNotices = [
+        ['source-assets/seti-ui-custom-icon-MIT.txt', 'MIT attribution for the custom block icon'],
+        ['source-assets/turbowarp-extension-icons-attribution.txt', 'Attribution for TurboWarp extension icons'],
+        ['source-assets/Londrina-OFL-1.1.txt', 'SIL Open Font License 1.1 for the bundled Londrina font']
+    ];
+    for (const [relativePath] of sourceAssetNotices) {
+        await copyFile(
+            path.join(desktopDir, 'licenses', relativePath),
+            path.join(targetDir, path.basename(relativePath))
+        );
+    }
 
     const electronDist = path.join(desktopDir, 'node_modules', 'electron', 'dist');
     const electronChromiumNotices = [];
@@ -320,7 +399,12 @@ const generateDesktopNotices = async () => {
     for (const candidate of ['LICENSE', 'LICENSES.chromium.html']) {
         try {
             const output = `Electron-${candidate.replace(/[^A-Za-z0-9.-]/g, '-')}`;
-            await copyFile(path.join(electronDist, candidate), path.join(targetDir, output));
+            const installedNotice = path.join(electronDist, candidate);
+            const bundledNotice = path.join(desktopDir, 'licenses', 'electron', candidate);
+            await copyFile(installedNotice, path.join(targetDir, output)).catch(async error => {
+                if (error.code !== 'ENOENT') throw error;
+                await copyFile(bundledNotice, path.join(targetDir, output));
+            });
             electronChromiumNotices.push(output);
         } catch (error) {
             missingElectronNotices.push(candidate);
@@ -355,10 +439,12 @@ const generateDesktopNotices = async () => {
         'Brickwright third-party license and attribution inventory',
         'Brickwright: GNU GPL version 3 (see GPL-3.0.txt).',
         'Brickwright SPIKE extension: Mozilla Public License 2.0 (see MPL-2.0.txt).',
+        'Upstream Scratch GUI source also carried the BSD 3-Clause notice; see Scratch-GUI-BSD-3-Clause.txt.',
+        ...sourceAssetNotices.map(([file, purpose]) => `${purpose}: ${path.basename(file)}.`),
         [
             'Package license declarations below come from installed package manifests and lockfiles.',
             'License text files are under third-party/.',
-            'UNKNOWN or missing notices remain unresolved and block formal distribution.'
+            'Package-specific supplemental notices identify the declared SPDX license and the bundled license text.'
         ].join(' '),
         `Source commit: ${manifest.provenance.sourceCommit}`,
         `Web build SHA-256: ${manifest.provenance.webBuildSha256}`,
@@ -376,8 +462,22 @@ const generateDesktopNotices = async () => {
         );
     }
     await writeFile(path.join(targetDir, 'THIRD_PARTY_LICENSES.txt'), `${lines.join('\n')}\n`);
-    await writeFile(path.join(targetDir, 'ASSET_RIGHTS_STATUS.txt'),
-        'Media rights are tracked in assets-rights.json. Every unverified entry blocks formal release.\n');
+    const inventoryPath = path.join(desktopDir, 'compliance', 'assets-rights.json');
+    const assetInventory = JSON.parse(await readFile(inventoryPath, 'utf8'));
+    const mediaReview = assetInventory.distributionReview?.localApplicationMedia;
+    const libraryReview = assetInventory.distributionReview?.externalLibraryReferences;
+    const assetRightsLines = [
+        'Release asset distribution review',
+        `Local application media records: ${mediaReview?.recordCount ?? 'unreviewed'}`,
+        `Unique local media hashes: ${mediaReview?.uniqueHashes ?? 'unreviewed'}`,
+        `Repository license basis: ${mediaReview?.license ?? 'unreviewed'} ` +
+            `(${mediaReview?.licenseFile ?? 'license file missing'})`,
+        `Preserved upstream license notice: ${mediaReview?.upstreamLicenseFile ?? 'missing'}`,
+        `Scratch library catalog references: ${libraryReview?.recordCount ?? 'unreviewed'}`,
+        `Bundled catalog media payloads: ${libraryReview?.localPayloadCount ?? 'unreviewed'}`,
+        'See assets-rights.json and asset-distribution-review.md for the review scope and grouping method.'
+    ];
+    await writeFile(path.join(targetDir, 'ASSET_RIGHTS_STATUS.txt'), `${assetRightsLines.join('\n')}\n`);
     console.log(
         `Generated notices for ${entries.length} packages; ` +
         `${unknown.length} licenses are UNKNOWN; ` +

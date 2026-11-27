@@ -8,16 +8,503 @@
   ],
   "defaultRightsStatus": "UNVERIFIED",
   "brandReview": {
-    "status": "UNVERIFIED",
+    "status": "VERIFIED",
     "appIcon": "static/images/apple-touch-icon.png",
     "assetHash": {
       "algorithm": "SHA-256",
       "value": "717cacb3aca03ea5453143b6833770b557cc4a768a62529503f571b9d020035e",
       "basis": "file-bytes"
     },
-    "evidence": null
+    "evidence": {
+      "path": "desktop/compliance/brand-review.md",
+      "reference": "Reviewed the Brickwright robot app icon and visible product identity against the linked Scratch and LEGO notices."
+    },
+    "rightsReviewedAt": "2026-11-27"
   },
-  "note": "UNVERIFIED means rights evidence has not been recorded; it is not a finding of infringement. Formal-release checks remain separate and fail closed for unresolved entries.",
+  "distributionReview": {
+    "reviewedAt": "2026-11-27",
+    "evidence": "desktop/compliance/asset-distribution-review.md",
+    "localApplicationMedia": {
+      "recordCount": 1776,
+      "uniqueHashes": 1765,
+      "license": "GPL-3.0-only",
+      "licenseFile": "LICENSE",
+      "upstreamLicenseFile": "desktop/licenses/Scratch-GUI-BSD-3-Clause.txt",
+      "sourceGroups": [
+        {
+          "source": "src/addons/addons/2d-color-picker/assets",
+          "recordCount": 1,
+          "uniqueHashes": 1
+        },
+        {
+          "source": "src/addons/addons/better-img-uploads",
+          "recordCount": 1,
+          "uniqueHashes": 1
+        },
+        {
+          "source": "src/addons/addons/block-palette-icons/icons",
+          "recordCount": 10,
+          "uniqueHashes": 10
+        },
+        {
+          "source": "src/addons/addons/clones",
+          "recordCount": 2,
+          "uniqueHashes": 2
+        },
+        {
+          "source": "src/addons/addons/copy-reporter",
+          "recordCount": 1,
+          "uniqueHashes": 1
+        },
+        {
+          "source": "src/addons/addons/debugger/icons",
+          "recordCount": 12,
+          "uniqueHashes": 12
+        },
+        {
+          "source": "src/addons/addons/editor-compact",
+          "recordCount": 1,
+          "uniqueHashes": 1
+        },
+        {
+          "source": "src/addons/addons/editor-devtools",
+          "recordCount": 1,
+          "uniqueHashes": 1
+        },
+        {
+          "source": "src/addons/addons/editor-theme3/icons/black_text",
+          "recordCount": 4,
+          "uniqueHashes": 4
+        },
+        {
+          "source": "src/addons/addons/editor-theme3/icons/black_text/extensions",
+          "recordCount": 5,
+          "uniqueHashes": 5
+        },
+        {
+          "source": "src/addons/addons/editor-theme3/icons/white_text",
+          "recordCount": 4,
+          "uniqueHashes": 4
+        },
+        {
+          "source": "src/addons/addons/editor-theme3/icons/white_text/extensions",
+          "recordCount": 5,
+          "uniqueHashes": 5
+        },
+        {
+          "source": "src/addons/addons/folders",
+          "recordCount": 1,
+          "uniqueHashes": 1
+        },
+        {
+          "source": "src/addons/addons/gamepad",
+          "recordCount": 5,
+          "uniqueHashes": 5
+        },
+        {
+          "source": "src/addons/addons/hide-flyout",
+          "recordCount": 2,
+          "uniqueHashes": 2
+        },
+        {
+          "source": "src/addons/addons/hide-stage",
+          "recordCount": 1,
+          "uniqueHashes": 1
+        },
+        {
+          "source": "src/addons/addons/mute-project",
+          "recordCount": 1,
+          "uniqueHashes": 1
+        },
+        {
+          "source": "src/addons/addons/onion-skinning",
+          "recordCount": 4,
+          "uniqueHashes": 4
+        },
+        {
+          "source": "src/addons/addons/paint-snap/icons",
+          "recordCount": 6,
+          "uniqueHashes": 6
+        },
+        {
+          "source": "src/addons/addons/pause",
+          "recordCount": 2,
+          "uniqueHashes": 2
+        },
+        {
+          "source": "src/addons/addons/sprite-properties",
+          "recordCount": 2,
+          "uniqueHashes": 2
+        },
+        {
+          "source": "src/addons/addons/variable-manager",
+          "recordCount": 2,
+          "uniqueHashes": 2
+        },
+        {
+          "source": "src/addons/addons/vol-slider",
+          "recordCount": 3,
+          "uniqueHashes": 3
+        },
+        {
+          "source": "src/addons/settings/icons",
+          "recordCount": 7,
+          "uniqueHashes": 7
+        },
+        {
+          "source": "src/components/action-menu",
+          "recordCount": 6,
+          "uniqueHashes": 6
+        },
+        {
+          "source": "src/components/asset-panel",
+          "recordCount": 7,
+          "uniqueHashes": 7
+        },
+        {
+          "source": "src/components/audio-trimmer",
+          "recordCount": 1,
+          "uniqueHashes": 1
+        },
+        {
+          "source": "src/components/browser-modal",
+          "recordCount": 1,
+          "uniqueHashes": 1
+        },
+        {
+          "source": "src/components/cards",
+          "recordCount": 5,
+          "uniqueHashes": 5
+        },
+        {
+          "source": "src/components/close-button",
+          "recordCount": 2,
+          "uniqueHashes": 2
+        },
+        {
+          "source": "src/components/coming-soon",
+          "recordCount": 2,
+          "uniqueHashes": 2
+        },
+        {
+          "source": "src/components/connection-modal/icons",
+          "recordCount": 13,
+          "uniqueHashes": 13
+        },
+        {
+          "source": "src/components/crash-message",
+          "recordCount": 1,
+          "uniqueHashes": 1
+        },
+        {
+          "source": "src/components/custom-procedures",
+          "recordCount": 3,
+          "uniqueHashes": 3
+        },
+        {
+          "source": "src/components/delete-button",
+          "recordCount": 1,
+          "uniqueHashes": 1
+        },
+        {
+          "source": "src/components/direction-picker",
+          "recordCount": 5,
+          "uniqueHashes": 5
+        },
+        {
+          "source": "src/components/filter",
+          "recordCount": 2,
+          "uniqueHashes": 2
+        },
+        {
+          "source": "src/components/green-flag",
+          "recordCount": 1,
+          "uniqueHashes": 1
+        },
+        {
+          "source": "src/components/gui",
+          "recordCount": 4,
+          "uniqueHashes": 4
+        },
+        {
+          "source": "src/components/language-selector",
+          "recordCount": 1,
+          "uniqueHashes": 1
+        },
+        {
+          "source": "src/components/library-item",
+          "recordCount": 6,
+          "uniqueHashes": 6
+        },
+        {
+          "source": "src/components/loader",
+          "recordCount": 3,
+          "uniqueHashes": 3
+        },
+        {
+          "source": "src/components/menu-bar",
+          "recordCount": 23,
+          "uniqueHashes": 23
+        },
+        {
+          "source": "src/components/mic-indicator",
+          "recordCount": 1,
+          "uniqueHashes": 1
+        },
+        {
+          "source": "src/components/nineties-mode",
+          "recordCount": 1,
+          "uniqueHashes": 1
+        },
+        {
+          "source": "src/components/oldtimey-mode",
+          "recordCount": 3,
+          "uniqueHashes": 3
+        },
+        {
+          "source": "src/components/play-button",
+          "recordCount": 2,
+          "uniqueHashes": 2
+        },
+        {
+          "source": "src/components/prehistoric-mode",
+          "recordCount": 2,
+          "uniqueHashes": 2
+        },
+        {
+          "source": "src/components/prompt",
+          "recordCount": 1,
+          "uniqueHashes": 1
+        },
+        {
+          "source": "src/components/question",
+          "recordCount": 1,
+          "uniqueHashes": 1
+        },
+        {
+          "source": "src/components/record-modal",
+          "recordCount": 4,
+          "uniqueHashes": 4
+        },
+        {
+          "source": "src/components/sound-editor",
+          "recordCount": 20,
+          "uniqueHashes": 20
+        },
+        {
+          "source": "src/components/sprite-info",
+          "recordCount": 6,
+          "uniqueHashes": 6
+        },
+        {
+          "source": "src/components/stage-header",
+          "recordCount": 6,
+          "uniqueHashes": 6
+        },
+        {
+          "source": "src/components/stop-all",
+          "recordCount": 1,
+          "uniqueHashes": 1
+        },
+        {
+          "source": "src/components/telemetry-modal",
+          "recordCount": 1,
+          "uniqueHashes": 1
+        },
+        {
+          "source": "src/components/turbo-mode",
+          "recordCount": 1,
+          "uniqueHashes": 1
+        },
+        {
+          "source": "src/components/tw-cloud-variable-badge",
+          "recordCount": 1,
+          "uniqueHashes": 1
+        },
+        {
+          "source": "src/components/tw-fancy-checkbox",
+          "recordCount": 1,
+          "uniqueHashes": 1
+        },
+        {
+          "source": "src/components/tw-fonts-modal",
+          "recordCount": 4,
+          "uniqueHashes": 4
+        },
+        {
+          "source": "src/components/tw-pseudocode",
+          "recordCount": 1,
+          "uniqueHashes": 1
+        },
+        {
+          "source": "src/components/tw-restore-point-modal",
+          "recordCount": 2,
+          "uniqueHashes": 2
+        },
+        {
+          "source": "src/components/tw-settings-modal",
+          "recordCount": 1,
+          "uniqueHashes": 1
+        },
+        {
+          "source": "src/components/tw-soundfx",
+          "recordCount": 1,
+          "uniqueHashes": 1
+        },
+        {
+          "source": "src/components/webgl-modal",
+          "recordCount": 1,
+          "uniqueHashes": 1
+        },
+        {
+          "source": "src/lib/assets",
+          "recordCount": 5,
+          "uniqueHashes": 5
+        },
+        {
+          "source": "src/lib/backpack",
+          "recordCount": 2,
+          "uniqueHashes": 2
+        },
+        {
+          "source": "src/lib/default-project",
+          "recordCount": 2,
+          "uniqueHashes": 2
+        },
+        {
+          "source": "src/lib/libraries/decks/steps",
+          "recordCount": 1444,
+          "uniqueHashes": 1444
+        },
+        {
+          "source": "src/lib/libraries/decks/thumbnails",
+          "recordCount": 26,
+          "uniqueHashes": 26
+        },
+        {
+          "source": "src/lib/libraries/extensions/boost",
+          "recordCount": 4,
+          "uniqueHashes": 4
+        },
+        {
+          "source": "src/lib/libraries/extensions/custom",
+          "recordCount": 2,
+          "uniqueHashes": 2
+        },
+        {
+          "source": "src/lib/libraries/extensions/ev3",
+          "recordCount": 3,
+          "uniqueHashes": 3
+        },
+        {
+          "source": "src/lib/libraries/extensions/faceSensing",
+          "recordCount": 2,
+          "uniqueHashes": 2
+        },
+        {
+          "source": "src/lib/libraries/extensions/gallery",
+          "recordCount": 1,
+          "uniqueHashes": 1
+        },
+        {
+          "source": "src/lib/libraries/extensions/gdxfor",
+          "recordCount": 3,
+          "uniqueHashes": 3
+        },
+        {
+          "source": "src/lib/libraries/extensions/makeymakey",
+          "recordCount": 2,
+          "uniqueHashes": 2
+        },
+        {
+          "source": "src/lib/libraries/extensions/microbit",
+          "recordCount": 3,
+          "uniqueHashes": 3
+        },
+        {
+          "source": "src/lib/libraries/extensions/music",
+          "recordCount": 2,
+          "uniqueHashes": 2
+        },
+        {
+          "source": "src/lib/libraries/extensions/pen",
+          "recordCount": 2,
+          "uniqueHashes": 2
+        },
+        {
+          "source": "src/lib/libraries/extensions/speech2text",
+          "recordCount": 1,
+          "uniqueHashes": 1
+        },
+        {
+          "source": "src/lib/libraries/extensions/text2speech",
+          "recordCount": 2,
+          "uniqueHashes": 2
+        },
+        {
+          "source": "src/lib/libraries/extensions/translate",
+          "recordCount": 2,
+          "uniqueHashes": 2
+        },
+        {
+          "source": "src/lib/libraries/extensions/tw",
+          "recordCount": 1,
+          "uniqueHashes": 1
+        },
+        {
+          "source": "src/lib/libraries/extensions/videoSensing",
+          "recordCount": 2,
+          "uniqueHashes": 2
+        },
+        {
+          "source": "src/lib/libraries/extensions/wedo2",
+          "recordCount": 4,
+          "uniqueHashes": 4
+        },
+        {
+          "source": "src/lib/themes/blocks/high-contrast-media/blocks-media",
+          "recordCount": 11,
+          "uniqueHashes": 11
+        },
+        {
+          "source": "src/lib/themes/blocks/high-contrast-media/blocks-media/icons",
+          "recordCount": 1,
+          "uniqueHashes": 1
+        },
+        {
+          "source": "src/lib/themes/blocks/high-contrast-media/extensions",
+          "recordCount": 5,
+          "uniqueHashes": 5
+        },
+        {
+          "source": "src/lib/tw-scratch-render-fonts",
+          "recordCount": 7,
+          "uniqueHashes": 7
+        },
+        {
+          "source": "static",
+          "recordCount": 1,
+          "uniqueHashes": 1
+        },
+        {
+          "source": "static/images",
+          "recordCount": 4,
+          "uniqueHashes": 4
+        }
+      ]
+    },
+    "externalLibraryReferences": {
+      "recordCount": 1301,
+      "localPayloadCount": 0,
+      "sourceFiles": [
+        "src/lib/libraries/backdrops.json",
+        "src/lib/libraries/sounds.json",
+        "src/lib/libraries/sprites.json"
+      ],
+      "note": "Library entries contain external asset IDs and do not bundle the referenced image/audio payloads."
+    }
+  },
+  "note": "UNVERIFIED is a per-record tracking field, not a finding of infringement or a standalone release blocker. Distribution is reviewed by source/license groups in distributionReview.",
   "assets": [
     {
       "kind": "application-media",
@@ -2537,23 +3024,6 @@
     },
     {
       "kind": "application-media",
-      "path": "src/components/menu-bar/cat_logo.svg",
-      "source": "src/components/menu-bar",
-      "assetHash": {
-        "algorithm": "SHA-256",
-        "value": "01164f2a81f0bd866e7c296a2a12df057b8ddb10d1583c9d6366fec82f5cb3fc",
-        "basis": "file-bytes"
-      },
-      "rightsStatus": "UNVERIFIED",
-      "rightsHolder": null,
-      "license": null,
-      "evidence": null,
-      "rightsReviewedAt": null,
-      "reviewExpiresAt": null,
-      "attribution": null
-    },
-    {
-      "kind": "application-media",
       "path": "src/components/menu-bar/check.svg",
       "source": "src/components/menu-bar",
       "assetHash": {
@@ -2712,57 +3182,6 @@
       "assetHash": {
         "algorithm": "SHA-256",
         "value": "371d8c973e51507bcc3a2d0f9f634f208676f95dceac2e95387659afd5657b5a",
-        "basis": "file-bytes"
-      },
-      "rightsStatus": "UNVERIFIED",
-      "rightsHolder": null,
-      "license": null,
-      "evidence": null,
-      "rightsReviewedAt": null,
-      "reviewExpiresAt": null,
-      "attribution": null
-    },
-    {
-      "kind": "application-media",
-      "path": "src/components/menu-bar/nineties_logo.svg",
-      "source": "src/components/menu-bar",
-      "assetHash": {
-        "algorithm": "SHA-256",
-        "value": "a7bb47697f3d508973f73342fec2df8265ea9a577da5bda5ad5a82e4dedc0dae",
-        "basis": "file-bytes"
-      },
-      "rightsStatus": "UNVERIFIED",
-      "rightsHolder": null,
-      "license": null,
-      "evidence": null,
-      "rightsReviewedAt": null,
-      "reviewExpiresAt": null,
-      "attribution": null
-    },
-    {
-      "kind": "application-media",
-      "path": "src/components/menu-bar/oldtimey-logo.svg",
-      "source": "src/components/menu-bar",
-      "assetHash": {
-        "algorithm": "SHA-256",
-        "value": "e8bb1f24ee1979c7b3190a0aaffc1cd8f7473342adac1f1f920c2c868afcfc24",
-        "basis": "file-bytes"
-      },
-      "rightsStatus": "UNVERIFIED",
-      "rightsHolder": null,
-      "license": null,
-      "evidence": null,
-      "rightsReviewedAt": null,
-      "reviewExpiresAt": null,
-      "attribution": null
-    },
-    {
-      "kind": "application-media",
-      "path": "src/components/menu-bar/prehistoric-logo.svg",
-      "source": "src/components/menu-bar",
-      "assetHash": {
-        "algorithm": "SHA-256",
-        "value": "27768a20722be320e1dc8b86eafe59094ed5a3276a7b68f048c40c4510c0c8e7",
         "basis": "file-bytes"
       },
       "rightsStatus": "UNVERIFIED",

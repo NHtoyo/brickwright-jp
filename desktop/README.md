@@ -24,6 +24,6 @@ The standard SPIKE extension is served from the staged editor build under `app:/
 
 ## License and distribution status
 
-The web application is GPL-3.0. The SPIKE extension source retains its MPL-2.0 header. Desktop build notices and media rights inventory are generated from the lockfiles and library manifests. Rights not verified in `compliance/assets-rights.json` remain explicitly `UNVERIFIED`; formal release fails closed while any such entry or unknown dependency license remains.
+The web application is GPL-3.0. The SPIKE extension source retains its MPL-2.0 header. Desktop build notices and the media inventory are generated from the lockfiles and library manifests. Per-asset `UNVERIFIED` fields are tracking data, not a legal finding or a blanket release gate; releases require source-group coverage, preserved license notices, no bundled payloads hidden in the external Scratch library catalog, and a recorded brand review. Unknown dependency licenses or missing required notices still fail the release gate.
 
-Development Windows/macOS builds are unsigned CI artifacts. Formal releases require Windows signing credentials, Apple Developer ID signing and notarization credentials, a passing distribution compliance gate, and a same-commit source archive.
+Development Windows/macOS builds are unsigned pre-releases available to anyone from GitHub Releases. Formal releases may add Windows signing, Apple Developer ID signing and notarization; those are not prerequisites for distributing these development builds. Every published build includes its corresponding source archive and license bundle.

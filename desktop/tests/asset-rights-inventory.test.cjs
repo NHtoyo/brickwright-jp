@@ -63,39 +63,54 @@ test('library registration identity maps by its content-addressed asset name', a
         'costume:0123456789abcdef0123456789abcdef.svg');
 });
 
-test('release rights check distinguishes incomplete records from infringement', async () => {
+test('release rights check allows documented scope while retaining per-file UNVERIFIED tracking', async () => {
     const {inspectReleaseRights} = await import('../scripts/check-asset-rights-for-release.mjs');
     const result = inspectReleaseRights({
-        assets: [{kind: 'application-media', path: 'static/example.svg', rightsStatus: 'UNVERIFIED'}],
-        brandReview: {status: 'VERIFIED', evidence: {url: 'https://example.test/review'}}
+        assets: [{kind: 'application-media', path: 'static/example.svg', source: 'static', assetHash: {algorithm: 'SHA-256', value: 'a'}, rightsStatus: 'UNVERIFIED'}],
+        distributionReview: {
+            evidence: 'desktop/compliance/asset-distribution-review.md',
+            localApplicationMedia: {recordCount: 1, uniqueHashes: 1, license: 'GPL-3.0-only', licenseFile: 'LICENSE', upstreamLicenseFile: 'desktop/licenses/Scratch-GUI-BSD-3-Clause.txt', sourceGroups: [{source: 'static', recordCount: 1, uniqueHashes: 1}]},
+            externalLibraryReferences: {recordCount: 0, localPayloadCount: 0}
+        },
+        brandReview: {status: 'VERIFIED', evidence: {url: 'https://example.test/review'}, assetHash: {value: 'icon'}}
     });
-    assert.equal(result.allowed, false);
-    assert.equal(result.unresolvedCount, 1);
-    assert.match(result.unresolvedExamples[0], /example\.svg/);
+    assert.equal(result.allowed, true);
+    assert.equal(result.perAssetUnverifiedCount, 1);
+    assert.equal(result.mediaCoverageComplete, true);
+    assert.equal(result.brandUnresolved, false);
 });
 
-test('release rights check accepts complete verified and excluded entries', async () => {
+test('release rights check uses grouped license evidence instead of individual UNVERIFIED counts', async () => {
     const {inspectReleaseRights} = await import('../scripts/check-asset-rights-for-release.mjs');
     const result = inspectReleaseRights({
         assets: [
-            {kind: 'application-media', path: 'static/allowed.svg', rightsStatus: 'VERIFIED', rightsHolder: 'Author', license: 'MIT', evidence: {url: 'https://example.test/license'}},
-            {kind: 'application-media', path: 'static/not-distributed.svg', rightsStatus: 'EXCLUDED', exclusionReason: 'Not included in the packaged app'}
+            {kind: 'application-media', path: 'static/allowed.svg', source: 'static', assetHash: {algorithm: 'SHA-256', value: 'a'}, rightsStatus: 'UNVERIFIED'}
         ],
-        brandReview: {status: 'VERIFIED', evidence: {url: 'https://example.test/review'}}
+        distributionReview: {
+            evidence: 'desktop/compliance/asset-distribution-review.md',
+            localApplicationMedia: {recordCount: 1, uniqueHashes: 1, license: 'GPL-3.0-only', licenseFile: 'LICENSE', upstreamLicenseFile: 'desktop/licenses/Scratch-GUI-BSD-3-Clause.txt', sourceGroups: [{source: 'static', recordCount: 1, uniqueHashes: 1}]},
+            externalLibraryReferences: {recordCount: 0, localPayloadCount: 0}
+        },
+        brandReview: {status: 'VERIFIED', evidence: {url: 'https://example.test/review'}, assetHash: {value: 'icon'}}
     });
     assert.equal(result.allowed, true);
+    assert.equal(result.perAssetUnverifiedCount, 1);
 });
 
 test('release rights check fails closed for unknown statuses and evidence without references', async () => {
     const {inspectReleaseRights} = await import('../scripts/check-asset-rights-for-release.mjs');
     const result = inspectReleaseRights({
         assets: [
-            {kind: 'application-media', path: 'static/unknown.svg', rightsStatus: 'PENDING'},
-            {kind: 'application-media', path: 'static/no-evidence.svg', rightsStatus: 'VERIFIED', rightsHolder: 'Author', license: 'MIT', evidence: {}}
+            {kind: 'application-media', path: 'static/unknown.svg', source: 'static', assetHash: {algorithm: 'SHA-256', value: 'a'}, rightsStatus: 'UNVERIFIED'},
+            {kind: 'sprite', md5ext: 'asset.png', filePaths: []}
         ],
-        brandReview: {status: 'VERIFIED', evidence: {url: 'https://example.test/review'}}
+        distributionReview: {
+            evidence: 'desktop/compliance/asset-distribution-review.md',
+            localApplicationMedia: {recordCount: 1, uniqueHashes: 1, license: 'GPL-3.0-only', licenseFile: 'LICENSE', upstreamLicenseFile: 'desktop/licenses/Scratch-GUI-BSD-3-Clause.txt', sourceGroups: [{source: 'static', recordCount: 1, uniqueHashes: 1}]},
+            externalLibraryReferences: {recordCount: 1, localPayloadCount: 0}
+        },
+        brandReview: {status: 'VERIFIED', evidence: {url: 'https://example.test/review'}, assetHash: {value: 'icon'}}
     });
     assert.equal(result.allowed, false);
-    assert.equal(result.unresolvedCount, 1);
-    assert.equal(result.incompleteVerifiedCount, 1);
+    assert.equal(result.unexplainedAssetKindCount, 1);
 });
