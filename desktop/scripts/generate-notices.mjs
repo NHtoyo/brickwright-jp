@@ -199,7 +199,9 @@ const copyPackageLicenseTexts = async (packages, outputRoot, sources = {}) => {
                 'color-convert@0.5.3': path.join(
                     desktopDir, 'licenses', 'package-supplemental', 'color-convert-0.5.3-LICENSE.txt'
                 ),
-                'omggif@1.0.9': path.join(desktopDir, 'licenses', 'package-supplemental', 'omggif-1.0.9-LICENSE.txt')
+                'omggif@1.0.9': path.join(
+                    desktopDir, 'licenses', 'package-supplemental', 'omggif-1.0.9-LICENSE.txt'
+                )
             };
             const exactNotice = exactNotices[`${item.name}@${item.version}`];
             if (exactNotice) {
