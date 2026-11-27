@@ -7129,6 +7129,455 @@ test("Prime absolute angle paths stay absolute, encode V2 direction, and omit th
   assert.equal(fakeHub.receivedRequests.length, commandCount);
 });
 
+test("Prime connection state and telemetry are published atomically", async () => {
+  const state = setup();
+  await connect(state);
+  const api = state.runtime.brickwrightSpikePrimeControl;
+
+  // Synthetic DeviceNotification vector using the published 0x3c envelope
+  // and DeviceMotor record layout. This is not a hub capture.
+  state.device.tx.emit(
+    packMessage(
+      notification(motorRecord({ port: 0, absolute: 12, position: 120 }))
+    )
+  );
+  const beforeMalformedFrame = api.getState();
+  assert.equal(beforeMalformedFrame.connected, true);
+  assert.equal(beforeMalformedFrame.diagnostics.connected, true);
+  assert.equal(beforeMalformedFrame.portSensors.A.absolutePosition, 12);
+  assert.equal(beforeMalformedFrame.motorPorts.A.relativePosition, 120);
+
+  const validMotorThenTruncatedBattery = bytes(
+    motorRecord({ port: 0, absolute: 99, position: 999 }),
+    [0x01]
+  );
+  state.device.tx.emit(
+    packMessage(notification(validMotorThenTruncatedBattery))
+  );
+  const afterMalformedFrame = api.getState();
+  assert.equal(afterMalformedFrame.connected, true);
+  assert.equal(afterMalformedFrame.diagnostics.connected, true);
+  assert.deepEqual(
+    afterMalformedFrame.portSensors.A,
+    beforeMalformedFrame.portSensors.A,
+    "a malformed frame must not publish only its valid prefix"
+  );
+  assert.deepEqual(
+    afterMalformedFrame.motorPorts.A,
+    beforeMalformedFrame.motorPorts.A
+  );
+  assert.equal(
+    afterMalformedFrame.diagnostics.motorNotificationCount,
+    beforeMalformedFrame.diagnostics.motorNotificationCount
+  );
+  assert.equal(
+    afterMalformedFrame.diagnostics.notificationTelemetry.validNotificationCount,
+    beforeMalformedFrame.diagnostics.notificationTelemetry.validNotificationCount
+  );
+  assert.equal(
+    afterMalformedFrame.diagnostics.malformedNotificationCount,
+    beforeMalformedFrame.diagnostics.malformedNotificationCount + 1
+  );
+
+  state.device.gatt.disconnect();
+  const disconnected = api.getState();
+  assert.equal(disconnected.connected, false);
+  assert.equal(disconnected.diagnostics.connected, false);
+  assert.equal(Object.keys(disconnected.portSensors).length, 0);
+  assert.equal(Object.keys(disconnected.motorPorts).length, 0);
+});
+
+test("Prime maps ports A-F and rejects commands after a port is replaced or detached", async () => {
+  const state = setup();
+  await connect(state);
+  const fakeHub = attachFakeControllerHub(state, { motorPorts: [] });
+  state.ext._peripheral._spike3._rateLimiter.reserve = () => 0;
+  await state.ext.installHubController({ SLOT: 0 });
+
+  // These six records are synthetic protocol-shaped values, not a real-hub
+  // capture. DeviceMotor port IDs 0-5 map to A-F in the published layout.
+  const motorRecords = Array.from({ length: 6 }, (_, port) =>
+    motorRecord({
+      port,
+      motorType: port % 2 === 0 ? 0x30 : 0x31,
+      absolute: port,
+      position: port * 100,
+    })
+  );
+  state.device.tx.emit(
+    packMessage(notification(bytes(...motorRecords)))
+  );
+
+  const connected = state.runtime.brickwrightSpikePrimeControl.getState();
+  assert.deepEqual(Array.from(connected.availablePorts), [
+    "A",
+    "B",
+    "C",
+    "D",
+    "E",
+    "F",
+  ]);
+  assert.deepEqual(Object.keys(connected.portSensors), [
+    "A",
+    "B",
+    "C",
+    "D",
+    "E",
+    "F",
+  ]);
+  for (const port of ["A", "B", "C", "D", "E", "F"]) {
+    assert.equal(
+      connected.diagnostics.portObservations[port].status,
+      "observed"
+    );
+    assert.equal(connected.diagnostics.portObservations[port].type, "motor");
+  }
+  for (const port of ["A", "B", "C", "D", "E", "F"]) {
+    assert.equal(connected.portSensors[port].type, "motor");
+    assert.equal(
+      connected.motorPorts[port].motorType,
+      connected.portSensors[port].motorType
+    );
+  }
+
+  for (const port of ["A", "B", "C", "D", "E", "F"]) {
+    await state.ext.motorStart({ PORT: port, DIRECTION: 1 });
+  }
+  assert.deepEqual(
+    fakeHub.actions.filter((action) => action.cmd === "motor.run").map((action) => action.port),
+    ["A", "B", "C", "D", "E", "F"]
+  );
+
+  // A force-sensor record replaces the synthetic motor record on D.
+  state.device.tx.emit(
+    packMessage(notification(Uint8Array.from([0x0b, 3, 62, 1])))
+  );
+  const writesBeforeRejectedCommand = state.device.writes.length;
+  const actionsBeforeRejectedCommand = fakeHub.actions.length;
+  await assert.rejects(
+    state.ext.motorStart({ PORT: "D", DIRECTION: 1 }),
+    (error) => error.code === "ERR_SPIKE_PORT_NOT_MOTOR"
+  );
+  assert.equal(state.device.writes.length, writesBeforeRejectedCommand);
+  assert.equal(fakeHub.actions.length, actionsBeforeRejectedCommand);
+  assert.equal(
+    state.runtime.brickwrightSpikePrimeControl.getState().portSensors.D.type,
+    "force"
+  );
+  assert.equal(
+    state.runtime.brickwrightSpikePrimeControl.getState().diagnostics
+      .portObservations.D.type,
+    "force"
+  );
+
+  // Age A's synthetic observation past the protocol's stale threshold. A
+  // cached motor record alone must not authorize a command on stale hardware.
+  const spike3 = state.ext._peripheral._spike3;
+  spike3._portObservations.A.lastObservedAt = Date.now() - 2001;
+  const staleSnapshot = state.runtime.brickwrightSpikePrimeControl.getState();
+  assert.equal(staleSnapshot.diagnostics.portObservations.A.status, "stale");
+  const writesBeforeStaleCommand = state.device.writes.length;
+  const requestsBeforeStaleCommand = fakeHub.receivedRequests.length;
+  const actionsBeforeStaleCommand = fakeHub.actions.length;
+  const staleCommandOutcome = await Promise.resolve()
+    .then(() => state.ext.motorStart({ PORT: "A", DIRECTION: 1 }))
+    .then(
+      () => "resolved",
+      () => "rejected"
+    );
+  const writesAfterStaleCommand = state.device.writes.length;
+  const requestsAfterStaleCommand = fakeHub.receivedRequests.length;
+  const actionsAfterStaleCommand = fakeHub.actions.length;
+
+  const hub = spike3;
+  const oldReceiver = hub._link._characteristicDidChangeCallback;
+  state.device.gatt.disconnect();
+  const detached = state.runtime.brickwrightSpikePrimeControl.getState();
+  assert.equal(detached.connected, false);
+  assert.equal(Object.keys(detached.portSensors).length, 0);
+  assert.equal(Object.keys(detached.motorPorts).length, 0);
+  for (const port of ["A", "B", "C", "D", "E", "F"]) {
+    assert.equal(detached.diagnostics.portObservations[port].status, "unknown");
+  }
+
+  await state.ext._peripheral.scan();
+  await tick();
+  state.device.tx.emit(packMessage(infoResponse()));
+  await tick();
+  const reconnected = state.runtime.brickwrightSpikePrimeControl.getState();
+  assert.equal(reconnected.connected, true);
+  assert.deepEqual(Array.from(reconnected.availablePorts), [
+    "A",
+    "B",
+    "C",
+    "D",
+    "E",
+    "F",
+  ]);
+  assert.equal(Object.keys(reconnected.portSensors).length, 0);
+  assert.equal(Object.keys(reconnected.motorPorts).length, 0);
+
+  oldReceiver(
+    Buffer.from(
+      packMessage(notification(motorRecord({ port: 3, position: 777 })))
+    ).toString("base64")
+  );
+  assert.equal(
+    Object.keys(
+      state.runtime.brickwrightSpikePrimeControl.getState().portSensors
+    ).length,
+    0,
+    "a notification callback from the detached session cannot revive old port data"
+  );
+  assert.equal(
+    staleCommandOutcome,
+    "rejected",
+    "a command must be rejected when its motor observation is stale"
+  );
+  assert.equal(
+    writesAfterStaleCommand,
+    writesBeforeStaleCommand,
+    "a stale motor command must not write to the hub"
+  );
+  assert.equal(
+    requestsAfterStaleCommand,
+    requestsBeforeStaleCommand,
+    "a stale motor command must not ask the controller to run a motor"
+  );
+  assert.equal(
+    actionsAfterStaleCommand,
+    actionsBeforeStaleCommand,
+    "a stale motor command must not reach the controller"
+  );
+});
+
+test("invalid Prime port strings do not silently select a real motor port", async () => {
+  const state = setup();
+  await connect(state);
+  const fakeHub = attachFakeControllerHub(state);
+  state.ext._peripheral._spike3._rateLimiter.reserve = () => 0;
+  await state.ext.installHubController({ SLOT: 0 });
+
+  const writesBefore = state.device.writes.length;
+  const requestsBefore = fakeHub.receivedRequests.length;
+  const actionsBefore = fakeHub.actions.length;
+  // The multi-port validator may accept separators between A-F, but a label
+  // containing other letters must not be filtered into the valid port A.
+  await Promise.resolve(
+    state.ext.motorStart({ PORT: "PORT A", DIRECTION: 1 })
+  ).catch(() => {});
+
+  assert.equal(state.device.writes.length, writesBefore);
+  assert.equal(fakeHub.receivedRequests.length, requestsBefore);
+  assert.equal(fakeHub.actions.length, actionsBefore);
+});
+
+test("Essential RAW mode rejection rolls back to the acknowledged COLOR mode", async () => {
+  const state = setup({ hubKind: "essential" });
+  await connectEssential(state);
+  const { device, ext } = state;
+  const portId = 0;
+
+  // Synthetic LWP3 attach and mode metadata vectors following the published
+  // HubAttachedIO, PortModeInformation, and PortInputFormat layouts.
+  device.emitLWP3([7, 0, 0x04, portId, 0x01, 0x3d, 0]);
+  await tick();
+  await waitUntil(
+    () =>
+      device.writes.some(
+        (message) =>
+          message[2] === 0x22 &&
+          message[3] === portId &&
+          message[4] === 5 &&
+          message[5] === 0x80
+      ),
+    "RGB I format metadata query"
+  );
+  emitEssentialModeMetadata(state, portId, 5, {
+    name: "RGB I",
+    dataSets: 4,
+    dataType: 1,
+    decimals: 0,
+    symbol: "RAW",
+    min: 0,
+    max: 1024,
+  });
+  await tick();
+  await waitUntil(
+    () =>
+      device.writes.some(
+        (message) =>
+          message[2] === 0x41 &&
+          message[3] === portId &&
+          message[4] === 0
+      ),
+    "default COLOR mode setup"
+  );
+  await acknowledgeEssentialColorMode(state, portId, 0);
+
+  const essential = ext._peripheral._essential;
+  const colorModes = essential._devices.A.colorModes;
+  assert.equal(colorModes.activeMode, 0);
+  const initialColorSetupCount = device.writes.filter(
+    (message) =>
+      message[2] === 0x41 && message[3] === portId && message[4] === 0
+  ).length;
+  const failedSwitch = essential._requestColorSensorMode("A", 5);
+  const failedSwitchOutcome = failedSwitch.then(
+    () => null,
+    (error) => error
+  );
+  await waitUntil(
+    () =>
+      device.writes.some(
+        (message) =>
+          message[2] === 0x41 &&
+          message[3] === portId &&
+          message[4] === 5
+      ),
+    "RAW mode setup"
+  );
+  const rawSetup = device.writes
+    .filter(
+      (message) =>
+        message[2] === 0x41 && message[3] === portId && message[4] === 5
+    )
+    .at(-1);
+  // Mismatched delta is a synthetic negative acknowledgement.
+  device.emitLWP3([
+    10,
+    0,
+    0x47,
+    portId,
+    rawSetup[4],
+    rawSetup[5] + 1,
+    rawSetup[6],
+    rawSetup[7],
+    rawSetup[8],
+    rawSetup[9],
+  ]);
+  await waitUntil(
+    () =>
+      device.writes.filter(
+        (message) =>
+          message[2] === 0x41 &&
+          message[3] === portId &&
+          message[4] === 0
+      ).length > initialColorSetupCount,
+    "rollback to the previously acknowledged COLOR mode"
+  );
+  await acknowledgeEssentialColorMode(state, portId, 0);
+  const switchError = await failedSwitchOutcome;
+  assert.match(switchError.message, /LWP3 rejected mode 5/);
+
+  assert.equal(colorModes.activeMode, 0);
+  assert.equal(colorModes.requestedMode, 0);
+  assert.equal(essential._portModes.A, 0);
+  assert.equal(essential._inputFormats.A.status, "acknowledged");
+  assert.equal(essential.portValues.A.rawColorReceivedAt ?? null, null);
+  assert.equal(essential.portValues.A.colorMode, 0);
+});
+
+test("Essential motor detach invalidates angle work before a replacement can run", async () => {
+  const state = setup({ hubKind: "essential" });
+  await connectEssential(state);
+  const { device, ext } = state;
+
+  // These are synthetic LWP3 attach/value/feedback vectors. They use the
+  // published message layouts and are not presented as hardware captures.
+  device.emitLWP3([7, 0, 0x04, 0, 0x01, 0x30, 0]);
+  await tick();
+  await acknowledgeEssentialMotorPositionMode(state, 0);
+  const rawApos = (angle) => {
+    const signed = angle > 180 ? angle - 360 : angle;
+    device.emitLWP3([6, 0, 0x45, 0, signed & 0xff, (signed >> 8) & 0xff]);
+  };
+  const degreeCommands = () =>
+    device.writes.filter(
+      (message) => message[2] === 0x81 && message[5] === 0x0b
+    );
+
+  const oldAttachmentId = ext._peripheral._essential._devices.A.attachmentId;
+  const oldMove = ext.motorRunToPosition({
+    PORT: "A",
+    POSITION: 90,
+    PATH: "shortest",
+    SPEED: 40,
+  });
+  await waitUntil(
+    () => ext._peripheral._essential._absolutePositionWaiters.A,
+    "old motor waits for a fresh APOS sample"
+  );
+  rawApos(0);
+  await waitUntil(() => degreeCommands().length === 1, "old motor output");
+  device.emitLWP3([5, 0, 0x82, 0, 0x01]);
+  device.emitLWP3([5, 0, 0x04, 0, 0x00]);
+  await assert.rejects(
+    oldMove,
+    (error) => error.code === "ERR_MOTOR_ANGLE_CANCELLED"
+  );
+  assert.equal(ext._peripheral.portValues.A.connected, false);
+  assert.equal(ext._peripheral.portValues.A.receivedAt, null);
+  assert.equal(
+    Object.hasOwn(ext._peripheral.portValues.A, "absolutePosition"),
+    false
+  );
+
+  // A detached device's late port value is ignored while the port is empty.
+  rawApos(45);
+  await tick();
+  assert.equal(
+    Object.hasOwn(ext._peripheral.portValues.A, "absolutePosition"),
+    false
+  );
+
+  device.emitLWP3([7, 0, 0x04, 0, 0x01, 0x31, 0]);
+  await tick();
+  await acknowledgeEssentialMotorPositionMode(state, 0);
+  const newAttachmentId = ext._peripheral._essential._devices.A.attachmentId;
+  assert.notEqual(newAttachmentId, oldAttachmentId);
+  assert.equal(ext._peripheral.portValues.A.deviceId, 0x31);
+  assert.equal(ext._peripheral.portValues.A.receivedAt, null);
+
+  let replacementMoveSettled = false;
+  const replacementMove = ext
+    .motorRunToPosition({
+      PORT: "A",
+      POSITION: 30,
+      PATH: "shortest",
+      SPEED: 40,
+    })
+    .then((value) => {
+      replacementMoveSettled = true;
+      return value;
+    });
+  await waitUntil(
+    () => ext._peripheral._essential._absolutePositionWaiters.A,
+    "replacement motor waits for its own fresh APOS sample"
+  );
+  rawApos(10);
+  await waitUntil(
+    () => degreeCommands().length === 2,
+    "replacement motor output"
+  );
+
+  // The old motor's completion status has no command ID. A new request must
+  // still observe its own progress before that status can finish the move.
+  device.emitLWP3([5, 0, 0x82, 0, 0x02]);
+  await tick();
+  assert.equal(replacementMoveSettled, false);
+  device.emitLWP3([5, 0, 0x82, 0, 0x01]);
+  device.emitLWP3([5, 0, 0x82, 0, 0x02]);
+  await waitUntil(
+    () => ext._peripheral._essential._absolutePositionWaiters.A,
+    "replacement move verifies its final APOS"
+  );
+  rawApos(30);
+  await replacementMove;
+  assert.equal(replacementMoveSettled, true);
+  assert.equal(degreeCommands().length, 2);
+});
+
 let failed = 0;
 for (const { name, fn } of tests) {
   try {

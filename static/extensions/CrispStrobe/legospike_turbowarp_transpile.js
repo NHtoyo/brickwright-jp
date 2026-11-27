@@ -1971,6 +1971,8 @@
     DEV_COLOR: 0x0c,
     DEV_DISTANCE: 0x0d,
     DEV_MATRIX_3X3: 0x0e,
+    PORT_OBSERVATION_STALE_MS: 2000,
+    COLOR_MODE_SAMPLE_TIMEOUT_MS: 500,
     NOTIFICATION_RESPONSE_TIMEOUT_MS: 2000,
     NOTIFICATION_RECOVERY_DELAY_MS: 500,
     CONTROLLER_START_NOTIFICATION_TIMEOUT_MS: 7000,
@@ -2929,30 +2931,45 @@ def _read_sensor_snapshot():
     # Distance, color, RGB, and force records already arrive over BLE device
     # notifications. Only reflection is absent from that protocol; the host
     # configures color-sensor ports after seeing their BLE notification.
+    # Include the empty map as a topology update and report failed reads without
+    # pretending that a failed value is a fresh measurement.
     port_sensors = {}
     if color_sensor is not None:
         for port_name in tuple(_reflection_ports):
             try:
                 value = color_sensor.reflection(PORTS[port_name])
-            except Exception:
-                continue
-            port_sensors[port_name] = {"reflection": value}
-    if port_sensors:
-        snapshot["ports"] = port_sensors
+                port_sensors[port_name] = {
+                    "reflection": value,
+                    "reflection_status": "received",
+                }
+            except Exception as error:
+                port_sensors[port_name] = {
+                    "reflection": None,
+                    "reflection_status": "read-error",
+                    "reflection_error": type(error).__name__,
+                }
+    snapshot["ports"] = port_sensors
     return snapshot
 
 
 async def _sensor_worker():
     previous = None
+    last_sent = None
     while True:
         if _active and not _emergency_stopped:
             snapshot = _read_sensor_snapshot()
             encoded = json.dumps(snapshot)
-            if encoded != previous:
+            now = time.ticks_ms()
+            heartbeat_due = (
+                last_sent is None or _ticks_diff(now, last_sent) >= 1000
+            )
+            if encoded != previous or heartbeat_due:
                 _send({"e": "sensor", "v": snapshot})
                 previous = encoded
+                last_sent = now
         else:
             previous = None
+            last_sent = None
         await runloop.sleep_ms(250)
 
 
@@ -4867,6 +4884,7 @@ continuous_sensor_loop()
 
       this._rateLimiter = new RateLimiter(BTSendRateMax);
       this._portValues = {};
+      this._portObservations = {};
       this._pixelBrightness = 100;
       this._movementMotors = ["A", "B"];
       this._timer = { start: Date.now(), current: 0 };
@@ -5080,9 +5098,13 @@ continuous_sensor_loop()
         notificationTelemetry: {
           status: "not-received",
           sessionId: null,
+          rawNotificationCount: 0,
           validNotificationCount: 0,
+          lastRawReceivedAt: null,
           lastReceivedAt: null,
+          lastMalformedAt: null,
         },
+        recentDeviceNotificationFrames: [],
         notificationRecovery: {
           status: "not-needed",
           attempts: 0,
@@ -5371,8 +5393,27 @@ continuous_sensor_loop()
       }, SPIKE3.NOTIFICATION_RECOVERY_DELAY_MS);
     }
 
-    _recordMalformedNotification(message) {
+    _recordMalformedNotification(message, trace = null) {
       this._diagnostics.malformedNotificationCount++;
+      const telemetry = this._diagnostics.notificationTelemetry;
+      telemetry.status = "malformed";
+      telemetry.sessionId = this._connectionSession;
+      telemetry.lastMalformedAt = Date.now();
+      if (trace) {
+        trace.status = "malformed";
+        this._diagnostics.lastMalformedDeviceNotification = {
+          ...trace,
+          parseError: message,
+        };
+        this._recordDiagnosticEvent("malformed-device-notification", {
+          timestamp: trace.receivedAt,
+          sessionId: trace.sessionId,
+          failureOffset: trace.failureOffset,
+          message,
+          firmwareVersion: trace.firmwareVersion,
+          rpcVersion: trace.rpcVersion,
+        });
+      }
       this._recordCommunicationError(message);
     }
 
@@ -5390,6 +5431,21 @@ continuous_sensor_loop()
         notificationTelemetry: {
           ...this._diagnostics.notificationTelemetry,
         },
+        recentDeviceNotificationFrames: (
+          this._diagnostics.recentDeviceNotificationFrames || []
+        ).map((frame) => ({
+          ...frame,
+          records: frame.records.map((record) => ({ ...record })),
+        })),
+        lastMalformedDeviceNotification: this._diagnostics
+          .lastMalformedDeviceNotification
+          ? {
+              ...this._diagnostics.lastMalformedDeviceNotification,
+              records: (
+                this._diagnostics.lastMalformedDeviceNotification.records || []
+              ).map((record) => ({ ...record })),
+            }
+          : null,
         notificationRecovery: { ...this._diagnostics.notificationRecovery },
         lastLateNotificationResponse: this._diagnostics
           .lastLateNotificationResponse
@@ -5416,6 +5472,26 @@ continuous_sensor_loop()
             port,
             { ...values },
           ])
+        ),
+        portObservations: Object.fromEntries(
+          SpikePorts.map((port) => {
+            const observation = this._portObservations[port] || null;
+            const lastObservedAt = observation?.lastObservedAt ?? null;
+            return [
+              port,
+              {
+                status: !observation
+                  ? "unknown"
+                  : Date.now() - lastObservedAt <=
+                      SPIKE3.PORT_OBSERVATION_STALE_MS
+                    ? "observed"
+                    : "stale",
+                lastObservedAt,
+                type: observation?.type || null,
+                deviceType: observation?.deviceType ?? null,
+              },
+            ];
+          })
         ),
         motorPorts: Object.fromEntries(
           Object.entries(this._sensors.motorPositions).map(([port, values]) => [
@@ -5878,6 +5954,7 @@ continuous_sensor_loop()
       }
       this._frame = [];
       this._portValues = {};
+      this._portObservations = {};
       this._resetSensors();
       this._timer.start = Date.now();
       this._timer.current = 0;
@@ -6306,6 +6383,22 @@ continuous_sensor_loop()
         return error;
       }
 
+      const observation = this._portObservations[port];
+      if (
+        !observation ||
+        observation.sessionId !== this._connectionSession ||
+        Date.now() - observation.lastObservedAt >
+          SPIKE3.PORT_OBSERVATION_STALE_MS
+      ) {
+        const error = new Error(
+          `The last motor observation for port ${port} is stale; wait for a fresh hub notification`
+        );
+        error.code = "ERR_SPIKE_PORT_OBSERVATION_STALE";
+        error.port = port;
+        error.lastObservedAt = observation?.lastObservedAt ?? null;
+        return error;
+      }
+
       if (!motorReading) {
         const error = new Error(t("controllerPortReadingPending", port));
         error.code = "ERR_SPIKE_PORT_READING_PENDING";
@@ -6335,6 +6428,15 @@ continuous_sensor_loop()
       if (device?.type && device.type !== "motor") {
         throw this._motorPortRequirementError(port);
       }
+      const observation = this._portObservations[port];
+      if (
+        !observation ||
+        observation.sessionId !== this._connectionSession ||
+        Date.now() - observation.lastObservedAt >
+          SPIKE3.PORT_OBSERVATION_STALE_MS
+      ) {
+        throw this._motorPortRequirementError(port);
+      }
       if (percent === 0) return 0;
       const maximum = this._motorMaxVelocity(port);
       if (!maximum) {
@@ -6345,6 +6447,17 @@ continuous_sensor_loop()
 
     _pairVelocityForPercent(value) {
       const ports = this._movementMotors;
+      for (const port of ports) {
+        const observation = this._portObservations[port];
+        if (
+          !observation ||
+          observation.sessionId !== this._connectionSession ||
+          Date.now() - observation.lastObservedAt >
+            SPIKE3.PORT_OBSERVATION_STALE_MS
+        ) {
+          throw this._motorPortRequirementError(port);
+        }
+      }
       const limits = ports.map((port) => this._motorMaxVelocity(port));
       if (limits.some((limit) => !limit)) {
         throw this._unsupportedError(
@@ -7407,10 +7520,23 @@ continuous_sensor_loop()
             typeof reading.reflection === "number" &&
             Number.isFinite(reading.reflection)
           ) {
-            next.type = "color";
             next.reflection = reading.reflection;
+            next.reflectionReceivedAt = Date.now();
+            next.reflectionStatus = "received";
           } else {
-            delete next.reflection;
+            if (Object.prototype.hasOwnProperty.call(reading, "reflection")) {
+              next.reflection = null;
+              next.reflectionReceivedAt = null;
+              next.reflectionStatus = reading.reflection_status || "unavailable";
+              if (reading.reflection_error) {
+                next.reflectionError = String(reading.reflection_error);
+              }
+            } else {
+              delete next.reflection;
+              delete next.reflectionReceivedAt;
+              delete next.reflectionStatus;
+              delete next.reflectionError;
+            }
           }
           if (
             typeof reading.distance_mm === "number" &&
@@ -7456,8 +7582,12 @@ continuous_sensor_loop()
             delete next.green;
             delete next.blue;
           }
-          next.receivedAt = Date.now();
-          this._recordPortEdges(port, previous, next);
+          if (
+            typeof reading.reflection === "number" &&
+            Number.isFinite(reading.reflection)
+          ) {
+            this._recordPortEdges(port, previous, next);
+          }
           this._portValues[port] = next;
         }
         for (const port of SpikePorts) {
@@ -7534,12 +7664,20 @@ continuous_sensor_loop()
     _syncReflectionPorts() {
       if (!this._controllerReady) return Promise.resolve();
       const ports = SpikePorts.filter(
-        (port) => this._portValues[port]?.type === "color"
+        (port) =>
+          this._portValues[port]?.type === "color" &&
+          this._portObservations[port]?.sessionId === this._connectionSession &&
+          Date.now() - this._portObservations[port].lastObservedAt <=
+            SPIKE3.PORT_OBSERVATION_STALE_MS
       );
       const signature = ports.join(",");
       if (signature === this._reflectionPortsConfigured)
         return Promise.resolve();
+      const previousSignature = this._reflectionPortsConfigured;
       this._reflectionPortsConfigured = signature;
+      if (!signature && previousSignature === null) {
+        return Promise.resolve();
+      }
       return this._sendControllerCommand("sensor.read", { ports }).catch(
         (error) => {
           if (this._reflectionPortsConfigured === signature) {
@@ -9739,7 +9877,7 @@ continuous_sensor_loop()
           this._handleInfoResponse(data, wireFrame);
           break;
         case SPIKE3.DEVICE_NOTIFICATION:
-          this._handleDeviceNotification(data);
+          this._handleDeviceNotification(data, wireFrame);
           break;
         case SPIKE3.DEVICE_NOTIFICATION_RESPONSE:
           this._handleDeviceNotificationResponse(data, wireFrame);
@@ -10270,255 +10408,345 @@ continuous_sensor_loop()
      * fixed-width. They are normalised into the same `portValues` shapes the
      * 2.x stream parser produces.
      */
-    _handleDeviceNotification(data) {
+    _handleDeviceNotification(data, wireFrame = null) {
+      const receivedAt = Date.now();
+      const telemetry = this._diagnostics.notificationTelemetry;
+      telemetry.rawNotificationCount++;
+      telemetry.lastRawReceivedAt = receivedAt;
+      const hex = (bytes) => this._protocolMessageHex(bytes).slice(0, 4096);
+      const trace = {
+        receivedAt,
+        sessionId: this._connectionSession,
+        firmwareVersion: this._firmware,
+        rpcVersion: this._rpcVersion,
+        decodedProtocolMessageHex: hex(data),
+        wireFrameHex: wireFrame ? hex(wireFrame) : null,
+        records: [],
+        status: "parsing",
+        failureOffset: null,
+      };
+      const traces = this._diagnostics.recentDeviceNotificationFrames;
+      traces.push(trace);
+      if (traces.length > 12) traces.splice(0, traces.length - 12);
+      const fail = (message, offset = null, expectedLength = null) => {
+        trace.failureOffset = offset;
+        if (trace.records.length) {
+          const last = trace.records[trace.records.length - 1];
+          if (last.offset === offset && expectedLength !== null) {
+            last.expectedLength = expectedLength;
+          }
+        }
+        this._recordMalformedNotification(message, trace);
+      };
+
       if (data.length < 3) {
-        this._recordMalformedNotification(
-          "truncated DeviceNotification header"
-        );
+        fail("truncated DeviceNotification header", data.length);
         return;
       }
       const payloadSize = data[1] | (data[2] << 8);
       if (payloadSize !== data.length - 3) {
-        this._recordMalformedNotification(
-          `DeviceNotification payload size mismatch: expected ${payloadSize}, received ${data.length - 3}`
+        fail(
+          `DeviceNotification payload size mismatch: expected ${payloadSize}, received ${data.length - 3}`,
+          1
         );
         return;
       }
+
+      // Parse into local state first. A damaged tail must not commit earlier
+      // records from the same 0x3c packet as fresh sensor data.
+      const staged = {
+        battery: undefined,
+        imu: null,
+        matrix5x5: null,
+        ports: new Map(),
+        motorRecords: 0,
+        matrix5x5Records: 0,
+      };
       let offset = 3;
+      const readInt16 = (index) => {
+        const value = data[offset + index] | (data[offset + index + 1] << 8);
+        return value > 32767 ? value - 65536 : value;
+      };
+      const readInt32 = (index) => {
+        let value =
+          data[offset + index] |
+          (data[offset + index + 1] << 8) |
+          (data[offset + index + 2] << 16) |
+          (data[offset + index + 3] << 24);
+        if (value > 2147483647) value -= 4294967296;
+        return value;
+      };
+      const stagePort = (port, type, value, recordType, deviceType = null) => {
+        staged.ports.set(port, { type, value, recordType, deviceType });
+      };
+
       while (offset < data.length) {
         const type = data[offset];
         const remaining = data.length - offset;
+        const record = {
+          offset,
+          type,
+          typeHex: `0x${type.toString(16).padStart(2, "0")}`,
+          remaining,
+          expectedLength: null,
+          portId: null,
+          port: null,
+        };
+        trace.records.push(record);
+        const need = (length, name) => {
+          record.expectedLength = length;
+          if (remaining < length) {
+            fail(`truncated ${name} record`, offset, length);
+            return false;
+          }
+          return true;
+        };
+        const readPort = () => {
+          const portId = data[offset + 1];
+          record.portId = portId;
+          const port = SpikePorts[portId];
+          record.port = port || null;
+          if (!port) {
+            fail(`invalid port id ${portId} in device record`, offset);
+            return null;
+          }
+          return port;
+        };
+
         switch (type) {
           case SPIKE3.DEV_BATTERY:
-            if (remaining < 2) {
-              this._recordMalformedNotification("truncated battery record");
-              return;
-            }
-            this._sensors.battery = data[offset + 1];
+            if (!need(2, "battery")) return;
+            staged.battery = data[offset + 1];
             offset += 2;
             break;
-
           case SPIKE3.DEV_IMU: {
-            if (remaining < 21) {
-              this._recordMalformedNotification("truncated IMU record");
-              return;
-            }
-            // LEGO's DeviceImuValues payload is 21 bytes: record type,
-            // face, yaw-face, yaw/pitch/roll (s16), accel X/Y/Z (s16),
-            // then gyro X/Y/Z (s16). Offsets below are relative to type.
-            const s16 = (lo) => {
-              const v = data[offset + lo] | (data[offset + lo + 1] << 8);
-              return v > 32767 ? v - 65536 : v;
+            if (!need(21, "IMU")) return;
+            // LEGO's DeviceImuValues record is 21 bytes: record type, two
+            // face indexes, then nine little-endian signed 16-bit values.
+            staged.imu = {
+              faceUp: Spike3Hub.FACES[data[offset + 1]] ?? null,
+              yaw: readInt16(3) / 10,
+              pitch: readInt16(5) / 10,
+              roll: readInt16(7) / 10,
+              acceleration: {
+                x: readInt16(9),
+                y: readInt16(11),
+                z: readInt16(13),
+              },
+              gyro: {
+                x: readInt16(15) / 10,
+                y: readInt16(17) / 10,
+                z: readInt16(19) / 10,
+              },
             };
-            this._sensors.faceUp = Spike3Hub.FACES[data[offset + 1]] ?? null;
-            this._sensors.angle.yaw = s16(3) / 10;
-            this._sensors.angle.pitch = s16(5) / 10;
-            this._sensors.angle.roll = s16(7) / 10;
-            // The extension reports milli-g, matching the Scratch block's unit.
-            this._sensors.acceleration.x = s16(9);
-            this._sensors.acceleration.y = s16(11);
-            this._sensors.acceleration.z = s16(13);
-            this._sensors.gyro.x = s16(15) / 10;
-            this._sensors.gyro.y = s16(17) / 10;
-            this._sensors.gyro.z = s16(19) / 10;
-            this._diagnostics.imuNotificationCount++;
-            this._diagnostics.lastImuReceivedAt = Date.now();
             offset += 21;
             break;
           }
-
           case SPIKE3.DEV_MATRIX_5X5:
-            if (remaining < 26) {
-              this._recordMalformedNotification("truncated 5x5 matrix record");
-              return;
-            }
-            this._matrix5x5 = Array.from(data.slice(offset + 1, offset + 26));
-            this._diagnostics.matrix5x5NotificationCount++;
+            if (!need(26, "5x5 matrix")) return;
+            staged.matrix5x5 = Array.from(data.slice(offset + 1, offset + 26));
+            staged.matrix5x5Records++;
             offset += 26;
             break;
-
           case SPIKE3.DEV_MOTOR: {
-            // 12 bytes per LEGO's SPIKE Prime protocol:
-            // type, port, motor type, absolute position(int16 @3),
-            // power(int16 @5), speed(int8 @7), counted position(int32 @8).
-            if (remaining < 12) {
-              this._recordMalformedNotification("truncated motor record");
-              return;
-            }
-            const port = SpikePorts[data[offset + 1]];
-            if (port) {
-              const readInt16 = (index) => {
-                const value =
-                  data[offset + index] | (data[offset + index + 1] << 8);
-                return value > 32767 ? value - 65536 : value;
-              };
-              const absolutePosition = readInt16(3);
-              const power = readInt16(5);
-              const rawSpeed = data[offset + 7];
-              const speed = rawSpeed > 127 ? rawSpeed - 256 : rawSpeed;
-              let position =
-                data[offset + 8] |
-                (data[offset + 9] << 8) |
-                (data[offset + 10] << 16) |
-                (data[offset + 11] << 24);
-              if (position > 2147483647) position -= 4294967296;
-              // The legacy position reporter is a normalized 0..359 angle;
-              // the separate absolute-position reporter retains LEGO's
-              // signed -180..179 value. The int32 field is the accumulated
-              // relative position and must not be used for either absolute
-              // reading.
-              const normalizedPosition = ((absolutePosition % 360) + 360) % 360;
-              this._portValues[port] = {
+            if (!need(12, "motor")) return;
+            const port = readPort();
+            if (!port) return;
+            const absolutePosition = readInt16(3);
+            const power = readInt16(5);
+            const rawSpeed = data[offset + 7];
+            const speed = rawSpeed > 127 ? rawSpeed - 256 : rawSpeed;
+            const position = readInt32(8);
+            const normalizedPosition = ((absolutePosition % 360) + 360) % 360;
+            stagePort(
+              port,
+              "motor",
+              {
                 type: "motor",
                 motorType: data[offset + 2],
-                speed: speed,
+                speed,
                 speedDerived: false,
                 speedUnit: "percent-of-max",
                 speedSource: "hub-motor-notification",
                 degreesCounted: position,
                 position: normalizedPosition,
-                power: power,
+                power,
                 relativePosition: position,
-                absolutePosition: absolutePosition,
-                receivedAt: Date.now(),
-              };
-              this._sensors.motorPositions[port] = {
-                motorType: data[offset + 2],
-                relativePosition: position,
-                absolutePosition: absolutePosition,
-                speed: speed,
-                speedDerived: false,
-                speedUnit: "percent-of-max",
-                speedSource: "hub-motor-notification",
-                receivedAt: this._portValues[port].receivedAt,
-              };
-            }
-            this._diagnostics.motorNotificationCount++;
+                absolutePosition,
+                receivedAt,
+              },
+              type,
+              data[offset + 2]
+            );
+            staged.motorRecords++;
             offset += 12;
             break;
           }
-
           case SPIKE3.DEV_COLOR: {
-            if (remaining < 9) {
-              this._recordMalformedNotification("truncated color record");
+            if (!need(9, "color")) return;
+            const port = readPort();
+            if (!port) return;
+            const red = data[offset + 3] | (data[offset + 4] << 8);
+            const green = data[offset + 5] | (data[offset + 6] << 8);
+            const blue = data[offset + 7] | (data[offset + 8] << 8);
+            // The protocol defines each raw RGB channel as a 10-bit value.
+            // Reject out-of-range samples rather than displaying corrupt data.
+            if ([red, green, blue].some((channel) => channel > 1023)) {
+              fail("color record contains RGB value outside 0..1023", offset);
               return;
             }
-            const port = SpikePorts[data[offset + 1]];
-            if (port) {
-              const red = data[offset + 3] | (data[offset + 4] << 8);
-              const green = data[offset + 5] | (data[offset + 6] << 8);
-              const blue = data[offset + 7] | (data[offset + 8] << 8);
-              const previous = this._portValues[port];
-              const rawColor =
-                data[offset + 2] > 127
-                  ? data[offset + 2] - 256
-                  : data[offset + 2];
-              this._portValues[port] = {
-                type: "color",
-                color: rawColor,
-                red: red,
-                green: green,
-                blue: blue,
-                receivedAt: Date.now(),
-              };
-              this._recordPortEdges(port, previous, this._portValues[port]);
-              this._syncReflectionPorts().catch(() => {});
-            }
+            const rawColor =
+              data[offset + 2] > 127
+                ? data[offset + 2] - 256
+                : data[offset + 2];
+            stagePort(
+              port,
+              "color",
+              { type: "color", color: rawColor, red, green, blue, receivedAt },
+              type
+            );
             offset += 9;
             break;
           }
-
           case SPIKE3.DEV_DISTANCE: {
-            if (remaining < 4) {
-              this._recordMalformedNotification("truncated distance record");
-              return;
-            }
-            const port = SpikePorts[data[offset + 1]];
-            if (port) {
-              let mm = data[offset + 2] | (data[offset + 3] << 8);
-              if (mm > 32767) mm -= 65536;
-              this._portValues[port] = {
+            if (!need(4, "distance")) return;
+            const port = readPort();
+            if (!port) return;
+            let mm = data[offset + 2] | (data[offset + 3] << 8);
+            if (mm > 32767) mm -= 65536;
+            stagePort(
+              port,
+              "distance",
+              {
                 type: "distance",
-                // Reported in millimetres; the 2.x stream reported centimetres
-                // and `getDistance` inherited that meaning, so it is converted
-                // once here and `distanceMM` keeps the raw figure for the
-                // blocks that ask for millimetres explicitly.
                 distance: mm < 0 ? null : mm / 10,
                 distanceMM: mm < 0 ? null : mm,
-                receivedAt: Date.now(),
-              };
-            }
+                receivedAt,
+              },
+              type
+            );
             offset += 4;
             break;
           }
-
           case SPIKE3.DEV_FORCE: {
-            if (remaining < 4) {
-              this._recordMalformedNotification("truncated force record");
-              return;
-            }
-            const port = SpikePorts[data[offset + 1]];
-            if (port) {
-              const previous = this._portValues[port];
-              this._portValues[port] = {
+            if (!need(4, "force")) return;
+            const port = readPort();
+            if (!port) return;
+            stagePort(
+              port,
+              "force",
+              {
                 type: "force",
                 force: data[offset + 2],
                 pressed: data[offset + 3] === 1,
-                receivedAt: Date.now(),
-              };
-              this._recordPortEdges(port, previous, this._portValues[port]);
-            }
+                receivedAt,
+              },
+              type
+            );
             offset += 4;
             break;
           }
-
           case SPIKE3.DEV_MATRIX_3X3: {
-            // Type, port and nine pixel bytes, as emitted by the SPIKE 3 hub.
-            if (remaining < 11) {
-              this._recordMalformedNotification("truncated 3x3 matrix record");
-              return;
-            }
-            const port = SpikePorts[data[offset + 1]];
-            if (port) {
-              this._portValues[port] = {
+            if (!need(11, "3x3 matrix")) return;
+            const port = readPort();
+            if (!port) return;
+            stagePort(
+              port,
+              "matrix3",
+              {
                 type: "matrix3",
                 pixels: Array.from(data.slice(offset + 2, offset + 11)),
-                receivedAt: Date.now(),
-              };
-            }
+                receivedAt,
+              },
+              type
+            );
             offset += 11;
             break;
           }
-
           default:
-            // An unknown record has an unknown width, so the rest of the
-            // payload cannot be walked safely. Stop rather than guess.
+            // Unknown record widths cannot be walked safely. Preserve the
+            // exact bounded frame for diagnosis; never guess the next offset.
             this._diagnostics.unsupportedRecordCount++;
-            this._recordCommunicationError(
-              `unsupported device record: 0x${type.toString(16).padStart(2, "0")}`
-            );
+            trace.failureOffset = offset;
+            trace.status = "unsupported";
+            trace.parseError =
+              `unsupported device record: 0x${type.toString(16).padStart(2, "0")}`;
+            telemetry.status = "unsupported-record";
+            telemetry.sessionId = this._connectionSession;
+            this._recordDiagnosticEvent("unsupported-device-record", {
+              timestamp: receivedAt,
+              sessionId: this._connectionSession,
+              offset,
+              type: record.typeHex,
+            });
+            this._recordCommunicationError(trace.parseError);
             return;
         }
       }
-      // Track actual, fully parsed 0x3c telemetry independently from the
-      // 0x29 request acknowledgement. A syntactically valid but empty frame
-      // is not evidence that sensor streaming is active.
+
+      if (staged.battery !== undefined) this._sensors.battery = staged.battery;
+      if (staged.imu) {
+        this._sensors.faceUp = staged.imu.faceUp;
+        this._sensors.angle = {
+          yaw: staged.imu.yaw,
+          pitch: staged.imu.pitch,
+          roll: staged.imu.roll,
+        };
+        this._sensors.acceleration = staged.imu.acceleration;
+        this._sensors.gyro = staged.imu.gyro;
+        this._diagnostics.imuNotificationCount++;
+        this._diagnostics.lastImuReceivedAt = receivedAt;
+      }
+      if (staged.matrix5x5) this._matrix5x5 = staged.matrix5x5;
+      this._diagnostics.matrix5x5NotificationCount +=
+        staged.matrix5x5Records;
+      this._diagnostics.motorNotificationCount += staged.motorRecords;
+      for (const [port, observation] of staged.ports) {
+        const previous = this._portValues[port];
+        this._portValues[port] = observation.value;
+        this._portObservations[port] = {
+          lastObservedAt: receivedAt,
+          type: observation.type,
+          recordType: observation.recordType,
+          deviceType: observation.deviceType,
+          sessionId: this._connectionSession,
+        };
+        if (observation.type === "motor") {
+          this._sensors.motorPositions[port] = {
+            motorType: observation.deviceType,
+            relativePosition: observation.value.relativePosition,
+            absolutePosition: observation.value.absolutePosition,
+            speed: observation.value.speed,
+            speedDerived: false,
+            speedUnit: "percent-of-max",
+            speedSource: "hub-motor-notification",
+            receivedAt,
+          };
+        } else {
+          delete this._sensors.motorPositions[port];
+        }
+        if (observation.type === "color" || observation.type === "force") {
+          this._recordPortEdges(port, previous, observation.value);
+        }
+      }
+
+      trace.status = "valid";
+      trace.parsedRecordCount = trace.records.length;
       if (offset > 3) {
-        const telemetry = this._diagnostics.notificationTelemetry;
         telemetry.status = "received";
         telemetry.sessionId = this._connectionSession;
         telemetry.validNotificationCount++;
-        telemetry.lastReceivedAt = Date.now();
+        telemetry.lastReceivedAt = receivedAt;
         const timedOutRequest = this._lastTimedOutNotificationRequest;
         if (
           this._notificationRecoveryTimer !== null &&
-          timedOutRequest?.sessionId === this._connectionSession &&
-          telemetry.validNotificationCount > 0
+          timedOutRequest?.sessionId === this._connectionSession
         ) {
           this._clearNotificationRecoveryTimer();
           this._diagnostics.notificationRecovery.status =
             "suppressed-telemetry-received";
         }
+        this._syncReflectionPorts().catch(() => {});
       }
     }
   }
@@ -11449,6 +11677,15 @@ continuous_sensor_loop()
 
     _clearPortAttachmentTimers(port) {
       this._cancelQueuedSensorReads(port, "device detached or replaced");
+      this._motorOutputActive[port] = false;
+      const outputWaiter = this._outputFeedbackWaiters[port];
+      if (outputWaiter) {
+        outputWaiter.reject(
+          this._motorAngleCancelledError(
+            `Motor on port ${port} was detached or replaced before feedback`
+          )
+        );
+      }
       const state = this._motorPositionModes[port];
       const colorState = this._devices[port]?.colorModes;
       if (colorState?.switchTimer) clearTimeout(colorState.switchTimer);
@@ -12404,8 +12641,15 @@ continuous_sensor_loop()
 
     _scheduleColorModeSwitch(port, device) {
       const state = device?.colorModes;
-      if (!state || state.switchTimer || state.switching ||
+      if (!state || state.switching ||
           this._devices[port]?.attachmentId !== state.attachmentId) return;
+      // A new sample can arrive before the first-sample timeout fires. Recompute
+      // the deadline from the new evidence instead of leaving the old timer in
+      // place (which could hold the alternate mode for the full timeout).
+      if (state.switchTimer) {
+        clearTimeout(state.switchTimer);
+        state.switchTimer = null;
+      }
       const now = this._monotonicNow();
       const wantsRaw = state.rawDemandUntil > now;
       const wantsColor = state.colorDemandUntil > now;
@@ -12414,10 +12658,17 @@ continuous_sensor_loop()
       else if (wantsRaw) target = 5;
       else if (wantsColor) target = 0;
       if (target === state.activeMode) return;
-      // Switch only after the current mode produced a real sample, and keep
-      // each mode active for at least 200 ms to avoid rapid toggling.
-      if (wantsRaw && wantsColor && !Number.isFinite(state.lastSampleAt)) return;
-      const dueIn = Math.max(0, 200 - (now - state.lastModeChangeAt));
+      // Prefer a real sample before switching, but do not deadlock when a
+      // mode produces no value. Each mode gets at least 200 ms and at most
+      // 500 ms to produce its first sample while both values are requested.
+      const sampleTimeout =
+        wantsRaw && wantsColor && !Number.isFinite(state.lastSampleAt)
+          ? SPIKE3.COLOR_MODE_SAMPLE_TIMEOUT_MS
+          : 200;
+      const dueIn = Math.max(
+        0,
+        sampleTimeout - (now - state.lastModeChangeAt)
+      );
       if (dueIn > 0) {
         state.switchTimer = setTimeout(() => {
           state.switchTimer = null;
@@ -12434,23 +12685,36 @@ continuous_sensor_loop()
       if (!device || device.type !== "color" || !state || state.attachmentId !== device.attachmentId) {
         return Promise.reject(new Error(`No color sensor attached to port ${port}`));
       }
+      const attachmentId = state.attachmentId;
+      const connectionGeneration = this._connectionGeneration;
+      const assertCurrent = (stage) => {
+        const currentDevice = this._devices[port];
+        if (
+          this._connectionGeneration !== connectionGeneration ||
+          currentDevice?.attachmentId !== attachmentId ||
+          currentDevice?.colorModes !== state
+        ) {
+          throw Object.assign(
+            new Error(`Color sensor mode request became stale during ${stage}`),
+            { code: "ERR_COLOR_MODE_CANCELLED" }
+          );
+        }
+      };
       state.requestedMode = mode;
       if (state.switchPromise) return state.switchPromise;
       state.switching = true;
-      const attachmentId = state.attachmentId;
       const switchPromise = (async () => {
         while (this._devices[port]?.attachmentId === attachmentId &&
             state.requestedMode !== state.activeMode) {
+          assertCurrent("mode switch");
           const target = state.requestedMode;
           const previous = state.activeMode;
           if (target === 5) {
             await Promise.all([0, LWP3.MODE_VALUE_FORMAT, 3, 4].map((informationType) =>
               this._requestDistanceModeMetadata(port, 5, informationType, device)
             ));
-            if (this._devices[port]?.attachmentId !== attachmentId) {
-              throw new Error("Color sensor was detached during metadata query");
-            }
-            const metadata = device.modeMetadata?.[5];
+            assertCurrent("metadata query");
+            const metadata = this._devices[port]?.modeMetadata?.[5];
             if (!metadata || metadata.name !== "RGB I" || metadata.format?.status !== "verified" ||
                 metadata.format.dataSets !== 4 || metadata.format.dataType !== 1 ||
                 metadata.format.decimals !== 0 || metadata.symbol !== "RAW" ||
@@ -12464,6 +12728,7 @@ continuous_sensor_loop()
           // A later reporter request supersedes this queued target before any
           // hardware mode change is issued.
           if (state.requestedMode !== target) continue;
+          assertCurrent("input-mode request");
           state.switchState = target === 5 ? "switching-to-rgb" : "switching-to-color";
           if (state.switchTimer) clearTimeout(state.switchTimer);
           state.switchTimer = null;
@@ -12484,9 +12749,18 @@ continuous_sensor_loop()
           try {
             await this._setInputMode(port, target, LWP3.PORT_VALUE_DELTA, {waitForAck: true});
           } catch (error) {
+            if (
+              this._connectionGeneration !== connectionGeneration ||
+              this._devices[port]?.attachmentId !== attachmentId ||
+              this._devices[port]?.colorModes !== state
+            ) {
+              throw error;
+            }
             state.requestedMode = previous;
             try {
+              assertCurrent("mode rollback");
               await this._setInputMode(port, previous, LWP3.PORT_VALUE_DELTA, {waitForAck: true});
+              assertCurrent("mode rollback acknowledgement");
               state.activeMode = previous;
               state.switchState = "switch-failed-restored";
             } catch (rollbackError) {
@@ -12506,9 +12780,7 @@ continuous_sensor_loop()
             }
             throw error;
           }
-          if (this._devices[port]?.attachmentId !== attachmentId) {
-            throw new Error("Color sensor was detached during mode change");
-          }
+          assertCurrent("mode acknowledgement");
           state.activeMode = target;
           state.lastModeChangeAt = this._monotonicNow();
           state.lastSampleAt = null;
@@ -12520,9 +12792,7 @@ continuous_sensor_loop()
             colorModeStatus: state.switchState,
           };
         }
-        if (this._devices[port]?.attachmentId !== attachmentId) {
-          throw new Error("Color sensor detached during mode switch");
-        }
+        assertCurrent("mode switch completion");
       })().finally(() => {
         state.switching = false;
         state.switchPromise = null;
@@ -14221,6 +14491,7 @@ continuous_sensor_loop()
 
     _stopMotor(port, stopMode = "brake") {
       const mode = this._stopMode(stopMode);
+      const attachmentId = this._devices[port]?.attachmentId ?? null;
       this._cancelMotorAnglePort(
         port,
         "Absolute angle move cancelled by motor stop"
@@ -14232,7 +14503,12 @@ continuous_sensor_loop()
           mode === "brake" ? 127 : 0,
         ]);
       return stop.then((result) => {
-        this._motorOutputActive[port] = false;
+        if (
+          attachmentId !== null &&
+          this._devices[port]?.attachmentId === attachmentId
+        ) {
+          this._motorOutputActive[port] = false;
+        }
         return result;
       });
     }
@@ -14565,12 +14841,13 @@ continuous_sensor_loop()
             : null;
         if (!port) continue;
         const status = message[offset + 1];
-        if (status & 0x01) this._motorOutputActive[port] = true;
-        if (status & (0x02 | 0x04 | 0x08 | 0x10)) this._motorOutputActive[port] = false;
         const waiter = this._outputFeedbackWaiters[port];
+        const device = this._devices[port];
         if (!waiter) continue;
         if (
-          waiter.attachmentId !== this._devices[port]?.attachmentId ||
+          !device ||
+          device.type !== "motor" ||
+          waiter.attachmentId !== device.attachmentId ||
           waiter.generation !== (this._motorAngleGenerations[port] || 0)
         ) {
           waiter.reject(
@@ -14599,11 +14876,15 @@ continuous_sensor_loop()
           continue;
         }
         if (status & 0x01) waiter.sawProgress = true;
+        if (waiter.sawProgress && status & 0x01) {
+          this._motorOutputActive[port] = true;
+        }
         // 0x82 carries only port/status, not a command ID. Require evidence
         // that this waiter's own output entered progress before accepting a
         // completion bit; otherwise a delayed completion from a cancelled
         // command could settle a newer move on the same port.
         if ((status & 0x02) && waiter.sawProgress) {
+          this._motorOutputActive[port] = false;
           const latencyMs = Math.max(0, this._monotonicNow() - waiter.requestedAtMonotonic);
           this._recordMotorCommandLatency(port, latencyMs);
           waiter.resolve({ status, receivedAt: Date.now(), latencyMs });
@@ -24145,12 +24426,21 @@ continuous_sensor_loop()
     }
 
     _validatePorts(text) {
-      return text
-        .toUpperCase()
-        .replace(/[^ABCDEF]/g, "")
-        .split("")
-        .filter((x, i, self) => self.indexOf(x) === i)
-        .sort();
+      const value = Cast.toString(text).trim().toUpperCase();
+      if (!/^[A-F](?:\+?[A-F])*$/.test(value)) {
+        console.warn(
+          `[SPIKE] invalid motor port selection "${value}": the block does nothing`
+        );
+        return [];
+      }
+      const letters = value.replace(/\+/g, "");
+      if ([...letters].some((port, index) => port <= letters[index - 1])) {
+        console.warn(
+          `[SPIKE] non-canonical motor port selection "${value}": the block does nothing`
+        );
+        return [];
+      }
+      return [...letters];
     }
   }
 

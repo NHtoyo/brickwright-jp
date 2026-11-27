@@ -111,7 +111,7 @@ describe('SPIKE Prime control center', () => {
             availablePorts: ['A', 'B'],
             standaloneCapable: false,
             portSensors: {
-                A: {type: 'motor', absolutePosition: -12, speed: 3, receivedAt: Date.now()}
+                A: {connected: true, type: 'motor', absolutePosition: -12, speed: 3, receivedAt: Date.now()}
             }
         };
         api.setHubModel.mockImplementation(model => {
@@ -235,6 +235,14 @@ describe('SPIKE Prime control center', () => {
             },
             motorPorts: {
                 E: {absolutePosition: 0, relativePosition: 0, speed: 0, receivedAt: Date.now()}
+            },
+            diagnostics: {
+                ...snapshot.diagnostics,
+                portObservations: {
+                    A: {status: 'observed', lastObservedAt: Date.now()},
+                    B: {status: 'observed', lastObservedAt: Date.now()},
+                    F: {status: 'stale', lastObservedAt: Date.now() - 4000}
+                }
             }
         };
         api.getState.mockImplementation(() => snapshot);
@@ -246,10 +254,11 @@ describe('SPIKE Prime control center', () => {
         );
         expect(component.text()).not.toContain('0%');
         expect(component.text()).not.toContain('機器未接続');
-        expect(component.text()).not.toContain('古い値');
+        expect(component.text()).toContain('古い値');
         expect(component.find('section[aria-label="LEGO ハブ"]')).toHaveLength(0);
         expect(component.find('[aria-label^="A:"]').prop('aria-label')).toContain('0');
-        expect(component.find('[aria-label^="F:"]')).toHaveLength(0);
+        expect(component.find('[aria-label^="F:"]')).toHaveLength(1);
+        expect(component.find('[aria-label^="F:"]').prop('aria-label')).toContain('古い値');
         expect(component.find('[aria-label^="B:"]').prop('aria-label')).toContain('赤');
         component.find('button[aria-expanded]').simulate('click');
         expect(component.text()).toContain('古い値');
@@ -324,7 +333,11 @@ describe('SPIKE Prime control center', () => {
                     speedUnit,
                     receivedAt: Date.now()
                 }
-            }
+            },
+            diagnostics: protocol === 'spike3' ? {
+                ...snapshot.diagnostics,
+                portObservations: {A: {status: 'observed', lastObservedAt: Date.now()}}
+            } : snapshot.diagnostics
         };
         api.getState.mockImplementation(() => snapshot);
         const component = mount(<SpikePrimeControlCenter intl={{locale: 'en'}} vm={vm} />);
@@ -405,6 +418,105 @@ describe('SPIKE Prime control center', () => {
         expect(component.text()).toContain('小型モーター');
         expect(component.text()).toContain('最終受信：約');
         expect(component.text()).toContain('古い値');
+        component.unmount();
+    });
+
+    test('Prime stale port observations hide cached device identity without claiming detach', () => {
+        snapshot = {
+            ...snapshot,
+            connected: true,
+            protocol: 'spike3',
+            detectedHubModel: 'prime',
+            effectiveHubModel: 'prime',
+            portSensors: {
+                A: {type: 'color', color: 9, receivedAt: Date.now() - 5000}
+            },
+            diagnostics: {
+                ...snapshot.diagnostics,
+                portObservations: {
+                    A: {status: 'stale', lastObservedAt: Date.now() - 3000}
+                }
+            }
+        };
+        api.getState.mockImplementation(() => snapshot);
+        const component = mount(
+            <SpikePrimeControlCenter
+                intl={{locale: 'en'}}
+                vm={vm}
+            />
+        );
+
+        expect(component.find('[aria-label^="A:"]').prop('aria-label'))
+            .toBe('A: Stale');
+        expect(component.find('[aria-label^="A:"]').prop('aria-label'))
+            .not.toContain('Color sensor');
+        expect(component.text()).not.toContain('No device');
+        component.find('button[aria-expanded]').simulate('click');
+        expect(component.text()).toContain('Stale');
+        expect(component.text()).not.toContain('Color sensor');
+        expect(component.text()).not.toContain('No device');
+        expect(component.text()).not.toContain('Disconnected');
+        component.unmount();
+    });
+
+    test('Prime type-only or malformed records remain unknown until a validated observation arrives', () => {
+        snapshot = {
+            ...snapshot,
+            connected: true,
+            protocol: 'spike3',
+            detectedHubModel: 'prime',
+            effectiveHubModel: 'prime',
+            portSensors: {
+                A: {type: 'distance', distanceMM: 0, receivedAt: 'not-a-timestamp'}
+            },
+            diagnostics: {
+                ...snapshot.diagnostics,
+                portObservations: {
+                    A: {status: 'unknown', lastObservedAt: null}
+                }
+            }
+        };
+        api.getState.mockImplementation(() => snapshot);
+        const component = mount(
+            <SpikePrimeControlCenter
+                intl={{locale: 'en'}}
+                vm={vm}
+            />
+        );
+
+        expect(component.find('[aria-label^="A:"]').prop('aria-label'))
+            .toBe('A: Connection unknown');
+        expect(component.text()).not.toContain('Distance sensor');
+        expect(component.text()).not.toContain('No device');
+        expect(component.text()).not.toContain('Disconnected');
+        component.unmount();
+    });
+
+    test('an Essential type-only stale record is unknown without explicit attachment evidence', () => {
+        snapshot = {
+            ...snapshot,
+            connected: true,
+            protocol: 'lwp3',
+            detectedHubModel: 'essential',
+            effectiveHubModel: 'essential',
+            availablePorts: ['A', 'B'],
+            portSensors: {
+                A: {type: 'motor', receivedAt: Date.now() - 5000}
+            }
+        };
+        api.getState.mockImplementation(() => snapshot);
+        const component = mount(
+            <SpikePrimeControlCenter
+                intl={{locale: 'en'}}
+                vm={vm}
+            />
+        );
+
+        expect(component.find('[aria-label^="A:"]').prop('aria-label'))
+            .toBe('A: Connection unknown');
+        expect(component.find('[aria-label^="A:"]').prop('aria-label'))
+            .not.toContain('Small motor');
+        expect(component.text()).not.toContain('No device');
         component.unmount();
     });
 

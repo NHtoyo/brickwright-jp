@@ -97,6 +97,7 @@ const words = {
         freshnessStopped: 'Updates stopped',
         freshnessStale: 'Stale',
         freshnessWaiting: 'Waiting for sample',
+        portConnectionUnknown: 'Connection unknown',
         outOfRange: 'Out of range',
         noDevice: 'No device',
         noConnection: 'Disconnected',
@@ -246,6 +247,7 @@ const words = {
         freshnessStopped: '更新停止',
         freshnessStale: '古い値',
         freshnessWaiting: '測定待ち',
+        portConnectionUnknown: '接続状態不明',
         outOfRange: '範囲外',
         noDevice: '機器未接続',
         noConnection: '切断中',
@@ -1112,6 +1114,80 @@ class SpikePrimeControlCenter extends React.Component {
             deviceTypes[Number(deviceType)] || (motor ? 'motor' : null);
     }
 
+    getPortConnectionState (port, snapshot = this.state.snapshot) {
+        if (!snapshot || !snapshot.connected || !this.isPortAvailable(port, snapshot)) return 'unknown';
+        const reading = snapshot.portSensors && snapshot.portSensors[port];
+        const motor = snapshot.motorPorts && snapshot.motorPorts[port];
+        const devices = snapshot.portDevices ||
+            (snapshot.diagnostics && snapshot.diagnostics.portDevices);
+        const device = devices && devices[port];
+
+        // LWP3 exposes a live device registry and attach/detach bits. Those
+        // are stronger evidence than cached readings or motor telemetry.
+        if ((reading && reading.connected === false) || (device && device.connected === false)) return 'detached';
+        if (device) return Number.isFinite(reading && reading.receivedAt) ? 'attached' : 'waiting';
+        if ((reading && reading.connected === true) || (motor && motor.connected === true)) {
+            return Number.isFinite(reading && reading.receivedAt) ||
+                Number.isFinite(motor && motor.receivedAt) ? 'attached' : 'waiting';
+        }
+
+        if (this.isEssentialHub(snapshot) && devices && typeof devices === 'object') return 'detached';
+
+        // SPIKE3 has no per-port detach event. Its port records are only
+        // observations, so a missing record cannot mean a detached device.
+        if (snapshot.protocol === 'spike3' || this.getEffectiveModel(snapshot) === 'prime') {
+            const observation = this.getPortObservation(port, snapshot);
+            if (observation && observation.status === 'observed') return 'attached';
+            if (observation && observation.status === 'stale') return 'stale';
+            return 'unknown';
+        }
+
+        // A typed value without a connection bit is cached data, not proof of
+        // a current attachment.
+        return 'unknown';
+    }
+
+    getPortObservation (port, snapshot) {
+        const observations = snapshot && (snapshot.portObservations ||
+            (snapshot.diagnostics && snapshot.diagnostics.portObservations));
+        return observations && observations[port];
+    }
+
+    shouldShowPort (port, snapshot = this.state.snapshot) {
+        if (!snapshot || !snapshot.connected || !this.isPortAvailable(port, snapshot)) return false;
+        const state = this.getPortConnectionState(port, snapshot);
+        return state !== 'detached';
+    }
+
+    getPortConnectionLabel (state) {
+        const w = this.getWords();
+        if (state === 'stale') return w.freshnessStale;
+        if (state === 'unknown') return w.portConnectionUnknown;
+        if (state === 'waiting') return w.freshnessWaiting;
+        return '';
+    }
+
+    renderPortStatus (port, state) {
+        const label = this.getPortConnectionLabel(state);
+        return (
+            <button
+                aria-label={`${port}: ${label}`}
+                className={styles.livePort}
+                key={port}
+                onClick={this.handleTogglePanel}
+                title={label}
+                type="button"
+            >
+                <span className={styles.portIcon}><HardwareIcon type="device" /></span>
+                <span className={styles.portIdentity}><strong>{port}</strong></span>
+                <span
+                    className={styles.portValue}
+                    title={label}
+                >{label}</span>
+            </button>
+        );
+    }
+
     getDeviceLabel (type, reading, w) {
         if (type === 'motor') {
             const deviceType = Number(reading && (reading.motorType ?? reading.deviceType));
@@ -1206,7 +1282,8 @@ class SpikePrimeControlCenter extends React.Component {
         return freshness === 'delayed' ? styles.freshnessDelayed :
             freshness === 'stopped' ? styles.freshnessStopped :
                 freshness === 'stale' ? styles.freshnessStale :
-                    freshness === 'waiting' ? styles.freshnessWaiting : styles.freshnessHealthy;
+                    freshness === 'waiting' || freshness === 'unknown' ?
+                        styles.freshnessWaiting : styles.freshnessHealthy;
     }
 
     getMotorPositionValues (reading, motor) {
@@ -1238,21 +1315,28 @@ class SpikePrimeControlCenter extends React.Component {
     renderPort (port, snapshot) {
         const w = this.getWords();
         if (!this.isPortAvailable(port, snapshot)) return null;
+        const connectionState = this.getPortConnectionState(port, snapshot);
+        if (connectionState === 'detached') return null;
+        if (connectionState === 'stale' || connectionState === 'unknown') {
+            return this.renderPortStatus(port, connectionState);
+        }
         const portSensor = snapshot && snapshot.portSensors && snapshot.portSensors[port];
         const motor = snapshot && snapshot.motorPorts && snapshot.motorPorts[port];
-        const detached = Boolean(portSensor && portSensor.connected === false);
-        // A detach notification is authoritative; do not resurrect an old
-        // motor value from the separate motor telemetry snapshot.
-        const reading = detached ? {...portSensor} : {...(motor || {}), ...(portSensor || {})};
-        const type = this.getPortType(reading, detached ? null : motor);
+        const observation = this.getPortObservation(port, snapshot);
+        const portDevices = snapshot && (snapshot.portDevices ||
+            (snapshot.diagnostics && snapshot.diagnostics.portDevices));
+        const portDevice = portDevices && portDevices[port];
+        const reading = {...(portDevice || {}), ...(motor || {}), ...(portSensor || {}), ...(observation || {})};
+        const type = this.getPortType(reading, motor);
         const receivedAt = Number.isFinite(portSensor && portSensor.receivedAt) ?
-            portSensor.receivedAt : motor && motor.receivedAt;
+            portSensor.receivedAt : Number.isFinite(motor && motor.receivedAt) ?
+                motor.receivedAt : observation && observation.lastObservedAt;
         reading.receivedAt = receivedAt;
         const freshness = this.getPortFreshness(port, reading, snapshot);
         const usableSample = isSpikeSensorSampleUsable(freshness);
-        const attached = Boolean(!detached && snapshot && snapshot.connected &&
-            (reading.connected === true || (motor && motor.connected === true) || type));
-        if (!attached) return null;
+        if (connectionState === 'waiting' && !type) {
+            return this.renderPortStatus(port, 'waiting');
+        }
         const motorValues = type === 'motor' ? this.getMotorPositionValues(reading, motor) : null;
         const detected = usableSample && (Number.isFinite(receivedAt) || Boolean(motorValues && (
             hasNumber(motorValues.absoluteAngle) || hasNumber(motorValues.countedPosition) ||
@@ -1320,26 +1404,46 @@ class SpikePrimeControlCenter extends React.Component {
     }
 
     isPortAttached (port, snapshot = this.state.snapshot) {
-        if (!snapshot || !snapshot.connected || !this.isPortAvailable(port, snapshot)) return false;
-        const reading = snapshot.portSensors && snapshot.portSensors[port];
-        if (reading && reading.connected === false) return false;
-        const motor = snapshot.motorPorts && snapshot.motorPorts[port];
-        return Boolean(
-            (reading && reading.connected === true) || this.getPortType(reading, motor)
-        );
+        const state = this.getPortConnectionState(port, snapshot);
+        return state === 'attached' || state === 'waiting';
     }
 
     renderPortDetails (port, snapshot) {
         const w = this.getWords();
-        if (!this.isPortAttached(port, snapshot)) return null;
+        const connectionState = this.getPortConnectionState(port, snapshot);
+        if (connectionState === 'detached') return null;
+        if (connectionState === 'stale' || connectionState === 'unknown') {
+            const label = this.getPortConnectionLabel(connectionState);
+            return (
+                <div
+                    className={styles.portCard}
+                    key={port}
+                >
+                    <div className={styles.portHeading}>
+                        <strong>{port}</strong>
+                        <span>{label}</span>
+                    </div>
+                    <div
+                        className={`${styles.freshnessLabel} ${this.getFreshnessClass(connectionState)}`}
+                        role="status"
+                    >
+                        {label}
+                    </div>
+                </div>
+            );
+        }
         const effectiveModel = this.getEffectiveModel(snapshot);
         const portSensor = snapshot && snapshot.portSensors && snapshot.portSensors[port];
         const motor = snapshot && snapshot.motorPorts && snapshot.motorPorts[port];
-        const detached = Boolean(portSensor && portSensor.connected === false);
-        const reading = detached ? {...portSensor} : {...(motor || {}), ...(portSensor || {})};
-        const type = this.getPortType(reading, detached ? null : motor);
+        const observation = this.getPortObservation(port, snapshot);
+        const portDevices = snapshot && (snapshot.portDevices ||
+            (snapshot.diagnostics && snapshot.diagnostics.portDevices));
+        const portDevice = portDevices && portDevices[port];
+        const reading = {...(portDevice || {}), ...(motor || {}), ...(portSensor || {}), ...(observation || {})};
+        const type = this.getPortType(reading, motor);
         const receivedAt = Number.isFinite(portSensor && portSensor.receivedAt) ?
-            portSensor.receivedAt : motor && motor.receivedAt;
+            portSensor.receivedAt : Number.isFinite(motor && motor.receivedAt) ?
+                motor.receivedAt : observation && observation.lastObservedAt;
         reading.receivedAt = receivedAt;
         const freshness = this.getPortFreshness(port, reading, snapshot);
         const usableSample = isSpikeSensorSampleUsable(freshness);
@@ -1351,8 +1455,7 @@ class SpikePrimeControlCenter extends React.Component {
                     hasNumber(motorValues.countedPosition) || hasNumber(motorValues.speed))) ||
                 hasNumber(reading.force) || hasNumber(reading.distanceMM) ||
                 (reading.color !== null && typeof reading.color !== 'undefined')));
-        const attached = Boolean(!detached && snapshot && snapshot.connected &&
-            (reading.connected === true || (motor && motor.connected === true) || type));
+        const attached = connectionState === 'attached' || connectionState === 'waiting';
         const colorDescription = this.getColorName(reading.color);
         const speedUnit = motorValues && motorValues.speedUnit === 'percent-of-max' ?
             w.speedPercentUnit : motorValues && motorValues.speedUnit === 'degrees-per-second' ?
@@ -1367,7 +1470,6 @@ class SpikePrimeControlCenter extends React.Component {
                     <span>{attached ? (reading.deviceName || this.getDeviceLabel(type, reading, w)) : w.noDevice}</span>
                 </div>
                 {!snapshot || !snapshot.connected ? <div>{w.noConnection}</div> : null}
-                {snapshot && snapshot.connected && detached ? <div>{w.noDevice}</div> : null}
                 {snapshot && snapshot.connected && attached && !usableSample ? (
                     <div
                         className={`${styles.freshnessLabel} ${this.getFreshnessClass(freshness)}`}
@@ -1501,7 +1603,7 @@ class SpikePrimeControlCenter extends React.Component {
                         aria-label={w.ports}
                         className={styles.connectedPorts}
                     >
-                        {PORTS.filter(port => this.isPortAttached(port, snapshot)).slice(0, 2)
+                        {PORTS.filter(port => this.shouldShowPort(port, snapshot))
                             .map(port => this.renderPort(port, snapshot))}
                     </div>
                 </div>
@@ -1701,9 +1803,9 @@ class SpikePrimeControlCenter extends React.Component {
                                     </select>
                                 </label>
                                 <div className={styles.portGrid}>
-                                    {PORTS.filter(port => this.isPortAttached(port, snapshot))
+                                    {PORTS.filter(port => this.shouldShowPort(port, snapshot))
                                         .map(port => this.renderPortDetails(port, snapshot))}
-                                    {PORTS.some(port => this.isPortAttached(port, snapshot)) ? null : (
+                                    {PORTS.some(port => this.shouldShowPort(port, snapshot)) ? null : (
                                         <div className={styles.noConnectedDevices}>{w.noConnectedDevices}</div>
                                     )}
                                 </div>

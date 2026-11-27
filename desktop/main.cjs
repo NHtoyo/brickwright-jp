@@ -10,6 +10,7 @@ const {
     ipcMain,
     nativeImage,
     net,
+    powerMonitor,
     protocol,
     session,
     shell,
@@ -66,7 +67,14 @@ let updateMenuItem = null;
 let appMenu = null;
 let approvedWindowClose = false;
 const closeRequest = new Set();
-let quitRequested = false;
+const quitState = {
+    requested: false,
+    take () {
+        const requested = this.requested;
+        this.requested = false;
+        return requested;
+    }
+};
 let activity = {
     bluetoothConnected: false,
     projectRunning: false,
@@ -108,6 +116,11 @@ usbDevicePermissions = createUsbDevicePermissionPolicy({isTrustedOrigin: isTrust
 
 const refreshUpdateMenu = () => {
     if (updateMenuItem) updateMenuItem.enabled = updateDownloaded && isSafeForUpdate(activity);
+};
+
+const markActivityStale = () => {
+    activity = {...activity, rendererResponsive: false, lastActivityAt: 0};
+    refreshUpdateMenu();
 };
 
 const openExternalReference = async url => {
@@ -328,20 +341,66 @@ const openAboutWindow = async () => {
 
 const buildMenu = async () => {
     const info = await readBuildInfo();
+    const applicationMenuTemplate = process.platform === 'darwin' ? [{
+        label: 'Brickwright',
+        submenu: [
+            {
+                label: 'Brickwrightについて',
+                click: () => {
+                    void openAboutWindow();
+                }
+            },
+            {type: 'separator'},
+            {role: 'services', label: 'サービス'},
+            {type: 'separator'},
+            {role: 'hide', label: 'Brickwrightを隠す'},
+            {role: 'hideOthers', label: 'ほかを隠す'},
+            {role: 'unhide', label: 'すべてを表示'},
+            {type: 'separator'},
+            {role: 'quit', label: '終了'}
+        ]
+    }] : [];
+    const fileMenu = process.platform === 'darwin' ? [] : [{
+        label: 'ファイル',
+        submenu: [{role: 'quit', label: '終了'}]
+    }];
     const template = [
+        ...applicationMenuTemplate,
+        ...fileMenu,
         {
-            label: 'ファイル',
-            submenu: [{role: 'quit', label: '終了'}]
+            label: '編集',
+            ...(process.platform === 'darwin' ? {role: 'editMenu'} : {submenu: [
+                {role: 'undo', label: '元に戻す'},
+                {role: 'redo', label: 'やり直す'},
+                {type: 'separator'},
+                {role: 'cut', label: '切り取り'},
+                {role: 'copy', label: 'コピー'},
+                {role: 'paste', label: '貼り付け'},
+                {role: 'pasteAndMatchStyle', label: 'スタイルを合わせてペースト'},
+                {role: 'delete', label: '削除'},
+                {type: 'separator'},
+                {role: 'selectAll', label: 'すべてを選択'}
+            ]})
+        },
+        {
+            label: 'ウインドウ',
+            ...(process.platform === 'darwin' ? {role: 'windowMenu'} : {submenu: [
+                {role: 'close', label: 'ウインドウを閉じる'},
+                {role: 'minimize', label: '最小化'},
+                {role: 'zoom', label: '拡大／縮小'},
+                {type: 'separator'},
+                {role: 'front', label: 'すべてを手前に'}
+            ]})
         },
         {
             label: 'ヘルプ',
             submenu: [
-                {
+                ...(process.platform === 'darwin' ? [] : [{
                     label: 'Brickwrightについて',
                     click: () => {
                         void openAboutWindow();
                     }
-                },
+                }]),
                 {
                     label: 'ソースコードを開く',
                     click: () => {
@@ -365,7 +424,15 @@ const buildMenu = async () => {
         }
     ];
     appMenu = Menu.buildFromTemplate(template);
-    updateMenuItem = appMenu.items[1].submenu.items[3];
+    const findMenuItem = items => {
+        for (const item of items) {
+            if (item.label === '更新をインストールして再起動') return item;
+            const nested = item.submenu && findMenuItem(item.submenu.items || item.submenu);
+            if (nested) return nested;
+        }
+        return null;
+    };
+    updateMenuItem = findMenuItem(appMenu.items);
     refreshUpdateMenu();
     Menu.setApplicationMenu(appMenu);
 };
@@ -379,8 +446,7 @@ const registerBluetoothPermissions = () => {
         confirm: async ({permission, mediaTypes}) => {
             if (!mainWindow || mainWindow.isDestroyed()) return false;
             const purpose = permission === 'media' ?
-                (mediaTypes.includes('video') ? 'カメラ' : '') +
-                    (mediaTypes.includes('audio') ? (mediaTypes.includes('video') ? 'とマイク' : 'マイク') : '') :
+                mediaTypes[0] === 'video' ? 'カメラ' : 'マイク' :
                 'クリップボードの読み取り';
             const result = await dialog.showMessageBox(mainWindow, {
                 type: 'question',
@@ -506,6 +572,7 @@ const stopAndDisconnectBeforeClose = () => {
 const handleMainWindowCloseRequest = async () => {
     if (closeRequest.has('active') || !mainWindow || mainWindow.isDestroyed()) return;
     closeRequest.add('active');
+    const quitAfterClose = quitState.take();
     try {
         const policy = getClosePolicy(activity);
         if (policy.requiresConfirmation) {
@@ -550,7 +617,7 @@ const handleMainWindowCloseRequest = async () => {
         }
         approvedWindowClose = true;
         if (mainWindow && !mainWindow.isDestroyed()) mainWindow.close();
-        if (quitRequested) app.quit();
+        if (quitAfterClose || quitState.take()) app.quit();
     } catch (error) {
         console.error('Brickwright close request failed:', error && error.stack ? error.stack : error);
         if (mainWindow && !mainWindow.isDestroyed()) {
@@ -565,6 +632,7 @@ const handleMainWindowCloseRequest = async () => {
         }
     } finally {
         closeRequest.delete('active');
+        quitState.take();
     }
 };
 
@@ -588,6 +656,7 @@ const createMainWindow = async () => {
         }
     });
     setupWebContents(mainWindow.webContents);
+    const closingWindow = mainWindow;
     mainWindow.on('close', event => {
         if (approvedWindowClose || process.env.BRICKWRIGHT_DESKTOP_SMOKE === '1') return;
         event.preventDefault();
@@ -605,9 +674,12 @@ const createMainWindow = async () => {
         if (activeUsbDialogId !== null) usbQueue.cancel(activeUsbDialogId);
     };
     mainWindow.webContents.on('render-process-gone', cancelPendingDevicePickers);
-    mainWindow.on('closed', () => {
+    closingWindow.on('closed', () => {
         cancelPendingDevicePickers();
-        mainWindow = null;
+        if (mainWindow === closingWindow) {
+            mainWindow = null;
+            approvedWindowClose = false;
+        }
     });
     await mainWindow.loadURL(`${APP_ORIGIN}/editor.html`);
 
@@ -1884,6 +1956,10 @@ if (hasSingleInstanceLock) {
 
     app.whenReady().then(async () => {
         protocol.handle('app', createAppProtocolHandler({assetRoot: APP_ASSET_ROOT, net}));
+        // A sleeping BLE connection may have dropped. Keep close and update safeguards
+        // fail-closed until the editor reports fresh hub activity after wake.
+        powerMonitor.on('suspend', markActivityStale);
+        powerMonitor.on('resume', markActivityStale);
         registerBluetoothPermissions();
         await buildMenu();
         await createMainWindow();
@@ -1908,8 +1984,8 @@ if (hasSingleInstanceLock) {
             return;
         }
         event.preventDefault();
-        quitRequested = true;
-        mainWindow.close();
+        quitState.requested = true;
+        if (!closeRequest.has('active')) mainWindow.close();
     });
 
     app.on('window-all-closed', () => {

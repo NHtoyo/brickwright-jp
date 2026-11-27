@@ -7,6 +7,11 @@ on:
     types: [opened, reopened]
   workflow_dispatch:
     inputs:
+      publish_release:
+        description: Publish the completed development build to GitHub Releases
+        required: false
+        default: false
+        type: boolean
       existing_run_id:
         description: Successful build run to republish without rebuilding (compliance-only updates)
         required: false
@@ -271,7 +276,8 @@ jobs:
   resolve-release-source:
     needs: [release-tooling, app-impact]
     if: >-
-      github.event_name != 'pull_request'
+      github.event_name == 'workflow_dispatch'
+      && inputs.publish_release == true
       && github.repository == 'NHtoyo/brickwright-jp'
       && github.ref == 'refs/heads/work/spikeprime-control-center-ui'
       && needs.release-tooling.result == 'success'
@@ -422,7 +428,8 @@ jobs:
     if: >-
       always()
       &&
-      github.event_name != 'pull_request'
+      github.event_name == 'workflow_dispatch'
+      && inputs.publish_release == true
       && github.repository == 'NHtoyo/brickwright-jp'
       && github.ref == 'refs/heads/work/spikeprime-control-center-ui'
       && needs.release-tooling.result == 'success'
