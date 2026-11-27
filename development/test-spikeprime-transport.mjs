@@ -1343,6 +1343,10 @@ function attachFakeStartupProbeHub(
   // command interpreter is installed. Complete that pending fake response so
   // the probe tests do not accidentally advance its timeout while observing.
   device.tx.emit(packMessage(Uint8Array.from([0x29, 0])));
+  // The fake hub also emits the valid sensor stream expected after accepting
+  // the subscription, so the bounded no-telemetry recovery stays out of the
+  // independent program-transfer lifecycle test.
+  emit(notification(imuRecord()));
   return fake;
 }
 
@@ -1761,6 +1765,78 @@ test("a delayed acknowledgement is retained without a duplicate subscription req
   assert.equal(
     unpackWrittenMessages(state.device.writes).filter(([type]) => type === 0x28)
       .length,
+    1
+  );
+});
+
+test("an acknowledged subscription without telemetry gets one bounded read-only retry", async () => {
+  const state = setup();
+  await connect(state);
+  const hub = state.ext._peripheral._spike3;
+  const initialRequest = hub._pendingNotificationRequest.promise;
+  state.device.tx.emit(packMessage([0x29, 0x00]));
+  await assert.doesNotReject(initialRequest);
+
+  let diagnostics = JSON.parse(state.ext.getCommunicationDiagnostics());
+  assert.equal(diagnostics.notificationRequest.status, "acknowledged");
+  assert.equal(diagnostics.notificationTelemetry.validNotificationCount, 0);
+  assert.equal(diagnostics.notificationRecovery.status, "waiting-for-telemetry");
+  state.clock.advance(1999);
+  await tick();
+  assert.equal(
+    unpackWrittenMessages(state.device.writes).filter(([type]) => type === 0x28).length,
+    1,
+    "the recovery waits for telemetry before retrying"
+  );
+
+  state.clock.advance(1);
+  await tick();
+  diagnostics = JSON.parse(state.ext.getCommunicationDiagnostics());
+  assert.equal(diagnostics.notificationRecovery.status, "retrying-read-only-subscription");
+  assert.equal(diagnostics.notificationRecovery.attempts, 1);
+  assert.equal(
+    unpackWrittenMessages(state.device.writes).filter(([type]) => type === 0x28).length,
+    2
+  );
+  assert.equal(
+    unpackWrittenMessages(state.device.writes).some(([type]) =>
+      [0x1e, 0x32, 0x46, 0x0c, 0x10].includes(type)
+    ),
+    false,
+    "the recovery does not start or control a program"
+  );
+
+  const retryRequest = hub._pendingNotificationRequest.promise;
+  state.device.tx.emit(packMessage([0x29, 0x00]));
+  await assert.doesNotReject(retryRequest);
+  diagnostics = JSON.parse(state.ext.getCommunicationDiagnostics());
+  assert.equal(diagnostics.notificationRecovery.status, "retry-acknowledged-without-telemetry");
+  state.clock.advance(10000);
+  await tick();
+  assert.equal(
+    unpackWrittenMessages(state.device.writes).filter(([type]) => type === 0x28).length,
+    2,
+    "no further retry loop is scheduled"
+  );
+});
+
+test("valid telemetry after an acknowledgement suppresses the no-telemetry retry", async () => {
+  const state = setup();
+  await connect(state);
+  const hub = state.ext._peripheral._spike3;
+  const initialRequest = hub._pendingNotificationRequest.promise;
+  state.device.tx.emit(packMessage([0x29, 0x00]));
+  await assert.doesNotReject(initialRequest);
+  state.clock.advance(1999);
+  state.device.tx.emit(packMessage(notification(imuRecord({ pitch: 12 }))));
+  state.clock.advance(10000);
+  await tick();
+
+  const diagnostics = JSON.parse(state.ext.getCommunicationDiagnostics());
+  assert.equal(diagnostics.notificationTelemetry.validNotificationCount, 1);
+  assert.equal(diagnostics.notificationRecovery.status, "suppressed-telemetry-received");
+  assert.equal(
+    unpackWrittenMessages(state.device.writes).filter(([type]) => type === 0x28).length,
     1
   );
 });

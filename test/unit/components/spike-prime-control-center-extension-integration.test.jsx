@@ -247,7 +247,7 @@ describe('SPIKE control center with the actual extension source and Scratch VM',
     );
 
     test(
-        'keeps zero and negative measurements visible without treating stationary values as a failure',
+        'keeps connected device identity but hides an expired measurement',
         async () => {
             const vm = new VM();
             const extension = loadRealSpikeExtension(vm);
@@ -287,10 +287,13 @@ describe('SPIKE control center with the actual extension source and Scratch VM',
                 await new Promise(resolve => setTimeout(resolve, 60));
             });
             component.update();
-            expect(component.text()).toContain('Stale');
+            expect(component.find('[aria-label^="F:"]')).toHaveLength(1);
+            expect(component.find('[aria-label^="F:"]').prop('aria-label')).toContain('Large motor');
+            expect(component.find('[aria-label^="F:"]').prop('aria-label')).not.toContain('318°');
+            expect(component.text()).not.toMatch(/Stale|old value|Last update/i);
             expect(component.text()).not.toContain('318°');
             component.find('button[aria-label^="LEGO hub:"]').simulate('click');
-            expect(component.text()).toContain('Last update:');
+            expect(component.text()).not.toMatch(/Stale|old value|Last update/i);
             component.unmount();
         }
     );

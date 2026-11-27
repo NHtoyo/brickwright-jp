@@ -92,12 +92,6 @@ const words = {
         roll: 'Roll',
         yaw: 'Yaw',
         ports: 'Ports',
-        noReading: 'No reading yet',
-        freshnessDelayed: 'Delayed',
-        freshnessStopped: 'Updates stopped',
-        freshnessStale: 'Stale',
-        freshnessWaiting: 'Waiting for sample',
-        portConnectionUnknown: 'Connection unknown',
         outOfRange: 'Out of range',
         noDevice: 'No device',
         noConnection: 'Disconnected',
@@ -117,8 +111,6 @@ const words = {
         distanceMode: 'Measurement mode',
         distanceLongMode: 'Normal (50–2000 mm)',
         distanceShortMode: 'Short range (50–300 mm)',
-        colorModeNotice: 'Color number and RAW values are sampled alternately. ' +
-            'Using both increases the update interval.',
         colorValue: 'Detected color',
         rgb: 'RGB',
         confirmUpload: 'Clear, upload, and start slot',
@@ -126,6 +118,10 @@ const words = {
             'selected slot. The controller slot is reserved.',
         stopHub: 'Stop hub program',
         error: 'Action failed',
+        connectionHelp: 'Could not connect. Check Bluetooth and try again.',
+        operationFailure: 'That action did not work. Check the hub connection and try again.',
+        stopFailure: 'Could not stop the hub. Check that the motors have stopped.',
+        extensionLoadHelp: 'SPIKE controls could not be loaded. Reload Brickwright and try again.',
         close: 'Close',
         liveView: 'Live hub view',
         pcRunLabel: 'PC Scratch: use the green flag',
@@ -143,35 +139,13 @@ const words = {
         stateMode: 'State / reflection',
         reflection: 'Reflection',
         noColor: 'No color detected',
-        noReflection: 'Reflection unavailable',
-        lastUpdate: 'Last update: {seconds}s ago',
         unsupportedOperation: 'This operation is not supported by the connected hub model.',
         unsupportedDevice: 'This device is not supported by the connected hub model.',
         positionLabel: 'POS',
         absoluteLabel: 'ABS',
         diagnostics: 'Communication diagnostics',
         diagnosticsLog: 'Open diagnostics log',
-        controllerSettings: 'Controller setup',
-        noConnectedDevices: 'No connected devices',
-        sensorDiagnostics: 'Sensor communication details',
-        sensorTargetInterval: 'Target interval',
-        sensorAverageInterval: 'Average receive interval',
-        sensorMedianInterval: 'Median receive interval',
-        sensorP95Interval: '95th percentile interval',
-        sensorEffectiveRate: 'Effective receive rate',
-        sensorLastSampleAge: 'Age of last sample',
-        sensorReadRequests: 'Read requests sent',
-        sensorQueueExpired: 'Queued reads expired',
-        sensorWriteFailed: 'BLE writes failed',
-        sensorNoSample: 'No response after write',
-        sensorNotifications: 'Unsolicited notifications',
-        sensorUnattributed: 'Unattributed samples',
-        sensorBackoff: 'Current poll interval',
-        sensorCommunicationState: 'Communication state',
-        sensorMode: 'Measurement mode',
-        sensorAttachment: 'Attachment ID',
-        sensorLastError: 'Last error',
-        sensorNoDiagnostics: 'No measurements yet'
+        controllerSettings: 'Controller setup'
     },
     ja: {
         title: 'LEGO ハブ',
@@ -242,12 +216,6 @@ const words = {
         roll: 'Roll',
         yaw: 'Yaw',
         ports: 'ポート',
-        noReading: 'まだ受信していません',
-        freshnessDelayed: '更新遅延',
-        freshnessStopped: '更新停止',
-        freshnessStale: '古い値',
-        freshnessWaiting: '測定待ち',
-        portConnectionUnknown: '接続状態不明',
         outOfRange: '範囲外',
         noDevice: '機器未接続',
         noConnection: '切断中',
@@ -267,13 +235,16 @@ const words = {
         distanceMode: '測定モード',
         distanceLongMode: '通常（50～2000 mm）',
         distanceShortMode: '短距離（50～300 mm）',
-        colorModeNotice: 'カラー番号とRAW値を交互に取得しています。両方を使用すると更新間隔が長くなります。',
         colorValue: '検出色',
         rgb: 'RGB',
         confirmUpload: 'スロットを消去して転送・起動',
         slotWarning: 'スロットの内容は確認できません。実行すると選択したスロットを消去します。制御プログラムのスロットは選べません。',
         stopHub: 'ハブのプログラムを停止',
         error: '操作に失敗しました',
+        connectionHelp: 'ハブに接続できませんでした。Bluetoothを確認して、もう一度試してください。',
+        operationFailure: '操作できませんでした。ハブとの接続を確認して、もう一度試してください。',
+        stopFailure: 'ハブを停止できませんでした。モーターが止まっていることを確認してください。',
+        extensionLoadHelp: 'SPIKEの操作を読み込めませんでした。Brickwrightを再読み込みしてください。',
         close: '閉じる',
         liveView: 'ハブのライブ表示',
         pcRunLabel: 'PC上のScratch：緑の旗で実行',
@@ -291,35 +262,13 @@ const words = {
         stateMode: '状態・反射光',
         reflection: '反射光',
         noColor: '色を検出していません',
-        noReflection: '反射光の値は未受信です',
-        lastUpdate: '最終受信：約{seconds}秒前',
         unsupportedOperation: '接続中のハブではこの操作を利用できません。',
         unsupportedDevice: 'この機器は接続中のハブでは利用できません。',
         positionLabel: 'POS',
         absoluteLabel: 'ABS',
         diagnostics: '通信診断',
         diagnosticsLog: '診断ログを開く',
-        controllerSettings: '制御プログラムの設定',
-        noConnectedDevices: '接続されている機器はありません',
-        sensorDiagnostics: 'センサー通信の詳細',
-        sensorTargetInterval: '目標間隔',
-        sensorAverageInterval: '平均受信間隔',
-        sensorMedianInterval: '受信間隔の中央値',
-        sensorP95Interval: '受信間隔の95パーセンタイル',
-        sensorEffectiveRate: '実効受信頻度',
-        sensorLastSampleAge: '最終測定からの経過',
-        sensorReadRequests: '読出要求の送信数',
-        sensorQueueExpired: 'キュー期限切れ',
-        sensorWriteFailed: 'BLE書込失敗',
-        sensorNoSample: '書込後の無応答',
-        sensorNotifications: '自発通知',
-        sensorUnattributed: '帰属不明サンプル',
-        sensorBackoff: '現在のポーリング間隔',
-        sensorCommunicationState: '通信状態',
-        sensorMode: '測定モード',
-        sensorAttachment: '接続ID',
-        sensorLastError: '最終エラー',
-        sensorNoDiagnostics: '測定値はまだありません'
+        controllerSettings: '制御プログラムの設定'
     }
 };
 
@@ -763,9 +712,14 @@ class SpikePrimeControlCenter extends React.Component {
                 ...(name === 'installController' ? {controllerConfirmation: null} : {}),
                 ...(name === 'startSavedController' ? {savedControllerConfirmation: null} : {}),
                 error: unsupportedDevice ? this.getWords().unsupportedDevice :
-                    unsupported ? this.getWords().unsupportedOperation : error.message || String(error),
+                    unsupported ? this.getWords().unsupportedOperation :
+                        name === 'stop' ? this.getWords().stopFailure :
+                            name === 'connect' ? this.getWords().connectionHelp :
+                                this.getWords().operationFailure,
                 errorKind: unsupportedDevice ? 'unsupported-device' :
-                    unsupported ? 'unsupported-capability' : error.kind || null
+                    unsupported ? 'unsupported-capability' :
+                        name === 'stop' ? 'stop-failed' :
+                            name === 'connect' ? 'connection-failed' : 'operation-failed'
             });
             this.refresh();
         } finally {
@@ -1073,28 +1027,13 @@ class SpikePrimeControlCenter extends React.Component {
     }
 
     renderSensor (snapshot, value, receivedAt) {
-        const w = this.getWords();
-        if (!snapshot || !snapshot.connected) return <span className={styles.muted}>{w.noConnection}</span>;
+        if (!snapshot || !snapshot.connected) return null;
         const active = Boolean(snapshot.diagnostics && snapshot.diagnostics.sensorDemand &&
             snapshot.diagnostics.sensorDemand.ports && snapshot.diagnostics.sensorDemand.ports.HUB &&
             snapshot.diagnostics.sensorDemand.ports.HUB.active);
         const freshness = getSpikeSensorFreshness(receivedAt, this.state.now, active);
-        if (!isSpikeSensorSampleUsable(freshness)) {
-            return (
-                <span
-                    className={`${styles.freshnessLabel} ${this.getFreshnessClass(freshness)}`}
-                    role="status"
-                >
-                    {this.getFreshnessLabel(freshness) || w.noReading}
-                </span>
-            );
-        }
-        if (!hasNumber(value)) return <span className={styles.muted}>{w.noReading}</span>;
-        const seconds = Number.isFinite(receivedAt) ?
-            Math.max(0, Math.floor((this.state.now - receivedAt) / 1000)) : null;
-        const updateTitle = seconds === null ? null :
-            w.lastUpdate.replace('{seconds}', seconds);
-        return <span {...(updateTitle ? {title: updateTitle} : {})}>{withUnit(value, '°')}</span>;
+        if (!isSpikeSensorSampleUsable(freshness) || !hasNumber(value)) return null;
+        return <span>{withUnit(value, '°')}</span>;
     }
 
     getPortType (reading, motor) {
@@ -1122,24 +1061,31 @@ class SpikePrimeControlCenter extends React.Component {
             (snapshot.diagnostics && snapshot.diagnostics.portDevices);
         const device = devices && devices[port];
 
-        // LWP3 exposes a live device registry and attach/detach bits. Those
-        // are stronger evidence than cached readings or motor telemetry.
-        if ((reading && reading.connected === false) || (device && device.connected === false)) return 'detached';
-        if (device) return Number.isFinite(reading && reading.receivedAt) ? 'attached' : 'waiting';
-        if ((reading && reading.connected === true) || (motor && motor.connected === true)) {
-            return Number.isFinite(reading && reading.receivedAt) ||
-                Number.isFinite(motor && motor.receivedAt) ? 'attached' : 'waiting';
-        }
+        if (reading && reading.connected === false) return 'detached';
 
-        if (this.isEssentialHub(snapshot) && devices && typeof devices === 'object') return 'detached';
-
-        // SPIKE3 has no per-port detach event. Its port records are only
-        // observations, so a missing record cannot mean a detached device.
+        // Prime's 0x3c stream reports observed records, not a complete port
+        // inventory. Only its per-port observation expiry can establish that
+        // cached identity has gone stale; cached readings are never evidence.
         if (snapshot.protocol === 'spike3' || this.getEffectiveModel(snapshot) === 'prime') {
             const observation = this.getPortObservation(port, snapshot);
             if (observation && observation.status === 'observed') return 'attached';
             if (observation && observation.status === 'stale') return 'stale';
             return 'unknown';
+        }
+
+        // Essential's LWP3 attachment registry and explicit attach/detach
+        // bits describe the current connection independently of sample age.
+        if (device && device.connected === false) return 'detached';
+        if (device && device.connected === true) {
+            return Number.isFinite(reading && reading.receivedAt) ? 'attached' : 'waiting';
+        }
+        if ((reading && reading.connected === true) || (motor && motor.connected === true)) {
+            return Number.isFinite(reading && reading.receivedAt) ||
+                Number.isFinite(motor && motor.receivedAt) ? 'attached' : 'waiting';
+        }
+
+        if (this.isEssentialHub(snapshot) && devices && typeof devices === 'object') {
+            return 'detached';
         }
 
         // A typed value without a connection bit is cached data, not proof of
@@ -1156,36 +1102,14 @@ class SpikePrimeControlCenter extends React.Component {
     shouldShowPort (port, snapshot = this.state.snapshot) {
         if (!snapshot || !snapshot.connected || !this.isPortAvailable(port, snapshot)) return false;
         const state = this.getPortConnectionState(port, snapshot);
-        return state !== 'detached';
-    }
-
-    getPortConnectionLabel (state) {
-        const w = this.getWords();
-        if (state === 'stale') return w.freshnessStale;
-        if (state === 'unknown') return w.portConnectionUnknown;
-        if (state === 'waiting') return w.freshnessWaiting;
-        return '';
-    }
-
-    renderPortStatus (port, state) {
-        const label = this.getPortConnectionLabel(state);
-        return (
-            <button
-                aria-label={`${port}: ${label}`}
-                className={styles.livePort}
-                key={port}
-                onClick={this.handleTogglePanel}
-                title={label}
-                type="button"
-            >
-                <span className={styles.portIcon}><HardwareIcon type="device" /></span>
-                <span className={styles.portIdentity}><strong>{port}</strong></span>
-                <span
-                    className={styles.portValue}
-                    title={label}
-                >{label}</span>
-            </button>
-        );
+        if (state !== 'attached' && state !== 'waiting') return false;
+        const portSensor = snapshot.portSensors && snapshot.portSensors[port];
+        const motor = snapshot.motorPorts && snapshot.motorPorts[port];
+        const devices = snapshot.portDevices || (snapshot.diagnostics && snapshot.diagnostics.portDevices);
+        const device = devices && devices[port];
+        const observation = this.getPortObservation(port, snapshot);
+        const reading = {...(device || {}), ...(motor || {}), ...(portSensor || {}), ...(observation || {})};
+        return Boolean(this.getPortType(reading, motor));
     }
 
     getDeviceLabel (type, reading, w) {
@@ -1200,65 +1124,6 @@ class SpikePrimeControlCenter extends React.Component {
             type === 'force' ? w.force : type === 'matrix3' ? w.matrix : w.unknownDevice;
     }
 
-    renderLastUpdate (receivedAt) {
-        if (!Number.isFinite(receivedAt)) return null;
-        const seconds = Math.max(0, Math.floor((this.state.now - receivedAt) / 1000));
-        return <div className={styles.muted}>{this.getWords().lastUpdate.replace('{seconds}', seconds)}</div>;
-    }
-
-    renderSensorDiagnostics (port, reading, snapshot, w) {
-        const diagnostics = snapshot && snapshot.diagnostics;
-        const schedulerPort = diagnostics && diagnostics.sensorScheduler &&
-            diagnostics.sensorScheduler.ports && diagnostics.sensorScheduler.ports[port];
-        const telemetry = schedulerPort || (reading && reading.sensorTelemetry);
-        if (!telemetry) return <div className={styles.muted}>{w.sensorNoDiagnostics}</div>;
-        const formatMs = value => {
-            if (!hasNumber(value)) return '—';
-            return `${Number(value).toFixed(1)} ms`;
-        };
-        const formatCount = value => {
-            if (!hasNumber(value)) return '—';
-            return String(value);
-        };
-        const formatHz = value => {
-            if (!hasNumber(value)) return '—';
-            return `${Number(value).toFixed(2)} Hz`;
-        };
-        const age = telemetry.lastSampleAgeMs ?? telemetry.latestSampleAgeMs ?? telemetry.staleAgeMs;
-        const entries = [
-            [w.sensorTargetInterval, formatMs(telemetry.targetIntervalMs)],
-            [w.sensorAverageInterval, formatMs(telemetry.averageIntervalMs)],
-            [w.sensorMedianInterval, formatMs(telemetry.medianIntervalMs)],
-            [w.sensorP95Interval, formatMs(telemetry.p95IntervalMs)],
-            [w.sensorEffectiveRate, formatHz(telemetry.effectiveHz)],
-            [w.sensorLastSampleAge, formatMs(age)],
-            [w.sensorReadRequests, formatCount(telemetry.pollsSent)],
-            [w.sensorQueueExpired, formatCount(telemetry.queuedExpirations)],
-            [w.sensorWriteFailed, formatCount(telemetry.writeFailures)],
-            [w.sensorNoSample, formatCount(telemetry.noSampleCount ?? telemetry.pollTimeouts)],
-            [w.sensorNotifications, formatCount(telemetry.spontaneousNotificationCount ?? telemetry.notificationCount)],
-            [w.sensorUnattributed, formatCount(telemetry.ambiguousResponseCount ?? telemetry.unattributedSampleCount)],
-            [w.sensorBackoff, formatMs(telemetry.currentPollIntervalMs)],
-            [w.sensorCommunicationState, telemetry.communicationState || telemetry.state || '—'],
-            [w.sensorMode, Number.isInteger(telemetry.mode) ? `Mode ${telemetry.mode}` : '—'],
-            [w.sensorAttachment, reading.attachmentId ?? telemetry.attachmentId ?? '—'],
-            [w.sensorLastError, telemetry.lastError || '—']
-        ];
-        return (
-            <details className={styles.sensorDiagnostics}>
-                <summary>{w.sensorDiagnostics}</summary>
-                <dl className={styles.sensorDiagnosticList}>
-                    {entries.map(([label, value]) => (
-                        <React.Fragment key={label}>
-                            <dt>{label}</dt>
-                            <dd>{String(value)}</dd>
-                        </React.Fragment>
-                    ))}
-                </dl>
-            </details>
-        );
-    }
-
     getPortFreshness (port, reading, snapshot) {
         const schedulerPort = snapshot && snapshot.diagnostics && snapshot.diagnostics.sensorScheduler &&
             snapshot.diagnostics.sensorScheduler.ports && snapshot.diagnostics.sensorScheduler.ports[port];
@@ -1267,23 +1132,6 @@ class SpikePrimeControlCenter extends React.Component {
         const active = Boolean(reading && reading.sensorTelemetry && reading.sensorTelemetry.active) ||
             Boolean(schedulerPort && schedulerPort.active) || Boolean(demandPort && demandPort.active);
         return getSpikeSensorFreshness(reading && reading.receivedAt, this.state.now, active);
-    }
-
-    getFreshnessLabel (freshness) {
-        const w = this.getWords();
-        if (freshness === 'delayed') return w.freshnessDelayed;
-        if (freshness === 'stopped') return w.freshnessStopped;
-        if (freshness === 'stale') return w.freshnessStale;
-        if (freshness === 'waiting') return w.freshnessWaiting;
-        return '';
-    }
-
-    getFreshnessClass (freshness) {
-        return freshness === 'delayed' ? styles.freshnessDelayed :
-            freshness === 'stopped' ? styles.freshnessStopped :
-                freshness === 'stale' ? styles.freshnessStale :
-                    freshness === 'waiting' || freshness === 'unknown' ?
-                        styles.freshnessWaiting : styles.freshnessHealthy;
     }
 
     getMotorPositionValues (reading, motor) {
@@ -1314,12 +1162,7 @@ class SpikePrimeControlCenter extends React.Component {
 
     renderPort (port, snapshot) {
         const w = this.getWords();
-        if (!this.isPortAvailable(port, snapshot)) return null;
-        const connectionState = this.getPortConnectionState(port, snapshot);
-        if (connectionState === 'detached') return null;
-        if (connectionState === 'stale' || connectionState === 'unknown') {
-            return this.renderPortStatus(port, connectionState);
-        }
+        if (!this.shouldShowPort(port, snapshot)) return null;
         const portSensor = snapshot && snapshot.portSensors && snapshot.portSensors[port];
         const motor = snapshot && snapshot.motorPorts && snapshot.motorPorts[port];
         const observation = this.getPortObservation(port, snapshot);
@@ -1334,71 +1177,46 @@ class SpikePrimeControlCenter extends React.Component {
         reading.receivedAt = receivedAt;
         const freshness = this.getPortFreshness(port, reading, snapshot);
         const usableSample = isSpikeSensorSampleUsable(freshness);
-        if (connectionState === 'waiting' && !type) {
-            return this.renderPortStatus(port, 'waiting');
-        }
+        if (!type) return null;
         const motorValues = type === 'motor' ? this.getMotorPositionValues(reading, motor) : null;
         const detected = usableSample && (Number.isFinite(receivedAt) || Boolean(motorValues && (
             hasNumber(motorValues.absoluteAngle) || hasNumber(motorValues.countedPosition) ||
             hasNumber(motorValues.speed)
         )));
         const deviceLabel = this.getDeviceLabel(type, reading, w);
-        let value = usableSample ? deviceLabel : this.getFreshnessLabel(freshness);
+        let value = null;
         if (detected && type === 'distance' && reading.quality === 'out-of-range') {
             value = w.outOfRange;
         } else if (detected && type === 'motor' && hasNumber(motorValues.absoluteAngle)) {
             value = `${motorValues.absoluteAngle}°`;
-        } else if (detected && type === 'motor') {
-            value = w.noReading;
-        } else if (detected && type === 'force') {
-            value = this.state.displayMode === 'state' && typeof reading.pressed === 'boolean' ?
-                (reading.pressed ? w.pressed : w.released) :
-                hasNumber(reading.force) ? String(reading.force) : w.noReading;
-        } else if (detected && type === 'distance') {
-            value = hasNumber(reading.distanceMM ?? reading.distance) ?
-                `${reading.distanceMM ?? reading.distance} mm` : w.noReading;
-        } else if (detected && type === 'color') {
-            value = reading.color !== null && typeof reading.color !== 'undefined' ?
-                this.getColorName(reading.color) : w.noReading;
-        } else if (detected && (type === 'matrix3' || type === 'matrix5')) {
-            value = Array.isArray(reading.pixels) ?
-                (reading.pixels.some(pixel => Number(pixel) > 0) ? 'ON' : 'OFF') : w.noReading;
+        } else if (detected && type === 'force' && this.state.displayMode === 'state' &&
+            typeof reading.pressed === 'boolean') {
+            value = reading.pressed ? w.pressed : w.released;
+        } else if (detected && type === 'force' && hasNumber(reading.force)) value = String(reading.force);
+        else if (detected && type === 'distance' && hasNumber(reading.distanceMM ?? reading.distance)) {
+            value = `${reading.distanceMM ?? reading.distance} mm`;
+        } else if (detected && type === 'color' && reading.color !== null && typeof reading.color !== 'undefined') {
+            value = this.getColorName(reading.color);
+        } else if (detected && (type === 'matrix3' || type === 'matrix5') && Array.isArray(reading.pixels)) {
+            value = reading.pixels.some(pixel => Number(pixel) > 0) ? 'ON' : 'OFF';
         } else if (detected && reading.value !== null && typeof reading.value !== 'undefined') {
             value = String(reading.value);
         }
         const iconType = type === 'motor' || type === 'force' || type === 'distance' ||
             type === 'color' || type === 'matrix3' || type === 'matrix5' ? type : 'device';
-        const freshnessLabel = this.getFreshnessLabel(freshness);
-        const detailsTitle = [
-            `${port}: ${deviceLabel}`,
-            reading.deviceName && reading.deviceName !== deviceLabel ? reading.deviceName : null,
-            reading.deviceId !== null && typeof reading.deviceId !== 'undefined' ?
-                `ID ${reading.deviceId}` : null,
-            freshnessLabel,
-            receivedAt ? w.lastUpdate.replace(
-                '{seconds}', Math.max(0, Math.floor((this.state.now - receivedAt) / 1000))
-            ) : w.noReading
-        ].filter(Boolean).join(' · ');
         return (
             <button
-                aria-label={`${port}: ${deviceLabel}, ${value}`}
+                aria-label={[`${port}: ${deviceLabel}`, value].filter(Boolean).join(', ')}
                 className={styles.livePort}
                 key={port}
                 onClick={this.handleTogglePanel}
-                title={detailsTitle}
+                title={`${port}: ${deviceLabel}`}
                 type="button"
             >
                 <span className={styles.portIcon}><HardwareIcon type={iconType} /></span>
                 <span className={styles.portIdentity}><strong>{port}</strong></span>
-                <span
-                    className={styles.portValue}
-                    title={value}
-                >{value}</span>
-                {freshnessLabel ? (
-                    <span className={`${styles.freshnessLabel} ${this.getFreshnessClass(freshness)}`}>
-                        {freshnessLabel}
-                    </span>
-                ) : null}
+                <span className={styles.portName}>{deviceLabel}</span>
+                {value === null ? null : <span className={styles.portValue}>{value}</span>}
             </button>
         );
     }
@@ -1410,28 +1228,7 @@ class SpikePrimeControlCenter extends React.Component {
 
     renderPortDetails (port, snapshot) {
         const w = this.getWords();
-        const connectionState = this.getPortConnectionState(port, snapshot);
-        if (connectionState === 'detached') return null;
-        if (connectionState === 'stale' || connectionState === 'unknown') {
-            const label = this.getPortConnectionLabel(connectionState);
-            return (
-                <div
-                    className={styles.portCard}
-                    key={port}
-                >
-                    <div className={styles.portHeading}>
-                        <strong>{port}</strong>
-                        <span>{label}</span>
-                    </div>
-                    <div
-                        className={`${styles.freshnessLabel} ${this.getFreshnessClass(connectionState)}`}
-                        role="status"
-                    >
-                        {label}
-                    </div>
-                </div>
-            );
-        }
+        if (!this.shouldShowPort(port, snapshot)) return null;
         const effectiveModel = this.getEffectiveModel(snapshot);
         const portSensor = snapshot && snapshot.portSensors && snapshot.portSensors[port];
         const motor = snapshot && snapshot.motorPorts && snapshot.motorPorts[port];
@@ -1441,6 +1238,7 @@ class SpikePrimeControlCenter extends React.Component {
         const portDevice = portDevices && portDevices[port];
         const reading = {...(portDevice || {}), ...(motor || {}), ...(portSensor || {}), ...(observation || {})};
         const type = this.getPortType(reading, motor);
+        if (!type) return null;
         const receivedAt = Number.isFinite(portSensor && portSensor.receivedAt) ?
             portSensor.receivedAt : Number.isFinite(motor && motor.receivedAt) ?
                 motor.receivedAt : observation && observation.lastObservedAt;
@@ -1455,7 +1253,6 @@ class SpikePrimeControlCenter extends React.Component {
                     hasNumber(motorValues.countedPosition) || hasNumber(motorValues.speed))) ||
                 hasNumber(reading.force) || hasNumber(reading.distanceMM) ||
                 (reading.color !== null && typeof reading.color !== 'undefined')));
-        const attached = connectionState === 'attached' || connectionState === 'waiting';
         const colorDescription = this.getColorName(reading.color);
         const speedUnit = motorValues && motorValues.speedUnit === 'percent-of-max' ?
             w.speedPercentUnit : motorValues && motorValues.speedUnit === 'degrees-per-second' ?
@@ -1467,46 +1264,34 @@ class SpikePrimeControlCenter extends React.Component {
             >
                 <div className={styles.portHeading}>
                     <strong>{port}</strong>
-                    <span>{attached ? (reading.deviceName || this.getDeviceLabel(type, reading, w)) : w.noDevice}</span>
+                    <span>{reading.deviceName || this.getDeviceLabel(type, reading, w)}</span>
                 </div>
-                {!snapshot || !snapshot.connected ? <div>{w.noConnection}</div> : null}
-                {snapshot && snapshot.connected && attached && !usableSample ? (
-                    <div
-                        className={`${styles.freshnessLabel} ${this.getFreshnessClass(freshness)}`}
-                        role="status"
-                    >
-                        {this.getFreshnessLabel(freshness)}
-                    </div>
+                {type === 'motor' && detected && hasNumber(motorValues.absoluteAngle) ? (
+                    <div>{w.absoluteAngle}{': '}{withUnit(motorValues.absoluteAngle, '°')}</div>
                 ) : null}
-                {snapshot && snapshot.connected && attached && usableSample && !detected ? (
-                    <div>{w.noReading}</div>
+                {type === 'motor' && detected && hasNumber(motorValues.rawPosition) ? (
+                    <div>{w.absolutePositionRaw}{': '}{motorValues.rawPosition}{'°'}</div>
                 ) : null}
-                {type === 'motor' && detected ? (
-                    <>
-                        <div>{w.absoluteAngle}{': '}{withUnit(motorValues.absoluteAngle, '°')}</div>
-                        {hasNumber(motorValues.rawPosition) ? (
-                            <div>{w.absolutePositionRaw}{': '}{motorValues.rawPosition}{'°'}</div>
-                        ) : null}
-                        <div>{w.countedAngle}{': '}{withUnit(motorValues.countedPosition, '°')}</div>
-                        <div>{motorValues.speedDerived === true || motorValues.speedSource === 'pos-delta' ?
-                            w.derivedSpeed : motorValues.speedDerived === false ||
-                                motorValues.speedSource === 'measured' ? w.measuredSpeed : w.unknownSpeed}{': '}{
-                            hasNumber(motorValues.speed) ? motorValues.speed : '—'
-                        }{speedUnit ? ` ${speedUnit}` : ''}</div>
-                    </>
+                {type === 'motor' && detected && hasNumber(motorValues.countedPosition) ? (
+                    <div>{w.countedAngle}{': '}{withUnit(motorValues.countedPosition, '°')}</div>
+                ) : null}
+                {type === 'motor' && detected && hasNumber(motorValues.speed) ? (
+                    <div>{motorValues.speedDerived === true || motorValues.speedSource === 'pos-delta' ?
+                        w.derivedSpeed : motorValues.speedDerived === false ||
+                            motorValues.speedSource === 'measured' ? w.measuredSpeed : w.unknownSpeed}{': '}{
+                        motorValues.speed
+                    }{speedUnit ? ` ${speedUnit}` : ''}</div>
                 ) : null}
                 {type === 'force' && detected ? (
-                    <div>
-                        {this.state.displayMode === 'state' ?
-                            (typeof reading.pressed === 'boolean' ?
-                                (reading.pressed ? w.pressed : w.released) : w.noReading) :
-                            `${w.forceValue}: ${hasNumber(reading.force) ? reading.force : '—'}`}
-                    </div>
+                    (this.state.displayMode === 'state' && typeof reading.pressed === 'boolean' ?
+                        <div>{reading.pressed ? w.pressed : w.released}</div> :
+                        hasNumber(reading.force) ? <div>{w.forceValue}{': '}{reading.force}</div> : null)
                 ) : null}
                 {type === 'distance' && detected ? (
                     <div>
-                        {w.distanceValue}{': '}{reading.quality === 'out-of-range' ?
-                            w.outOfRange : withUnit(reading.distanceMM, 'mm')}
+                        {reading.quality === 'out-of-range' ? w.outOfRange :
+                            hasNumber(reading.distanceMM ?? reading.distance) ?
+                                `${w.distanceValue}: ${withUnit(reading.distanceMM ?? reading.distance, 'mm')}` : null}
                     </div>
                 ) : null}
                 {type === 'distance' && effectiveModel === 'essential' ? (
@@ -1524,32 +1309,21 @@ class SpikePrimeControlCenter extends React.Component {
                         </select>
                     </label>
                 ) : null}
-                {type === 'color' && reading.colorDualDemandActive ? (
-                    <div
-                        className={styles.sensorModeNotice}
-                        role="status"
-                    >
-                        {w.colorModeNotice}
-                    </div>
-                ) : null}
                 {type === 'color' && detected ? (
                     this.state.displayMode === 'state' ? (
-                        <div>{w.reflection}{': '}{hasNumber(reading.reflection) ?
-                            withUnit(reading.reflection, '%') : w.noReflection}</div>
+                        hasNumber(reading.reflection) ?
+                            <div>{w.reflection}{': '}{withUnit(reading.reflection, '%')}</div> : null
                     ) : (
                         <>
-                            <div>{w.colorValue}{': '}{colorDescription}</div>
-                            <div>{w.rgb}{': '}{hasNumber(reading.red) ?
-                                `${reading.red}, ${reading.green}, ${reading.blue}` : '—'}</div>
+                            {reading.color !== null && typeof reading.color !== 'undefined' ?
+                                <div>{w.colorValue}{': '}{colorDescription}</div> : null}
+                            {[reading.red, reading.green, reading.blue].every(hasNumber) ?
+                                <div>{w.rgb}{': '}{`${reading.red}, ${reading.green}, ${reading.blue}`}</div> : null}
                         </>
                     )
                 ) : null}
-                {type === 'matrix3' && detected ? <div>
-                    {w.matrix}{': '}{reading.pixels ? reading.pixels.length : '—'}
-                </div> : null}
-                {attached ? this.renderLastUpdate(receivedAt) : null}
-                {type && effectiveModel === 'essential' ?
-                    this.renderSensorDiagnostics(port, reading, snapshot, w) : null}
+                {type === 'matrix3' && detected && Array.isArray(reading.pixels) ?
+                    <div>{w.matrix}{': '}{reading.pixels.length}</div> : null}
             </div>
         );
     }
@@ -1563,42 +1337,22 @@ class SpikePrimeControlCenter extends React.Component {
         const unsupportedError = this.state.errorKind === 'unsupported-capability' ||
             this.state.errorKind === 'unsupported-device';
         const connectionError = !connected && Boolean(lastError) && !unsupportedError;
+        const displayError = this.state.errorKind === 'stop-failed' ? w.stopFailure :
+            unsupportedError ? error : error ? w.operationFailure : connectionError ? w.connectionHelp : null;
         const hubStatusLabel = connected ? w.connected :
             (connectionError ? w.connectionError : w.disconnected);
         const hubButtonClass = `${styles.hubButton} ${connected ? styles.hubConnected : ''} ` +
             `${connectionError ? styles.hubError : ''}`;
-        const controllerReady = Boolean(snapshot && snapshot.controllerReady);
         const detectedModel = snapshot && snapshot.detectedHubModel;
-        const effectiveModel = this.getEffectiveModel(snapshot);
-        const standaloneCapable = this.isStandaloneCapable(snapshot);
         const modelMismatch = Boolean(snapshot && snapshot.modelMismatch) ||
             Boolean(detectedModel && this.state.selectedHubModel !== 'auto' &&
                 detectedModel !== this.state.selectedHubModel);
-        const router = this.getRouter();
-        const sourceURL = this.getLoadedSourceURL(snapshot);
-        const routerRegistered = Boolean(
-            snapshot && snapshot.runtimeRegistered && router &&
-            snapshot.hubRouterId === router.instanceId
-        );
-        const extensionId = (snapshot && snapshot.extensionId) || 'spikeprime';
-        const routerId = (snapshot && snapshot.hubRouterId) || (router && router.instanceId) || '—';
         return (
             <div className={styles.root}>
                 <div
                     aria-label={w.liveView}
                     className={styles.compactLine}
                 >
-                    <button
-                        aria-expanded={open}
-                        aria-label={`${w.title}: ${hubStatusLabel}`}
-                        className={hubButtonClass}
-                        onClick={this.handleTogglePanel}
-                        title={lastError || w.title}
-                        type="button"
-                    >
-                        <HardwareIcon type="hub" />
-                        <span className={styles.connectionDot} />
-                    </button>
                     <div
                         aria-label={w.ports}
                         className={styles.connectedPorts}
@@ -1606,6 +1360,17 @@ class SpikePrimeControlCenter extends React.Component {
                         {PORTS.filter(port => this.shouldShowPort(port, snapshot))
                             .map(port => this.renderPort(port, snapshot))}
                     </div>
+                    <button
+                        aria-expanded={open}
+                        aria-label={`${w.title}: ${hubStatusLabel}`}
+                        className={hubButtonClass}
+                        onClick={this.handleTogglePanel}
+                        title={connected ? w.title : connectionError ? w.connectionError : w.title}
+                        type="button"
+                    >
+                        <HardwareIcon type="hub" />
+                        <span className={styles.connectionDot} />
+                    </button>
                 </div>
                 {open ? (
                     <section
@@ -1661,12 +1426,6 @@ class SpikePrimeControlCenter extends React.Component {
                                     <option value="essential">{w.modelEssential}</option>
                                 </select>
                             </label>
-                            <div className={styles.modelStatus}>
-                                <span>{w.detectedModel}{': '}{detectedModel === 'essential' ? w.modelEssential :
-                                    detectedModel === 'prime' ? w.modelPrime : w.unknown}</span>
-                                {effectiveModel ? <span>{w.activeModel}{': '}{effectiveModel === 'essential' ?
-                                    w.modelEssential : w.modelPrime}</span> : null}
-                            </div>
                             {modelMismatch ? <div
                                 className={styles.modelWarning}
                                 role="status"
@@ -1678,7 +1437,7 @@ class SpikePrimeControlCenter extends React.Component {
                                     className={styles.modelWarning}
                                     role="status"
                                 >
-                                    {snapshot.modelWarning || w.modelMismatch}
+                                    {w.unsupportedOperation}
                                 </div>
                             ) : null}
                         </div>
@@ -1697,10 +1456,10 @@ class SpikePrimeControlCenter extends React.Component {
                             </label>
                             <div className={styles.modeStatus}>
                                 <span>{w.selectedMode}{': '}{connectionModeLabel(this.state.connectionMode, w)}</span>
-                                <span>
+                                {connected && snapshot.connectionMode !== this.state.connectionMode ? <span>
                                     {w.activeMode}{': '}
-                                    {connected ? connectionModeLabel(snapshot.connectionMode, w) : '—'}
-                                </span>
+                                    {connectionModeLabel(snapshot.connectionMode, w)}
+                                </span> : null}
                             </div>
                         </div>
                         {this.state.extensionLoadStatus === 'loading' ? (
@@ -1714,8 +1473,7 @@ class SpikePrimeControlCenter extends React.Component {
                                 className={styles.error}
                                 role="status"
                             >
-                                <strong>{w.extensionLoadError}{' '}</strong>
-                                {this.state.extensionLoadError}
+                                {w.extensionLoadHelp}{' '}
                                 <button
                                     onClick={this.handleRetryExtensionLoad}
                                     type="button"
@@ -1729,9 +1487,7 @@ class SpikePrimeControlCenter extends React.Component {
                                 className={styles.error}
                                 role="status"
                             >
-                                {w.sourceConflict.replace('{extensionId}', STANDARD_SPIKE_EXTENSION_ID)
-                                    .replace('{loaded}', this.state.extensionSourceConflict || w.sourceUnavailable)
-                                    .replace('{requested}', this.getLoadedSourceURL(snapshot))}
+                                {w.extensionLoadHelp}
                             </div>
                         ) : null}
                         {!api && this.state.extensionLoadStatus === 'loaded' ?
@@ -1755,29 +1511,8 @@ class SpikePrimeControlCenter extends React.Component {
                                 })}
                             </div>
                         ) : null}
-                        <details className={styles.sourceDetails}>
-                            <summary>{w.developmentSource}</summary>
-                            <div>{w.routerRegistered}{': '}{routerRegistered ? w.apiReady : w.apiMissing}</div>
-                            <div>{'Extension ID: '}{extensionId}</div>
-                            <div>{'Router: '}{routerId}</div>
-                            <div className={styles.sourceUrl}>{sourceURL || w.sourceUnavailable}</div>
-                            {this.state.buildInfo ? (
-                                <>
-                                    <div>{w.sourceBranch}{': '}{this.state.buildInfo.branch || '—'}</div>
-                                    <div>{w.sourceCommit}{': '}{this.state.buildInfo.commit || '—'}</div>
-                                </>
-                            ) : null}
-                        </details>
                         {connected ? (
                             <>
-                                <div className={styles.metadata}>
-                                    <span>{w.firmware}{': '}{snapshot.firmwareVersion || '—'}</span>
-                                    {standaloneCapable ? (
-                                        <span>
-                                            {w.controller}{': '}{controllerReady ? w.ready : w.unknown}
-                                        </span>
-                                    ) : null}
-                                </div>
                                 <h3 className={styles.sectionTitle}>{w.imu}</h3>
                                 <div className={styles.imuGrid}>
                                     {['pitch', 'roll', 'yaw'].map(axis => (
@@ -1805,18 +1540,15 @@ class SpikePrimeControlCenter extends React.Component {
                                 <div className={styles.portGrid}>
                                     {PORTS.filter(port => this.shouldShowPort(port, snapshot))
                                         .map(port => this.renderPortDetails(port, snapshot))}
-                                    {PORTS.some(port => this.shouldShowPort(port, snapshot)) ? null : (
-                                        <div className={styles.noConnectedDevices}>{w.noConnectedDevices}</div>
-                                    )}
                                 </div>
                             </>
                         ) : null}
-                        {lastError ? (
+                        {displayError ? (
                             <div
                                 className={styles.error}
                                 role="status"
                             >
-                                <strong>{w.error}{': '}</strong>{lastError}
+                                {displayError}
                             </div>
                         ) : null}
                         {connected && api && typeof api.openCommunicationDiagnosticsLog === 'function' ? (

@@ -17,16 +17,11 @@
     color: #334155;
     display: flex;
     gap: 6px;
+    justify-content: flex-end;
     max-width: 100%;
     min-height: 30px;
-    overflow-x: auto;
-    scrollbar-width: thin;
-}
-
-.no-connected-devices {
-    color: #64748b;
-    font-size: 0.76rem;
-    padding: 4px 0;
+    overflow: visible;
+    width: 100%;
 }
 
 .connected-ports {
@@ -34,10 +29,14 @@
     display: flex;
     flex: 0 1 auto;
     gap: 4px;
-    max-width: 100%;
+    max-width: calc(100% - 36px);
     min-width: 0;
-    overflow: visible;
+    overflow-x: auto;
+    overflow-y: hidden;
     pointer-events: none;
+    scrollbar-width: thin;
+    overscroll-behavior-inline: contain;
+    order: 1;
 }
 
 .recovery-chip {
@@ -121,40 +120,10 @@
     white-space: nowrap;
 }
 
-.port-speed {
-    color: #64748b;
-    font-size: 0.58rem;
-}
-
-.freshness-label {
-    border-radius: 999px;
-    flex: 0 0 auto;
-    font-size: 0.58rem;
-    font-weight: 600;
-    line-height: 1.2;
-    padding: 2px 5px;
-    white-space: nowrap;
-}
-
-.freshness-healthy {
-    background: #dcfce7;
-    color: #166534;
-}
-
-.freshness-delayed {
-    background: #fef3c7;
-    color: #92400e;
-}
-
-.freshness-stopped,
-.freshness-stale {
-    background: #fee2e2;
-    color: #991b1b;
-}
-
-.freshness-waiting {
-    background: #e2e8f0;
-    color: #475569;
+.port-name {
+    max-width: 110px;
+    overflow: hidden;
+    text-overflow: ellipsis;
 }
 
 .display-mode {
@@ -162,39 +131,6 @@
     display: flex;
     gap: 8px;
     margin: 8px 0;
-}
-
-.sensor-diagnostics {
-    border-top: 1px solid #e2e8f0;
-    font-size: 0.72rem;
-    margin-top: 8px;
-    padding-top: 6px;
-}
-
-.sensor-diagnostics summary {
-    color: #475569;
-    cursor: pointer;
-    font-weight: 600;
-}
-
-.sensor-diagnostic-list {
-    display: grid;
-    gap: 3px 8px;
-    grid-template-columns: minmax(0, 1fr) auto;
-    margin: 6px 0 0;
-}
-
-.sensor-diagnostic-list dt {
-    color: #64748b;
-    min-width: 0;
-}
-
-.sensor-diagnostic-list dd {
-    font-variant-numeric: tabular-nums;
-    margin: 0;
-    max-width: 240px;
-    overflow-wrap: anywhere;
-    text-align: right;
 }
 
 .hub-button {
@@ -209,6 +145,7 @@
     justify-content: center;
     flex: 0 0 auto;
     margin: 0 2px 0 0;
+    order: 2;
     padding: 4px;
     pointer-events: auto;
     position: relative;

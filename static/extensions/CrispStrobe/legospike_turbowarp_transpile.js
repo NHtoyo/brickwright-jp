@@ -1975,6 +1975,7 @@
     COLOR_MODE_SAMPLE_TIMEOUT_MS: 500,
     NOTIFICATION_RESPONSE_TIMEOUT_MS: 2000,
     NOTIFICATION_RECOVERY_DELAY_MS: 500,
+    NOTIFICATION_TELEMETRY_TIMEOUT_MS: 2000,
     CONTROLLER_START_NOTIFICATION_TIMEOUT_MS: 7000,
   };
 
@@ -4853,6 +4854,7 @@ continuous_sensor_loop()
       this._connectionSession = 0;
       this._notificationRequestSequence = 0;
       this._notificationRecoveryTimer = null;
+      this._notificationRecoveryRequest = null;
       this._notificationRecoveryAttempts = 0;
       this._lastTimedOutNotificationRequest = null;
       this._pendingProtocolResponses = new Map();
@@ -5168,6 +5170,7 @@ continuous_sensor_loop()
         clearTimeout(this._notificationRecoveryTimer);
         this._notificationRecoveryTimer = null;
       }
+      this._notificationRecoveryRequest = null;
     }
 
     _isCurrentConnectionSession(sessionId, link = this._link) {
@@ -5322,7 +5325,8 @@ continuous_sensor_loop()
         recovery.status = "not-retried-manual-request";
         return;
       }
-      if (telemetry.validNotificationCount > 0) {
+      const telemetryBaseline = timedOutRequest.telemetryCountAtRequest || 0;
+      if (telemetry.validNotificationCount > telemetryBaseline) {
         recovery.status = "suppressed-telemetry-received";
         return;
       }
@@ -5333,10 +5337,17 @@ continuous_sensor_loop()
 
       const sessionId = timedOutRequest.sessionId;
       const link = timedOutRequest.link;
-      recovery.status = "waiting-for-late-response";
-      recovery.lastError = "device notification response timed out";
+      const waitingForTelemetry = timedOutRequest.reason === "acknowledged-without-telemetry";
+      recovery.status = waitingForTelemetry
+        ? "waiting-for-telemetry"
+        : "waiting-for-late-response";
+      recovery.lastError = waitingForTelemetry
+        ? ""
+        : "device notification response timed out";
+      this._notificationRecoveryRequest = timedOutRequest;
       this._notificationRecoveryTimer = setTimeout(() => {
         this._notificationRecoveryTimer = null;
+        this._notificationRecoveryRequest = null;
         if (
           !this._isCurrentConnectionSession(sessionId, link) ||
           !this.isConnected() ||
@@ -5346,7 +5357,8 @@ continuous_sensor_loop()
           return;
         }
         if (
-          this._diagnostics.notificationTelemetry.validNotificationCount > 0
+          this._diagnostics.notificationTelemetry.validNotificationCount >
+          telemetryBaseline
         ) {
           recovery.status = "suppressed-telemetry-received";
           return;
@@ -5368,7 +5380,9 @@ continuous_sensor_loop()
           sessionId,
           attempt: recovery.attempts,
           requestId: timedOutRequest.request.requestId,
-          reason: "acknowledgement-and-telemetry-missing",
+          reason: waitingForTelemetry
+            ? "acknowledgement-received-but-telemetry-missing"
+            : "acknowledgement-and-telemetry-missing",
         });
         this.setDeviceNotifications(
           timedOutRequest.request.enabled,
@@ -5380,7 +5394,11 @@ continuous_sensor_loop()
           }
         )
           .then(() => {
-            recovery.status = "retry-acknowledged";
+            recovery.status =
+              this._diagnostics.notificationTelemetry.validNotificationCount >
+              telemetryBaseline
+                ? "retry-acknowledged"
+                : "retry-acknowledged-without-telemetry";
           })
           .catch((error) => {
             recovery.status =
@@ -5390,7 +5408,9 @@ continuous_sensor_loop()
                 : "retry-failed";
             recovery.lastError = error?.message || String(error);
           });
-      }, SPIKE3.NOTIFICATION_RECOVERY_DELAY_MS);
+      }, waitingForTelemetry
+        ? SPIKE3.NOTIFICATION_TELEMETRY_TIMEOUT_MS
+        : SPIKE3.NOTIFICATION_RECOVERY_DELAY_MS);
     }
 
     _recordMalformedNotification(message, trace = null) {
@@ -9805,7 +9825,22 @@ continuous_sensor_loop()
         this._send(message, false, request)
       );
       pending.promise = Promise.all([writePromise, responsePromise])
-        .then(([, responseCode]) => responseCode)
+        .then(([, responseCode]) => {
+          if (
+            requestedStreaming &&
+            request.source === "connection" &&
+            this._isCurrentConnectionSession(sessionId, pending.link) &&
+            this._diagnostics.notificationTelemetry.validNotificationCount <=
+              pending.telemetryCountAtRequest
+          ) {
+            this._scheduleNotificationRecovery({
+              ...pending,
+              request: { ...request },
+              reason: "acknowledged-without-telemetry",
+            });
+          }
+          return responseCode;
+        })
         .catch((error) => {
           if (
             this._isCurrentConnectionSession(sessionId, pending.link) &&
@@ -10737,14 +10772,22 @@ continuous_sensor_loop()
         telemetry.sessionId = this._connectionSession;
         telemetry.validNotificationCount++;
         telemetry.lastReceivedAt = receivedAt;
-        const timedOutRequest = this._lastTimedOutNotificationRequest;
+        const recoveryRequest = this._notificationRecoveryRequest;
         if (
           this._notificationRecoveryTimer !== null &&
-          timedOutRequest?.sessionId === this._connectionSession
+          recoveryRequest?.sessionId === this._connectionSession &&
+          telemetry.validNotificationCount >
+            (recoveryRequest.telemetryCountAtRequest || 0)
         ) {
           this._clearNotificationRecoveryTimer();
           this._diagnostics.notificationRecovery.status =
             "suppressed-telemetry-received";
+        } else if (
+          this._diagnostics.notificationRecovery.status ===
+            "retry-acknowledged-without-telemetry"
+        ) {
+          this._diagnostics.notificationRecovery.status =
+            "telemetry-received-after-recovery";
         }
         this._syncReflectionPorts().catch(() => {});
       }
