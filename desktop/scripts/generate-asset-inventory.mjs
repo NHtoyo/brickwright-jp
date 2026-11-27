@@ -1,24 +1,23 @@
+import {createHash} from 'node:crypto';
 import {mkdir, readFile, readdir, writeFile} from 'node:fs/promises';
 import path from 'node:path';
 import {fileURLToPath} from 'node:url';
+import {assetIdentity, isRightsEvidenceExpired, reuseRightsForUnchangedAsset} from './asset-rights-inventory.mjs';
 
 const desktopDir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const repoRoot = path.resolve(desktopDir, '..');
 const mediaExtensions = new Set(['.png', '.jpg', '.jpeg', '.gif', '.webp', '.svg', '.ico', '.mp3', '.wav', '.ogg', '.m4a', '.woff', '.woff2', '.ttf', '.otf']);
 const assets = new Map();
+const mediaByMd5 = new Map();
 
 const add = (key, record) => {
-    if (!assets.has(key)) assets.set(key, {
-        ...record,
-        rightsStatus: 'UNVERIFIED',
-        rightsHolder: null,
-        license: null,
-        evidence: null
-    });
-    else {
-        const current = assets.get(key);
-        current.references = [...new Set([...(current.references || []), ...(record.references || [])])];
+    if (!assets.has(key)) {
+        assets.set(key, record);
+        return;
     }
+    const current = assets.get(key);
+    current.references = [...new Set([...(current.references || []), ...(record.references || [])])];
+    current.filePaths = [...new Set([...(current.filePaths || []), ...(record.filePaths || [])])].sort();
 };
 
 const addLibraryFile = async fileName => {
@@ -35,13 +34,19 @@ const addLibraryFile = async fileName => {
                 const md5ext = entry.md5ext || null;
                 if (!assetId && !md5ext) continue;
                 const key = `${kind}:${md5ext || assetId}`;
+                const contentMd5 = (md5ext || assetId).split('.')[0].toLowerCase();
+                const linkedFiles = mediaByMd5.get(contentMd5) || [];
+                const linkedHash = linkedFiles.length ? linkedFiles[0].assetHash :
+                    /^[a-f0-9]{32}$/.test(contentMd5) ? {algorithm: 'MD5', value: contentMd5, basis: 'library-asset-identifier'} : null;
                 add(key, {
                     kind,
                     assetId: assetId || null,
                     md5ext,
                     name: entry.name || item.name || null,
                     source: `src/lib/libraries/${fileName}`,
-                    references: [item.name].filter(Boolean)
+                    references: [item.name].filter(Boolean),
+                    filePaths: linkedFiles.map(file => file.path).sort(),
+                    assetHash: linkedHash
                 });
             }
         }
@@ -58,35 +63,65 @@ const walkMedia = async (root, relativeBase) => {
     for (const entry of entries) {
         const absolute = path.join(root, entry.name);
         const relative = path.posix.join(relativeBase, entry.name.replace(/\\/g, '/'));
-        if (entry.isDirectory()) await walkMedia(absolute, relative);
-        else if (entry.isFile() && mediaExtensions.has(path.extname(entry.name).toLowerCase())) {
-            add(`file:${relative}`, {kind: 'application-media', path: relative, source: relativeBase});
+        if (entry.isDirectory()) {
+            await walkMedia(absolute, relative);
+        } else if (entry.isFile() && mediaExtensions.has(path.extname(entry.name).toLowerCase())) {
+            const bytes = await readFile(absolute);
+            const contentMd5 = createHash('md5').update(bytes).digest('hex');
+            const assetHash = {algorithm: 'SHA-256', value: createHash('sha256').update(bytes).digest('hex'), basis: 'file-bytes'};
+            const record = {kind: 'application-media', path: relative, source: relativeBase, assetHash};
+            add(`file:${relative}`, record);
+            const matching = mediaByMd5.get(contentMd5) || [];
+            matching.push({path: relative, assetHash});
+            mediaByMd5.set(contentMd5, matching);
         }
     }
 };
 
+const readPreviousInventory = async output => {
+    try {
+        return JSON.parse(await readFile(output, 'utf8'));
+    } catch (error) {
+        if (error.code === 'ENOENT') return {assets: []};
+        throw error;
+    }
+};
+
 const main = async () => {
-    await Promise.all(['sprites.json', 'backdrops.json', 'sounds.json'].map(addLibraryFile));
+    const output = path.join(desktopDir, 'compliance', 'assets-rights.json');
+    const previous = await readPreviousInventory(output);
     await walkMedia(path.join(repoRoot, 'static'), 'static');
     await walkMedia(path.join(repoRoot, 'src'), 'src');
-    const records = [...assets.values()].sort((a, b) => `${a.kind}:${a.md5ext || a.path || a.assetId}`.localeCompare(`${b.kind}:${b.md5ext || b.path || b.assetId}`));
+    await Promise.all(['sprites.json', 'backdrops.json', 'sounds.json'].map(addLibraryFile));
+
+    const previousByIdentity = new Map((previous.assets || []).map(asset => [assetIdentity(asset), asset]).filter(([identity]) => identity));
+    const records = [...assets.values()]
+        .map(record => reuseRightsForUnchangedAsset(record, previousByIdentity.get(assetIdentity(record))))
+        .sort((a, b) => `${a.kind}:${a.md5ext || a.path || a.assetId}`.localeCompare(`${b.kind}:${b.md5ext || b.path || b.assetId}`));
+    const unverifiedCount = records.filter(asset => asset.rightsStatus === 'UNVERIFIED').length;
+    const appIconHash = records.find(asset => asset.path === 'static/images/apple-touch-icon.png')?.assetHash || null;
+    const previousBrandReview = previous.brandReview || {};
+    const unchangedBrandAsset = appIconHash?.algorithm && appIconHash.algorithm === previousBrandReview.assetHash?.algorithm &&
+        appIconHash.value === previousBrandReview.assetHash?.value;
+    const brandEvidenceExpired = isRightsEvidenceExpired(previousBrandReview);
     const document = {
-        schemaVersion: 1,
+        schemaVersion: 2,
         generatedBy: 'desktop/scripts/generate-asset-inventory.mjs',
         rightsStatuses: ['VERIFIED', 'UNVERIFIED', 'EXCLUDED'],
         defaultRightsStatus: 'UNVERIFIED',
         brandReview: {
-            status: 'UNVERIFIED',
+            ...(unchangedBrandAsset && !brandEvidenceExpired ? previousBrandReview : {}),
+            status: unchangedBrandAsset && !brandEvidenceExpired ? previousBrandReview.status : 'UNVERIFIED',
             appIcon: 'static/images/apple-touch-icon.png',
-            evidence: null
+            assetHash: appIconHash,
+            evidence: unchangedBrandAsset && !brandEvidenceExpired ? previousBrandReview.evidence || null : null
         },
-        note: 'Unverified means distribution rights have not been recorded. Formal release is blocked while any unverified item is included.',
+        note: 'UNVERIFIED means rights evidence has not been recorded; it is not a finding of infringement. Formal-release checks remain separate and fail closed for unresolved entries.',
         assets: records
     };
-    const output = path.join(desktopDir, 'compliance', 'assets-rights.json');
     await mkdir(path.dirname(output), {recursive: true});
     await writeFile(output, `${JSON.stringify(document, null, 2)}\n`);
-    console.log(`Recorded ${records.length} assets; ${records.filter(asset => asset.rightsStatus === 'UNVERIFIED').length} are UNVERIFIED.`);
+    console.log(`Recorded ${records.length} assets; ${unverifiedCount} are UNVERIFIED. Matching local library files are listed in filePaths.`);
 };
 
 main().catch(error => {

@@ -4,7 +4,7 @@ on:
   push:
     branches: [work/spikeprime-control-center-ui]
   pull_request:
-    types: [opened, synchronize, reopened]
+    types: [opened, reopened]
   workflow_dispatch:
 
 concurrency:
@@ -15,8 +15,26 @@ permissions:
   contents: read
 
 jobs:
+  release-tooling:
+    if: github.repository == 'NHtoyo/brickwright-jp'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Check release tooling syntax and asset-rights retention behavior
+        run: |
+          node --check desktop/scripts/generate-asset-inventory.mjs
+          node --check desktop/scripts/asset-rights-inventory.mjs
+          node --check desktop/scripts/check-asset-rights-for-release.mjs
+          node --test desktop/tests/asset-rights-inventory.test.cjs
+          git diff --check
+
   quality:
-    if: github.event_name != 'pull_request' || github.event.pull_request.head.ref == 'work/spikeprime-control-center-ui'
+    needs: [app-impact]
+    if: >-
+      (github.event_name != 'pull_request' || github.event.pull_request.head.ref == 'work/spikeprime-control-center-ui')
+      && needs.app-impact.outputs.needed == 'true'
     runs-on: ubuntu-latest
     outputs:
       web_artifact_digest: ${{ steps.web_artifact.outputs.artifact-digest }}
@@ -50,6 +68,8 @@ jobs:
           desktop/main.cjs
           desktop/preload.cjs
           desktop/scripts/generate-notices.mjs
+          desktop/scripts/generate-asset-inventory.mjs
+          desktop/scripts/asset-rights-inventory.mjs
           desktop/scripts/smoke-test.cjs
           desktop/scripts/stage-desktop.mjs
           desktop/tests/activity-guard.test.cjs
@@ -231,7 +251,7 @@ jobs:
           needed=false
           while IFS= read -r path; do
             case "$path" in
-              test/*|desktop/tests/*|.eslintignore|docs/*|README.md|CONTRIBUTING.md) ;;
+              test/*|desktop/tests/*|desktop/licenses/omggif-1.0.9.txt|.eslintignore|docs/*|README.md|CONTRIBUTING.md|desktop/compliance/assets-rights.json|desktop/scripts/generate-asset-inventory.mjs|desktop/scripts/asset-rights-inventory.mjs|desktop/scripts/check-asset-rights-for-release.mjs|.github/workflows/desktop-build.yml) ;;
               *) needed=true; break ;;
             esac
           done < <(git diff --name-only "$BASE_SHA" "$GITHUB_SHA")
@@ -322,3 +342,162 @@ jobs:
             desktop/build/desktop/licenses/**
           if-no-files-found: error
           retention-days: 30
+
+  publish-development-release:
+    needs: [release-tooling, quality, app-impact, windows, macos]
+    if: >-
+      github.event_name != 'pull_request'
+      && github.repository == 'NHtoyo/brickwright-jp'
+      && github.ref == 'refs/heads/work/spikeprime-control-center-ui'
+      && needs.app-impact.outputs.needed == 'true'
+      && needs.quality.result == 'success'
+      && needs.release-tooling.result == 'success'
+      && needs.windows.result == 'success'
+      && needs.macos.result == 'success'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Require complete asset-rights evidence before public distribution
+        run: node desktop/scripts/check-asset-rights-for-release.mjs
+      - uses: actions/download-artifact@v4
+        with:
+          name: brickwright-windows-${{ github.run_number }}-${{ github.sha }}
+          path: release-input/windows
+      - uses: actions/download-artifact@v4
+        with:
+          name: brickwright-macos-${{ github.run_number }}-${{ github.sha }}
+          path: release-input/macos
+      - uses: actions/download-artifact@v4
+        with:
+          name: brickwright-source-${{ github.run_number }}-${{ github.sha }}
+          path: release-input/source
+      - name: Verify provenance and prepare public development release assets
+        shell: bash
+        env:
+          BUILD_COMMIT: ${{ github.sha }}
+          BUILD_NUMBER: ${{ github.run_number }}
+        run: |
+          set -euo pipefail
+          version="0.1.0-dev.${BUILD_NUMBER}"
+          out="$RUNNER_TEMP/brickwright-release"
+          mkdir -p "$out/licenses"
+          windows_info="release-input/windows/build/build-info.json"
+          macos_info="release-input/macos/build/build-info.json"
+          source_manifest="$(find release-input/source -name source-manifest.json -print -quit)"
+          source_archive="$(find release-input/source -name 'Brickwright-*-source.tar.gz' -print -quit)"
+          windows_installer="$(find release-input/windows -name 'Brickwright-Setup-*-win-x64.exe' -print -quit)"
+          macos_image="$(find release-input/macos -name 'Brickwright-*-mac-universal.dmg' -print -quit)"
+          test -f "$windows_info" && test -f "$macos_info"
+          test -n "$source_manifest" && test -n "$source_archive"
+          test -n "$windows_installer" && test -n "$macos_image"
+          test "$(find release-input/windows -name 'Brickwright-Setup-*-win-x64.exe' | wc -l)" -eq 1
+          test "$(find release-input/macos -name 'Brickwright-*-mac-universal.dmg' | wc -l)" -eq 1
+          for info in "$windows_info" "$macos_info"; do
+            jq -e --arg commit "$BUILD_COMMIT" --arg version "$version" \
+              '.commit == $commit and .version == $version and .buildType == "development"' "$info" >/dev/null
+          done
+          source_name="$(basename "$source_archive")"
+          jq -e --arg commit "$BUILD_COMMIT" --arg version "$version" --arg archive "$source_name" \
+            '.commit == $commit and .version == $version and .archive == $archive' "$source_manifest" >/dev/null
+          actual_source_sha="$(sha256sum "$source_archive" | cut -d ' ' -f1)"
+          manifest_source_sha="$(jq -r '.sha256' "$source_manifest")"
+          test "$actual_source_sha" = "$manifest_source_sha"
+          cp "$windows_installer" "$out/"
+          cp "$macos_image" "$out/"
+          cp "$source_archive" "$out/"
+          cp "$source_manifest" "$out/source-manifest.json"
+          cp LICENSE TRADEMARK "$out/"
+          cp desktop/licenses/MPL-2.0.txt "$out/"
+          cp release-input/windows/build/desktop/licenses/GPL-3.0.txt "$out/"
+          cp release-input/windows/build/desktop/licenses/THIRD_PARTY_LICENSES.txt "$out/"
+          cp release-input/windows/build/desktop/licenses/THIRD_PARTY_LICENSES.json "$out/"
+          cp release-input/windows/build/desktop/licenses/ASSET_RIGHTS_STATUS.txt "$out/"
+          cp desktop/compliance/assets-rights.json "$out/"
+          cp -R release-input/windows/build/desktop/licenses/third-party "$out/licenses/"
+          cp desktop/licenses/omggif-1.0.9.txt "$out/"
+          cp "$out/$(basename "$windows_installer")" "$out/Brickwright-Windows.exe"
+          cp "$out/$(basename "$macos_image")" "$out/Brickwright-macOS.dmg"
+          cp "$out/$(basename "$source_archive")" "$out/Brickwright-source.tar.gz"
+          mkdir -p "$out/license-bundle"
+          cp "$out/LICENSE" "$out/TRADEMARK" "$out/GPL-3.0.txt" "$out/MPL-2.0.txt" \
+            "$out/THIRD_PARTY_LICENSES.txt" "$out/THIRD_PARTY_LICENSES.json" \
+            "$out/ASSET_RIGHTS_STATUS.txt" "$out/assets-rights.json" "$out/omggif-1.0.9.txt" "$out/license-bundle/"
+          cp -R "$out/licenses/third-party" "$out/license-bundle/"
+          (cd "$out/license-bundle" && zip -qr "$out/Brickwright-licenses.zip" .)
+          cat > "$out/RELEASE-NOTES-JA.md" <<EOF
+          ## Brickwright ${version}（開発版）
+
+          ### ダウンロード
+          - Windows 64-bit: `$(basename "$windows_installer")`
+          - macOS Universal（Intel / Apple Silicon）: `$(basename "$macos_image")`
+
+          WindowsはEXEを実行してください。開発版のためSmartScreen警告が表示されることがあります。
+          macOSはDMGを開き、BrickwrightをApplicationsへ移動してください。未公証のためOSのセキュリティ警告が表示されることがあります。OS全体の保護機能を無効にしないでください。
+
+          対応ソース、マニフェスト、GPL/MPL・第三者ライセンス通知・素材権利台帳を添付しています。素材権利台帳は公開時点の確認根拠を記録します。未確認の素材が残っている場合は公開処理を停止します。
+
+          自動テストとWindows/macOSパッケージ起動試験は成功しています。SPIKE実機との通信は未検証です。
+          LEGO GroupおよびScratch Foundationの公式製品ではありません。
+          EOF
+          (cd "$out" && find . -maxdepth 1 -type f ! -name 'SHA256SUMS*.txt' -print0 | sort -z | xargs -0 sha256sum > SHA256SUMS.txt)
+          (cd "$out" && sha256sum ./Brickwright-Windows.exe ./Brickwright-macOS.dmg ./Brickwright-source.tar.gz \
+            ./source-manifest.json ./Brickwright-licenses.zip ./LICENSE ./TRADEMARK ./GPL-3.0.txt ./MPL-2.0.txt \
+            ./THIRD_PARTY_LICENSES.txt ./THIRD_PARTY_LICENSES.json ./ASSET_RIGHTS_STATUS.txt ./assets-rights.json \
+            ./omggif-1.0.9.txt > SHA256SUMS-latest.txt)
+          echo "VERSION=$version" >> "$GITHUB_ENV"
+          echo "OUT=$out" >> "$GITHUB_ENV"
+      - name: Publish versioned pre-release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          tag="dev.${GITHUB_RUN_NUMBER}"
+          installer="$(find "$OUT" -maxdepth 1 -name 'Brickwright-Setup-*-win-x64.exe' -print -quit)"
+          image="$(find "$OUT" -maxdepth 1 -name 'Brickwright-*-mac-universal.dmg' -print -quit)"
+          source="$(find "$OUT" -maxdepth 1 -name 'Brickwright-*-source.tar.gz' -print -quit)"
+          assets=("$installer" "$image" "$source" "$OUT/source-manifest.json" "$OUT/LICENSE" "$OUT/TRADEMARK"
+            "$OUT/GPL-3.0.txt" "$OUT/MPL-2.0.txt" "$OUT/THIRD_PARTY_LICENSES.txt" "$OUT/THIRD_PARTY_LICENSES.json"
+            "$OUT/ASSET_RIGHTS_STATUS.txt" "$OUT/assets-rights.json" "$OUT/omggif-1.0.9.txt" "$OUT/Brickwright-licenses.zip"
+            "$OUT/SHA256SUMS.txt" "$OUT/RELEASE-NOTES-JA.md")
+          if gh release view "$tag" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            ref="$(gh api "repos/$GITHUB_REPOSITORY/git/ref/tags/$tag")"
+            ref_type="$(jq -r '.object.type' <<<"$ref")"
+            ref_sha="$(jq -r '.object.sha' <<<"$ref")"
+            if [[ "$ref_type" == "tag" ]]; then
+              ref_sha="$(gh api "repos/$GITHUB_REPOSITORY/git/tags/$ref_sha" --jq .object.sha)"
+            fi
+            test "$ref_sha" = "$GITHUB_SHA"
+            gh release upload "$tag" "${assets[@]}" --repo "$GITHUB_REPOSITORY" --clobber
+          else
+            gh release create "$tag" "${assets[@]}" --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" \
+              --prerelease --title "Brickwright $VERSION" --notes-file "$OUT/RELEASE-NOTES-JA.md"
+          fi
+      - name: Publish or update the dev-latest channel after the versioned release exists
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          alias_notes="$RUNNER_TEMP/brickwright-release-latest-notes.md"
+          printf 'Brickwright development channel: this alias points to %s. See the versioned release assets for the source build and complete notes.\n' "$VERSION" > "$alias_notes"
+          if gh release view dev-latest --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            gh release upload dev-latest "$OUT/Brickwright-Windows.exe" "$OUT/Brickwright-macOS.dmg" \
+              "$OUT/Brickwright-source.tar.gz" "$OUT/source-manifest.json" "$OUT/LICENSE" "$OUT/TRADEMARK" \
+              "$OUT/GPL-3.0.txt" "$OUT/MPL-2.0.txt" "$OUT/THIRD_PARTY_LICENSES.txt" "$OUT/THIRD_PARTY_LICENSES.json" \
+              "$OUT/ASSET_RIGHTS_STATUS.txt" "$OUT/assets-rights.json" "$OUT/omggif-1.0.9.txt" "$OUT/Brickwright-licenses.zip" \
+              "$OUT/SHA256SUMS-latest.txt" --repo "$GITHUB_REPOSITORY" --clobber
+            gh api "repos/$GITHUB_REPOSITORY/git/refs/tags/dev-latest" -X PATCH -f sha="$GITHUB_SHA" -F force=true
+            gh release edit dev-latest --repo "$GITHUB_REPOSITORY" --title "Brickwright Development Latest" --notes-file "$alias_notes"
+          else
+            gh release create dev-latest "$OUT/Brickwright-Windows.exe" "$OUT/Brickwright-macOS.dmg" \
+              "$OUT/Brickwright-source.tar.gz" "$OUT/source-manifest.json" "$OUT/LICENSE" "$OUT/TRADEMARK" \
+              "$OUT/GPL-3.0.txt" "$OUT/MPL-2.0.txt" "$OUT/THIRD_PARTY_LICENSES.txt" "$OUT/THIRD_PARTY_LICENSES.json" \
+              "$OUT/ASSET_RIGHTS_STATUS.txt" "$OUT/assets-rights.json" "$OUT/omggif-1.0.9.txt" "$OUT/Brickwright-licenses.zip" \
+              "$OUT/SHA256SUMS-latest.txt" --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" \
+              --prerelease --title "Brickwright Development Latest" --notes-file "$alias_notes"
+          fi
